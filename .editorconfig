@@ -1,0 +1,8 @@
+# top-most EditorConfig file
+root = true
+
+# every file
+[*]
+charset = utf-8
+indent_style = space
+end_of_line = lf

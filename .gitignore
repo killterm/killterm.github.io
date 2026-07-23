@@ -1,0 +1,46 @@
+# game
+*.exe
+*.dll
+steam_appid.txt
+.DS_Store
+
+# Unity
+MonoBleedingEdge/
+*_Data/
+UnityCrashHandler64.exe
+UnityPlayer.dll
+
+# BepInEx runtime (track only the editable BanquetKorean install config)
+BepInEx/*
+!BepInEx/plugins/
+BepInEx/plugins/*
+!BepInEx/plugins/BanquetKorean/
+BepInEx/plugins/BanquetKorean/*
+!BepInEx/plugins/BanquetKorean/Config/
+BepInEx/plugins/BanquetKorean/Config/*
+!BepInEx/plugins/BanquetKorean/Config/font-profiles.json
+!BepInEx/plugins/BanquetKorean/Fonts/
+!BepInEx/plugins/BanquetKorean/Fonts/**
+BepInEx_*.zip
+.doorstop_version
+changelog.txt
+doorstop_config.ini
+winhttp.dll
+
+# patch
+*.zip
+**/bin/
+**/obj/
+dist/
+__pycache__/
+localization/.cache/
+
+# astro / node
+node_modules/
+.astro/
+npm-debug.log*
+.env
+.env.production
+
+# Local diagnostic captures supplied during patch review
+/20260723022845_1.jpg

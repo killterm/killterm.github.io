@@ -1,0 +1,12 @@
+# All text files are normalized to LF
+* text eol=lf
+
+# Windows
+*.cmd text eol=crlf
+*.bat text eol=crlf
+*.ps1 text eol=crlf
+
+# Binary files
+*.png binary
+*.jpg binary
+*.ttf binary
