@@ -405,8 +405,8 @@ function cellMeta(block: number, cell: number) {
     canvas.height = SIZE;
     const ctx = canvas.getContext('2d')!;
 
-    // 배경 (이미지가 있으면 캔버스를 가득 채우도록 잘라서 그림)
-    ctx.fillStyle = '#ffffff';
+    // 배경: 기본은 중간 톤의 어두운 슬레이트(밝은 칸과 대비), 이미지가 있으면 가득 채움
+    ctx.fillStyle = '#3a4254';
     ctx.fillRect(0, 0, SIZE, SIZE);
     if (bgImage) {
       const scale = Math.max(SIZE / bgImage.naturalWidth, SIZE / bgImage.naturalHeight);
@@ -421,19 +421,20 @@ function cellMeta(block: number, cell: number) {
     const INSET = 4; // 칸 사이 간격의 절반
     const RADIUS = 14;
 
+    // 배경 이미지 유무와 관계없이 칸에 약간의 투명도를 줘서 배경이 은은하게 비치게 함
     const cellFill = (x: number, y: number, isCore: boolean, isSub: boolean) => {
       if (isCore || isSub) {
         const grad = ctx.createLinearGradient(x, y, x + CELL, y + CELL);
         if (isCore) {
-          grad.addColorStop(0, bgImage ? 'rgba(66, 99, 235, 0.92)' : '#4263eb');
-          grad.addColorStop(1, bgImage ? 'rgba(112, 72, 232, 0.92)' : '#7048e8');
+          grad.addColorStop(0, 'rgba(66, 99, 235, 0.92)');
+          grad.addColorStop(1, 'rgba(112, 72, 232, 0.92)');
         } else {
-          grad.addColorStop(0, bgImage ? 'rgba(219, 228, 255, 0.8)' : '#dbe4ff');
-          grad.addColorStop(1, bgImage ? 'rgba(229, 219, 255, 0.8)' : '#e5dbff');
+          grad.addColorStop(0, 'rgba(219, 228, 255, 0.8)');
+          grad.addColorStop(1, 'rgba(229, 219, 255, 0.8)');
         }
         return grad;
       }
-      return bgImage ? 'rgba(255, 255, 255, 0.76)' : '#f2f4f9';
+      return 'rgba(255, 255, 255, 0.76)';
     };
 
     for (let block = 0; block < 9; block++) {
@@ -473,8 +474,11 @@ function cellMeta(block: number, cell: number) {
         const w = ctx.measureText(text).width;
         ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
         ctx.fillRect(tx - w - 12, ty - 18, w + 24, 36);
+        ctx.fillStyle = '#1c2333';
+      } else {
+        // 어두운 기본 배경 위에서는 밝은 글자
+        ctx.fillStyle = '#c6cddb';
       }
-      ctx.fillStyle = '#1c2333';
       ctx.fillText(text, tx, ty);
     }
 
