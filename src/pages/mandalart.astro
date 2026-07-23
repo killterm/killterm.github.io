@@ -82,9 +82,23 @@ function cellMeta(block: number, cell: number) {
         <input id="bg-file" type="file" accept="image/*" />
         <button id="bg-clear" class="btn btn-small" type="button" hidden>배경 제거</button>
       </div>
+      <div class="swap-field">
+        <span>묶음 맞바꾸기</span>
+        <select id="swap-a" aria-label="바꿀 첫 번째 묶음"></select>
+        <span aria-hidden="true">↔</span>
+        <select id="swap-b" aria-label="바꿀 두 번째 묶음"></select>
+        <button id="swap" class="btn btn-small" type="button">바꾸기</button>
+        <span class="hint">묶음 번호는 왼쪽 위부터 읽는 순서 (가운데 블록 제외)</span>
+      </div>
       <button id="generate" class="btn btn-primary" type="button">🖼️ 이미지 생성</button>
+      <button id="export" class="btn" type="button">📤 JSON 내보내기</button>
+      <button id="import" class="btn" type="button">📥 JSON 가져오기</button>
       <button id="clear" class="btn" type="button">전체 지우기</button>
-      <p class="hint">작성 내용은 이 브라우저에 자동 저장됩니다.</p>
+      <input id="import-file" type="file" accept=".json,application/json" hidden />
+      <p class="hint">
+        작성 내용은 이 브라우저에 자동 저장됩니다. 다른 컴퓨터나 브라우저로 옮기려면 JSON
+        내보내기/가져오기를 사용하세요.
+      </p>
     </section>
 
     <section class="preview" id="preview-section" hidden>
@@ -105,6 +119,10 @@ function cellMeta(block: number, cell: number) {
   const STORAGE_KEY = 'killterm-mandalart-v1';
   const sourceInput = document.getElementById('source') as HTMLInputElement;
 
+  // 가운데(4)를 제외한 블록/칸 위치. 묶음 번호 1~8이 이 순서에 대응한다.
+  const AROUND = [0, 1, 2, 3, 5, 6, 7, 8];
+  const posOfNum = (n: number) => AROUND[n - 1];
+
   // 하위 주제(가운데 블록의 주변 8칸) → 바깥 블록의 가운데 칸으로 복사
   function syncMirrors() {
     for (const sub of cells) {
@@ -112,7 +130,50 @@ function cellMeta(block: number, cell: number) {
       const idx = Number(sub.dataset.idx);
       byPos(idx, 4).value = sub.value;
     }
+    refreshSwapOptions();
   }
+
+  // ---------- 묶음 맞바꾸기 ----------
+
+  const swapA = document.getElementById('swap-a') as HTMLSelectElement;
+  const swapB = document.getElementById('swap-b') as HTMLSelectElement;
+
+  // 셀렉트 옵션에 현재 하위 주제 텍스트를 보여줘서 어느 묶음인지 알 수 있게 함
+  function refreshSwapOptions() {
+    for (const sel of [swapA, swapB]) {
+      const prev = sel.value;
+      sel.innerHTML = '';
+      for (let n = 1; n <= 8; n++) {
+        const title = byPos(4, posOfNum(n)).value.trim();
+        const opt = document.createElement('option');
+        opt.value = String(n);
+        opt.textContent = title ? `${n}: ${title}` : `${n}번 묶음`;
+        sel.appendChild(opt);
+      }
+      sel.value = prev || (sel === swapA ? '1' : '2');
+    }
+  }
+
+  document.getElementById('swap')!.addEventListener('click', () => {
+    const a = Number(swapA.value);
+    const b = Number(swapB.value);
+    if (a === b) {
+      alert('서로 다른 두 묶음을 선택해주세요.');
+      return;
+    }
+    const pa = posOfNum(a);
+    const pb = posOfNum(b);
+    // 가운데 블록의 하위 주제 칸과 바깥 블록의 내용 전체를 통째로 맞바꿈
+    const swapValues = (c1: HTMLTextAreaElement, c2: HTMLTextAreaElement) => {
+      const t = c1.value;
+      c1.value = c2.value;
+      c2.value = t;
+    };
+    swapValues(byPos(4, pa), byPos(4, pb));
+    for (const c of AROUND) swapValues(byPos(pa, c), byPos(pb, c));
+    syncMirrors();
+    save();
+  });
 
   function save() {
     const data = { cells: cells.map((c) => c.value), source: sourceInput.value };
@@ -175,6 +236,72 @@ function cellMeta(block: number, cell: number) {
     sourceInput.value = '';
     localStorage.removeItem(STORAGE_KEY);
     document.getElementById('preview-section')!.hidden = true;
+  });
+
+  // ---------- JSON 내보내기 / 가져오기 ----------
+
+  const importFileInput = document.getElementById('import-file') as HTMLInputElement;
+
+  document.getElementById('export')!.addEventListener('click', () => {
+    // 하위 주제별 묶음 구조. groups[i]가 i+1번 묶음이고,
+    // title은 하위 주제, items는 그 블록의 8칸(읽는 순서).
+    const data = {
+      format: 'killterm-mandalart',
+      version: 2,
+      topic: byPos(4, 4).value,
+      groups: AROUND.map((p) => ({
+        title: byPos(4, p).value,
+        items: AROUND.map((c) => byPos(p, c).value),
+      })),
+      source: sourceInput.value,
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'mandalart.json';
+    a.click();
+    URL.revokeObjectURL(url);
+  });
+
+  document.getElementById('import')!.addEventListener('click', () => importFileInput.click());
+
+  importFileInput.addEventListener('change', async () => {
+    const file = importFileInput.files?.[0];
+    if (!file) return;
+    try {
+      const data = JSON.parse(await file.text());
+      if (Array.isArray(data) || (data && Array.isArray(data.cells))) {
+        // v1: 81칸 배열
+        const values: unknown[] = Array.isArray(data) ? data : data.cells;
+        cells.forEach((c, i) => {
+          c.value = typeof values[i] === 'string' ? (values[i] as string) : '';
+        });
+      } else if (data && Array.isArray(data.groups)) {
+        // v2: 하위 주제별 묶음
+        cells.forEach((c) => (c.value = ''));
+        byPos(4, 4).value = typeof data.topic === 'string' ? data.topic : '';
+        data.groups.slice(0, 8).forEach((g: unknown, i: number) => {
+          const group = g as { title?: unknown; items?: unknown };
+          const p = AROUND[i];
+          byPos(4, p).value = typeof group?.title === 'string' ? group.title : '';
+          if (Array.isArray(group?.items)) {
+            group.items.slice(0, 8).forEach((item: unknown, j: number) => {
+              byPos(p, AROUND[j]).value = typeof item === 'string' ? item : '';
+            });
+          }
+        });
+      } else {
+        throw new Error('invalid format');
+      }
+      sourceInput.value = typeof data.source === 'string' ? data.source : '';
+      syncMirrors();
+      save();
+    } catch {
+      alert('만다라트 JSON 파일이 아니에요. 내보내기로 만든 파일인지 확인해주세요.');
+    } finally {
+      importFileInput.value = '';
+    }
   });
 
   // ---------- 이미지 생성 ----------
@@ -333,6 +460,7 @@ function cellMeta(block: number, cell: number) {
   });
 
   restore();
+  refreshSwapOptions();
 </script>
 
 <style>
@@ -522,6 +650,36 @@ function cellMeta(block: number, cell: number) {
     font-size: 0.85rem;
   }
 
+  .swap-field {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex: 1 1 100%;
+    flex-wrap: wrap;
+  }
+
+  .swap-field > span:first-child {
+    color: var(--text-dim);
+    font-size: 0.9rem;
+    font-weight: 600;
+  }
+
+  .swap-field select {
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    font: inherit;
+    font-size: 0.85rem;
+    padding: 0.4rem 0.6rem;
+    border-radius: 0.6rem;
+    max-width: 200px;
+  }
+
+  .swap-field select:focus {
+    outline: 2px solid var(--accent);
+    border-color: var(--accent);
+  }
+
   .btn {
     appearance: none;
     border: 1px solid var(--border);
@@ -563,6 +721,11 @@ function cellMeta(block: number, cell: number) {
     display: grid;
     gap: 1rem;
     justify-items: start;
+  }
+
+  /* display: grid가 hidden 속성의 기본 display: none을 덮어쓰지 않도록 */
+  .preview[hidden] {
+    display: none;
   }
 
   .preview h2 {
