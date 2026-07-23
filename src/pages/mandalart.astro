@@ -1,0 +1,579 @@
+---
+import Layout from '../layouts/Layout.astro';
+
+// 3×3 블록 9개가 다시 3×3으로 배열된 9×9 만다라트.
+// 블록/칸 인덱스는 행 우선(row-major) 0~8, 4가 항상 가운데.
+const positions = [0, 1, 2, 3, 4, 5, 6, 7, 8];
+
+function cellMeta(block: number, cell: number) {
+  if (block === 4 && cell === 4) {
+    return { role: 'core', idx: -1, readonly: false };
+  }
+  if (block === 4) {
+    return { role: 'sub', idx: cell, readonly: false };
+  }
+  if (cell === 4) {
+    return { role: 'mirror', idx: block, readonly: true };
+  }
+  return { role: 'action', idx: -1, readonly: false };
+}
+---
+
+<Layout
+  title="만다라트 만들기 — killterm"
+  description="가운데 주제부터 채워 나가는 9×9 만다라트를 작성하고 이미지로 저장하세요."
+>
+  <main>
+    <nav class="top">
+      <a href="/">← 홈으로</a>
+    </nav>
+
+    <header class="intro">
+      <h1>📋 만다라트 만들기</h1>
+      <p>만다라트는 가운데에서 바깥으로 생각을 넓혀 가는 9×9 표입니다. 순서대로 채워보세요.</p>
+      <ol class="steps">
+        <li><strong>1단계</strong> — 정중앙 칸에 <em>주제</em>를 적습니다.</li>
+        <li>
+          <strong>2단계</strong> — 주제를 둘러싼 8칸에 <em>하위 주제</em>를 적습니다. 각 하위
+          주제는 바깥 8개 블록의 가운데 칸에 자동으로 채워집니다.
+        </li>
+        <li>
+          <strong>3단계</strong> — 바깥 블록마다 그 하위 주제에 해당하는 <em>항목</em> 8개를
+          적습니다.
+        </li>
+      </ol>
+    </header>
+
+    <section class="board-wrap" aria-label="만다라트 작성 표">
+      <div class="board" id="board">
+        {
+          positions.map((block) => (
+            <div class:list={['block', { 'block-center': block === 4 }]}>
+              {positions.map((cell) => {
+                const meta = cellMeta(block, cell);
+                return (
+                  <textarea
+                    class:list={['cell', `cell-${meta.role}`]}
+                    data-block={block}
+                    data-cell={cell}
+                    data-role={meta.role}
+                    data-idx={meta.idx}
+                    readonly={meta.readonly}
+                    tabindex={meta.readonly ? -1 : 0}
+                    rows={3}
+                    maxlength={60}
+                    aria-label={`${block + 1}번 블록 ${cell + 1}번 칸`}
+                  />
+                );
+              })}
+            </div>
+          ))
+        }
+      </div>
+    </section>
+
+    <section class="actions">
+      <label class="source-field">
+        <span>출처</span>
+        <input id="source" type="text" maxlength="80" />
+      </label>
+      <div class="bg-field">
+        <span>배경 이미지</span>
+        <input id="bg-file" type="file" accept="image/*" />
+        <button id="bg-clear" class="btn btn-small" type="button" hidden>배경 제거</button>
+      </div>
+      <button id="generate" class="btn btn-primary" type="button">🖼️ 이미지 생성</button>
+      <button id="clear" class="btn" type="button">전체 지우기</button>
+      <p class="hint">작성 내용은 이 브라우저에 자동 저장됩니다.</p>
+    </section>
+
+    <section class="preview" id="preview-section" hidden>
+      <h2>미리보기</h2>
+      <img id="preview" alt="생성된 만다라트 이미지 미리보기" />
+      <a id="download" class="btn btn-primary" download="mandalart.png">⬇️ PNG 다운로드</a>
+    </section>
+  </main>
+</Layout>
+
+<script>
+  const cells = Array.from(
+    document.querySelectorAll<HTMLTextAreaElement>('#board .cell'),
+  );
+  const byPos = (block: number, cell: number) =>
+    cells.find((c) => Number(c.dataset.block) === block && Number(c.dataset.cell) === cell)!;
+
+  const STORAGE_KEY = 'killterm-mandalart-v1';
+  const sourceInput = document.getElementById('source') as HTMLInputElement;
+
+  // 하위 주제(가운데 블록의 주변 8칸) → 바깥 블록의 가운데 칸으로 복사
+  function syncMirrors() {
+    for (const sub of cells) {
+      if (sub.dataset.role !== 'sub') continue;
+      const idx = Number(sub.dataset.idx);
+      byPos(idx, 4).value = sub.value;
+    }
+  }
+
+  function save() {
+    const data = { cells: cells.map((c) => c.value), source: sourceInput.value };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  }
+
+  function restore() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return;
+      const data = JSON.parse(raw);
+      // 예전 형식(배열)과 새 형식({cells, source}) 모두 지원
+      const values: string[] = Array.isArray(data) ? data : (data.cells ?? []);
+      cells.forEach((c, i) => {
+        c.value = values[i] ?? '';
+      });
+      if (!Array.isArray(data)) sourceInput.value = data.source ?? '';
+      syncMirrors();
+    } catch {
+      /* 손상된 저장 데이터는 무시 */
+    }
+  }
+
+  sourceInput.addEventListener('input', save);
+
+  // ---------- 배경 이미지 ----------
+  // 용량 문제로 localStorage에는 저장하지 않음 (새로고침 시 다시 선택 필요)
+
+  const bgFileInput = document.getElementById('bg-file') as HTMLInputElement;
+  const bgClearBtn = document.getElementById('bg-clear') as HTMLButtonElement;
+  let bgImage: HTMLImageElement | null = null;
+
+  bgFileInput.addEventListener('change', () => {
+    const file = bgFileInput.files?.[0];
+    if (!file) return;
+    const img = new Image();
+    img.onload = () => {
+      bgImage = img;
+      bgClearBtn.hidden = false;
+    };
+    img.src = URL.createObjectURL(file);
+  });
+
+  bgClearBtn.addEventListener('click', () => {
+    if (bgImage) URL.revokeObjectURL(bgImage.src);
+    bgImage = null;
+    bgFileInput.value = '';
+    bgClearBtn.hidden = true;
+  });
+
+  document.getElementById('board')!.addEventListener('input', (e) => {
+    const t = e.target as HTMLTextAreaElement;
+    if (t.dataset.role === 'sub') syncMirrors();
+    save();
+  });
+
+  document.getElementById('clear')!.addEventListener('click', () => {
+    if (!confirm('모든 칸을 지울까요?')) return;
+    cells.forEach((c) => (c.value = ''));
+    sourceInput.value = '';
+    localStorage.removeItem(STORAGE_KEY);
+    document.getElementById('preview-section')!.hidden = true;
+  });
+
+  // ---------- 이미지 생성 ----------
+
+  const FONT_FAMILY =
+    "'Pretendard Variable', Pretendard, 'Malgun Gothic', '맑은 고딕', sans-serif";
+
+  function wrapText(
+    ctx: CanvasRenderingContext2D,
+    text: string,
+    maxWidth: number,
+  ): string[] {
+    const lines: string[] = [];
+    for (const paragraph of text.split('\n')) {
+      let line = '';
+      for (const ch of paragraph) {
+        const test = line + ch;
+        if (ctx.measureText(test).width > maxWidth && line !== '') {
+          lines.push(line);
+          line = ch === ' ' ? '' : ch;
+        } else {
+          line = test;
+        }
+      }
+      lines.push(line);
+    }
+    return lines;
+  }
+
+  function drawCellText(
+    ctx: CanvasRenderingContext2D,
+    text: string,
+    x: number,
+    y: number,
+    size: number,
+    color: string,
+  ) {
+    const pad = 14;
+    const maxWidth = size - pad * 2;
+    const maxHeight = size - pad * 2;
+    ctx.fillStyle = color;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    for (const fontSize of [32, 28, 25, 22, 19, 16]) {
+      const weight = fontSize >= 25 ? 700 : 500;
+      ctx.font = `${weight} ${fontSize}px ${FONT_FAMILY}`;
+      const lineHeight = fontSize * 1.3;
+      const lines = wrapText(ctx, text, maxWidth);
+      if (lines.length * lineHeight <= maxHeight || fontSize === 16) {
+        const clipped = lines.slice(0, Math.floor(maxHeight / lineHeight));
+        const startY = y + size / 2 - ((clipped.length - 1) * lineHeight) / 2;
+        clipped.forEach((line, i) => {
+          ctx.fillText(line, x + size / 2, startY + i * lineHeight, maxWidth);
+        });
+        return;
+      }
+    }
+  }
+
+  function generateImage() {
+    const CELL = 200;
+    const BLOCK = CELL * 3;
+    const GAP = 18;
+    const MARGIN = 48;
+    const SIZE = MARGIN * 2 + BLOCK * 3 + GAP * 2;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = SIZE;
+    canvas.height = SIZE;
+    const ctx = canvas.getContext('2d')!;
+
+    // 배경 (이미지가 있으면 캔버스를 가득 채우도록 잘라서 그림)
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, SIZE, SIZE);
+    if (bgImage) {
+      const scale = Math.max(SIZE / bgImage.naturalWidth, SIZE / bgImage.naturalHeight);
+      const dw = bgImage.naturalWidth * scale;
+      const dh = bgImage.naturalHeight * scale;
+      ctx.drawImage(bgImage, (SIZE - dw) / 2, (SIZE - dh) / 2, dw, dh);
+    }
+
+    // 선 없이 면 색으로 구분하는 스타일:
+    // 일반 칸은 아주 연한 회색 면, 하위 주제 칸은 옅은 파랑→보라 틴트,
+    // 가운데 칸은 파랑→보라 그라데이션. 칸 사이는 흰 여백으로 분리.
+    const INSET = 4; // 칸 사이 간격의 절반
+    const RADIUS = 14;
+
+    const cellFill = (x: number, y: number, isCore: boolean, isSub: boolean) => {
+      if (isCore || isSub) {
+        const grad = ctx.createLinearGradient(x, y, x + CELL, y + CELL);
+        if (isCore) {
+          grad.addColorStop(0, bgImage ? 'rgba(66, 99, 235, 0.92)' : '#4263eb');
+          grad.addColorStop(1, bgImage ? 'rgba(112, 72, 232, 0.92)' : '#7048e8');
+        } else {
+          grad.addColorStop(0, bgImage ? 'rgba(219, 228, 255, 0.8)' : '#dbe4ff');
+          grad.addColorStop(1, bgImage ? 'rgba(229, 219, 255, 0.8)' : '#e5dbff');
+        }
+        return grad;
+      }
+      return bgImage ? 'rgba(255, 255, 255, 0.76)' : '#f2f4f9';
+    };
+
+    for (let block = 0; block < 9; block++) {
+      const bx = MARGIN + (block % 3) * (BLOCK + GAP);
+      const by = MARGIN + Math.floor(block / 3) * (BLOCK + GAP);
+
+      for (let cell = 0; cell < 9; cell++) {
+        const x = bx + (cell % 3) * CELL;
+        const y = by + Math.floor(cell / 3) * CELL;
+        const value = byPos(block, cell).value.trim();
+
+        const isCore = block === 4 && cell === 4;
+        const isSub = (block === 4) !== (cell === 4); // 가운데 블록의 주변 칸 또는 바깥 블록의 가운데 칸
+
+        ctx.fillStyle = cellFill(x, y, isCore, isSub);
+        ctx.beginPath();
+        ctx.roundRect(x + INSET, y + INSET, CELL - INSET * 2, CELL - INSET * 2, RADIUS);
+        ctx.fill();
+
+        if (value) {
+          drawCellText(ctx, value, x, y, CELL, isCore ? '#ffffff' : '#1c2333');
+        }
+      }
+    }
+
+    // 출처 (하단 오른쪽)
+    const source = sourceInput.value.trim();
+    if (source) {
+      const text = `출처: ${source}`;
+      const tx = SIZE - MARGIN;
+      const ty = SIZE - MARGIN / 2;
+      ctx.font = `600 22px ${FONT_FAMILY}`;
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'middle';
+      if (bgImage) {
+        // 어떤 배경 위에서도 읽히도록 흰 바탕 띠를 깔고 진한 글자
+        const w = ctx.measureText(text).width;
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+        ctx.fillRect(tx - w - 12, ty - 18, w + 24, 36);
+      }
+      ctx.fillStyle = '#1c2333';
+      ctx.fillText(text, tx, ty);
+    }
+
+    return canvas.toDataURL('image/png');
+  }
+
+  document.getElementById('generate')!.addEventListener('click', () => {
+    const url = generateImage();
+    const section = document.getElementById('preview-section')!;
+    (document.getElementById('preview') as HTMLImageElement).src = url;
+    (document.getElementById('download') as HTMLAnchorElement).href = url;
+    section.hidden = false;
+    section.scrollIntoView({ behavior: 'smooth' });
+  });
+
+  restore();
+</script>
+
+<style>
+  main {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 2.5rem 1.5rem 4rem;
+  }
+
+  .top a {
+    color: var(--text-dim);
+    text-decoration: none;
+    font-size: 0.9rem;
+  }
+
+  .top a:hover {
+    color: var(--accent);
+  }
+
+  .intro h1 {
+    margin: 1rem 0 0.5rem;
+    font-size: clamp(1.6rem, 4vw, 2.2rem);
+    letter-spacing: -0.02em;
+  }
+
+  .intro > p {
+    color: var(--text-dim);
+    margin: 0 0 1rem;
+  }
+
+  .steps {
+    margin: 0 0 2rem;
+    padding: 1rem 1.25rem 1rem 2.5rem;
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    border-radius: 0.9rem;
+    color: var(--text-dim);
+    font-size: 0.92rem;
+    display: grid;
+    gap: 0.35rem;
+  }
+
+  .steps strong {
+    color: var(--accent);
+  }
+
+  .steps em {
+    color: var(--text);
+    font-style: normal;
+    font-weight: 600;
+  }
+
+  .board-wrap {
+    overflow-x: auto;
+    padding-bottom: 0.5rem;
+  }
+
+  .board {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+    min-width: 760px;
+  }
+
+  .block {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 3px;
+    padding: 4px;
+    background: var(--border);
+    border-radius: 0.6rem;
+  }
+
+  .block-center {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+
+  .cell {
+    width: 100%;
+    aspect-ratio: 1;
+    resize: none;
+    border: none;
+    border-radius: 4px;
+    background: var(--surface);
+    color: var(--text);
+    font: inherit;
+    font-size: 1.15rem;
+    line-height: 1.3;
+    text-align: center;
+    align-content: center; /* 수직 가운데 정렬 (모던 브라우저) */
+    padding: 0.3rem;
+    overflow: hidden;
+  }
+
+  .cell:focus {
+    outline: 2px solid var(--accent);
+    background: var(--accent-soft);
+  }
+
+  .cell-core {
+    background: var(--accent);
+    color: #fff;
+    font-weight: 700;
+  }
+
+  .cell-sub,
+  .cell-mirror {
+    background: var(--accent-soft);
+    font-weight: 600;
+  }
+
+  .cell-mirror {
+    cursor: default;
+  }
+
+  .actions {
+    margin-top: 1.75rem;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+  }
+
+  .source-field {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex: 1 1 100%;
+  }
+
+  .source-field span {
+    color: var(--text-dim);
+    font-size: 0.9rem;
+    font-weight: 600;
+  }
+
+  .source-field input {
+    flex: 0 1 320px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    font: inherit;
+    font-size: 0.9rem;
+    padding: 0.5rem 0.8rem;
+    border-radius: 0.6rem;
+  }
+
+  .source-field input:focus {
+    outline: 2px solid var(--accent);
+    border-color: var(--accent);
+  }
+
+  .bg-field {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex: 1 1 100%;
+    flex-wrap: wrap;
+  }
+
+  .bg-field > span {
+    color: var(--text-dim);
+    font-size: 0.9rem;
+    font-weight: 600;
+  }
+
+  .bg-field input[type='file'] {
+    font-size: 0.85rem;
+    color: var(--text-dim);
+  }
+
+  .bg-field input[type='file']::file-selector-button {
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    font: inherit;
+    font-size: 0.85rem;
+    padding: 0.4rem 0.9rem;
+    border-radius: 0.6rem;
+    cursor: pointer;
+    margin-right: 0.6rem;
+  }
+
+  .btn-small {
+    padding: 0.4rem 0.9rem;
+    font-size: 0.85rem;
+  }
+
+  .btn {
+    appearance: none;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    font: inherit;
+    font-weight: 600;
+    padding: 0.65rem 1.3rem;
+    border-radius: 0.7rem;
+    cursor: pointer;
+    text-decoration: none;
+    transition:
+      background 0.15s ease,
+      border-color 0.15s ease;
+  }
+
+  .btn:hover {
+    border-color: var(--accent);
+  }
+
+  .btn-primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+  }
+
+  .btn-primary:hover {
+    filter: brightness(1.1);
+  }
+
+  .hint {
+    color: var(--text-dim);
+    font-size: 0.82rem;
+    margin: 0;
+  }
+
+  .preview {
+    margin-top: 2.5rem;
+    display: grid;
+    gap: 1rem;
+    justify-items: start;
+  }
+
+  .preview h2 {
+    margin: 0;
+    font-size: 1.2rem;
+  }
+
+  .preview img {
+    max-width: 100%;
+    border-radius: 0.75rem;
+    border: 1px solid var(--border);
+    background: #fff;
+  }
+</style>
