@@ -1,9 +1,13 @@
 ---
 import Layout from '../layouts/Layout.astro';
 import rpgPreset from '../presets/rpg.json';
+import metroidvaniaPreset from '../presets/metroidvania.json';
 
 // 프리셋: src/presets/*.json (JSON 내보내기 형식 그대로)을 import해서 여기에 등록
-const presets = [{ id: 'rpg', label: 'RPG', data: rpgPreset }];
+const presets = [
+  { id: 'rpg', label: 'RPG', data: rpgPreset },
+  { id: 'metroidvania', label: '메트로배니아', data: metroidvaniaPreset },
+];
 
 // 3×3 블록 9개가 다시 3×3으로 배열된 9×9 만다라트.
 // 블록/칸 인덱스는 행 우선(row-major) 0~8, 4가 항상 가운데.
@@ -419,7 +423,8 @@ function cellMeta(block: number, cell: number) {
     // 일반 칸은 아주 연한 회색 면, 하위 주제 칸은 옅은 파랑→보라 틴트,
     // 가운데 칸은 파랑→보라 그라데이션. 칸 사이는 흰 여백으로 분리.
     const INSET = 4; // 칸 사이 간격의 절반
-    const RADIUS = 14;
+    // 라운딩이 크면 칸 모서리 4개가 만나는 지점이 다이아몬드처럼 보이는 착시가 생김
+    const RADIUS = 5;
 
     // 배경 이미지 유무와 관계없이 칸에 약간의 투명도를 줘서 배경이 은은하게 비치게 함
     const cellFill = (x: number, y: number, isCore: boolean, isSub: boolean) => {
