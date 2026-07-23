@@ -1,5 +1,9 @@
 ---
 import Layout from '../layouts/Layout.astro';
+import rpgPreset from '../presets/rpg.json';
+
+// 프리셋: src/presets/*.json (JSON 내보내기 형식 그대로)을 import해서 여기에 등록
+const presets = [{ id: 'rpg', label: 'RPG', data: rpgPreset }];
 
 // 3×3 블록 9개가 다시 3×3으로 배열된 9×9 만다라트.
 // 블록/칸 인덱스는 행 우선(row-major) 0~8, 4가 항상 가운데.
@@ -43,6 +47,17 @@ function cellMeta(block: number, cell: number) {
         </li>
       </ol>
     </header>
+
+    <section class="presets" aria-label="프리셋">
+      <span class="presets-label">프리셋</span>
+      {
+        presets.map((p) => (
+          <button class="preset-btn" type="button" data-preset={JSON.stringify(p.data)}>
+            {p.label}
+          </button>
+        ))
+      }
+    </section>
 
     <section class="board-wrap" aria-label="만다라트 작성 표">
       <div class="board" id="board">
@@ -266,43 +281,59 @@ function cellMeta(block: number, cell: number) {
 
   document.getElementById('import')!.addEventListener('click', () => importFileInput.click());
 
+  // v1(81칸 배열)·v2(하위 주제별 묶음) 데이터를 보드에 적용. 형식이 아니면 throw.
+  function applyData(data: unknown) {
+    const d = data as { cells?: unknown; groups?: unknown; topic?: unknown; source?: unknown };
+    if (Array.isArray(data) || (d && Array.isArray(d.cells))) {
+      // v1: 81칸 배열
+      const values: unknown[] = Array.isArray(data) ? data : (d.cells as unknown[]);
+      cells.forEach((c, i) => {
+        c.value = typeof values[i] === 'string' ? (values[i] as string) : '';
+      });
+    } else if (d && Array.isArray(d.groups)) {
+      // v2: 하위 주제별 묶음
+      cells.forEach((c) => (c.value = ''));
+      byPos(4, 4).value = typeof d.topic === 'string' ? d.topic : '';
+      d.groups.slice(0, 8).forEach((g: unknown, i: number) => {
+        const group = g as { title?: unknown; items?: unknown };
+        const p = AROUND[i];
+        byPos(4, p).value = typeof group?.title === 'string' ? group.title : '';
+        if (Array.isArray(group?.items)) {
+          group.items.slice(0, 8).forEach((item: unknown, j: number) => {
+            byPos(p, AROUND[j]).value = typeof item === 'string' ? item : '';
+          });
+        }
+      });
+    } else {
+      throw new Error('invalid format');
+    }
+    sourceInput.value = d && typeof d.source === 'string' ? d.source : '';
+    syncMirrors();
+    save();
+  }
+
   importFileInput.addEventListener('change', async () => {
     const file = importFileInput.files?.[0];
     if (!file) return;
     try {
-      const data = JSON.parse(await file.text());
-      if (Array.isArray(data) || (data && Array.isArray(data.cells))) {
-        // v1: 81칸 배열
-        const values: unknown[] = Array.isArray(data) ? data : data.cells;
-        cells.forEach((c, i) => {
-          c.value = typeof values[i] === 'string' ? (values[i] as string) : '';
-        });
-      } else if (data && Array.isArray(data.groups)) {
-        // v2: 하위 주제별 묶음
-        cells.forEach((c) => (c.value = ''));
-        byPos(4, 4).value = typeof data.topic === 'string' ? data.topic : '';
-        data.groups.slice(0, 8).forEach((g: unknown, i: number) => {
-          const group = g as { title?: unknown; items?: unknown };
-          const p = AROUND[i];
-          byPos(4, p).value = typeof group?.title === 'string' ? group.title : '';
-          if (Array.isArray(group?.items)) {
-            group.items.slice(0, 8).forEach((item: unknown, j: number) => {
-              byPos(p, AROUND[j]).value = typeof item === 'string' ? item : '';
-            });
-          }
-        });
-      } else {
-        throw new Error('invalid format');
-      }
-      sourceInput.value = typeof data.source === 'string' ? data.source : '';
-      syncMirrors();
-      save();
+      applyData(JSON.parse(await file.text()));
     } catch {
       alert('만다라트 JSON 파일이 아니에요. 내보내기로 만든 파일인지 확인해주세요.');
     } finally {
       importFileInput.value = '';
     }
   });
+
+  // ---------- 프리셋 ----------
+
+  for (const btn of document.querySelectorAll<HTMLButtonElement>('.preset-btn')) {
+    btn.addEventListener('click', () => {
+      const hasContent =
+        cells.some((c) => c.value.trim() !== '') || sourceInput.value.trim() !== '';
+      if (hasContent && !confirm('현재 작성 중인 내용을 프리셋으로 덮어쓸까요?')) return;
+      applyData(JSON.parse(btn.dataset.preset!));
+    });
+  }
 
   // ---------- 이미지 생성 ----------
 
@@ -511,6 +542,44 @@ function cellMeta(block: number, cell: number) {
     color: var(--text);
     font-style: normal;
     font-weight: 600;
+  }
+
+  .presets {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+    margin-bottom: 1.25rem;
+  }
+
+  .presets-label {
+    color: var(--text-dim);
+    font-size: 0.9rem;
+    font-weight: 600;
+  }
+
+  .preset-btn {
+    width: 64px;
+    aspect-ratio: 1;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    font: inherit;
+    font-size: 0.85rem;
+    font-weight: 700;
+    border-radius: 0.8rem;
+    cursor: pointer;
+    transition:
+      border-color 0.15s ease,
+      background 0.15s ease,
+      transform 0.15s ease;
+  }
+
+  .preset-btn:hover,
+  .preset-btn:focus-visible {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+    transform: translateY(-2px);
   }
 
   .board-wrap {
