@@ -1,23 +1,28 @@
-# killterm.github.io
+# 작은 웹 도구 모음
 
-[Astro](https://astro.build)로 만든 작은 웹 도구 모음입니다.
-
-## 페이지
-
-- `/` — 런치패드 스타일 랜딩 페이지
-- `/mandalart/` — 9×9 만다라트 작성 후 PNG 이미지로 저장
+[Astro](https://astro.build)로 만든 정적 웹 도구 모음입니다.
 
 ## 개발
 
 ```sh
+# 의존성 설치
 npm install
-npm run dev      # 개발 서버 (http://localhost:4321)
-npm run build    # 정적 빌드 (dist/)
-npm run preview  # 빌드 결과 미리보기
+
+# 개발 서버 실행
+npm run dev
+
+# 정적 사이트 빌드
+npm run build
+
+# 빌드 결과 미리보기
+npm run preview
 ```
+
+개발 서버는 기본적으로 `http://localhost:4321`에서 실행됩니다.
 
 ## 배포
 
-`master`(또는 `main`) 브랜치에 push하면 GitHub Actions가 자동으로 빌드해서
-GitHub Pages에 배포합니다. 저장소 설정에서 **Settings → Pages → Source**를
-**GitHub Actions**로 지정해야 합니다.
+`master` 또는 `main` 브랜치에 변경 사항을 push하면 GitHub Actions가 사이트를 빌드해
+GitHub Pages에 배포합니다.
+
+저장소의 **Settings → Pages → Source**는 **GitHub Actions**로 설정해야 합니다.
