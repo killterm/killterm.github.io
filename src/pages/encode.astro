@@ -1,0 +1,295 @@
+---
+import Layout from '../layouts/Layout.astro';
+
+const modes = [
+  { id: 'base64', label: 'Base64' },
+  { id: 'url', label: 'URL (%)' },
+  { id: 'utf8', label: 'UTF-8 (16진수)' },
+];
+---
+
+<Layout
+  title="인코딩 변환 — killterm"
+  description="Base64, URL(%) 인코딩, UTF-8 바이트를 브라우저 안에서 인코딩/디코딩합니다."
+>
+  <main>
+    <nav class="top">
+      <a href="/">← 홈으로</a>
+    </nav>
+
+    <header class="intro">
+      <h1>🔤 인코딩 변환</h1>
+      <p>
+        Base64, URL(%) 인코딩, UTF-8 바이트(16진수)를 서로 변환합니다. 모든 처리는 브라우저
+        안에서만 이루어집니다.
+      </p>
+    </header>
+
+    <div class="modes" role="radiogroup" aria-label="변환 방식">
+      {
+        modes.map((m, i) => (
+          <label class="mode">
+            <input type="radio" name="mode" value={m.id} checked={i === 0} />
+            <span>{m.label}</span>
+          </label>
+        ))
+      }
+    </div>
+
+    <section class="panes">
+      <div class="pane">
+        <div class="pane-head">
+          <label for="plain">원본 텍스트</label>
+          <button class="btn btn-small copy" data-target="plain" type="button">복사</button>
+        </div>
+        <textarea id="plain" rows="7" spellcheck="false"></textarea>
+      </div>
+
+      <div class="middle">
+        <button id="encode" class="btn btn-primary" type="button">인코딩 ↓</button>
+        <button id="decode" class="btn" type="button">디코딩 ↑</button>
+      </div>
+
+      <div class="pane">
+        <div class="pane-head">
+          <label for="encoded">변환 결과</label>
+          <button class="btn btn-small copy" data-target="encoded" type="button">복사</button>
+        </div>
+        <textarea id="encoded" rows="7" spellcheck="false"></textarea>
+      </div>
+    </section>
+
+    <p id="status" class="status" role="status"></p>
+  </main>
+</Layout>
+
+<script>
+  const plain = document.getElementById('plain') as HTMLTextAreaElement;
+  const encoded = document.getElementById('encoded') as HTMLTextAreaElement;
+  const status = document.getElementById('status') as HTMLParagraphElement;
+
+  const mode = () =>
+    (document.querySelector('input[name="mode"]:checked') as HTMLInputElement).value;
+
+  // ---------- Base64 ----------
+
+  function bytesToBase64(bytes: Uint8Array): string {
+    let bin = '';
+    const CHUNK = 0x8000;
+    for (let i = 0; i < bytes.length; i += CHUNK) {
+      bin += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+    }
+    return btoa(bin);
+  }
+
+  function base64ToBytes(b64: string): Uint8Array {
+    const bin = atob(b64.replace(/\s+/g, ''));
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return bytes;
+  }
+
+  // ---------- UTF-8 (16진수) ----------
+
+  function bytesToHex(bytes: Uint8Array): string {
+    return Array.from(bytes, (b) => b.toString(16).padStart(2, '0').toUpperCase()).join(' ');
+  }
+
+  function hexToBytes(hex: string): Uint8Array {
+    // "EA B0 80", "0xEA,0xB0", "\xEA\xB0", "eab080" 등 다양한 표기 허용
+    const cleaned = hex.replace(/0x|\\x/gi, '').replace(/[^0-9a-fA-F]/g, '');
+    if (cleaned.length === 0) throw new Error('16진수 바이트가 없습니다.');
+    if (cleaned.length % 2 !== 0) throw new Error('16진수 자릿수가 홀수입니다.');
+    const bytes = new Uint8Array(cleaned.length / 2);
+    for (let i = 0; i < bytes.length; i++) {
+      bytes[i] = parseInt(cleaned.slice(i * 2, i * 2 + 2), 16);
+    }
+    return bytes;
+  }
+
+  const utf8Encode = (s: string) => new TextEncoder().encode(s);
+  const utf8Decode = (b: Uint8Array) => new TextDecoder('utf-8', { fatal: true }).decode(b);
+
+  // ---------- 변환 ----------
+
+  function run(direction: 'encode' | 'decode') {
+    status.textContent = '';
+    try {
+      if (direction === 'encode') {
+        const text = plain.value;
+        if (mode() === 'base64') encoded.value = bytesToBase64(utf8Encode(text));
+        else if (mode() === 'url') encoded.value = encodeURIComponent(text);
+        else encoded.value = bytesToHex(utf8Encode(text));
+      } else {
+        const text = encoded.value;
+        if (mode() === 'base64') plain.value = utf8Decode(base64ToBytes(text));
+        else if (mode() === 'url') plain.value = decodeURIComponent(text.replace(/\+/g, '%20'));
+        else plain.value = utf8Decode(hexToBytes(text));
+      }
+    } catch (e) {
+      const what = direction === 'encode' ? '인코딩' : '디코딩';
+      status.textContent = `${what} 실패: ${e instanceof Error ? e.message : String(e)}`;
+    }
+  }
+
+  document.getElementById('encode')!.addEventListener('click', () => run('encode'));
+  document.getElementById('decode')!.addEventListener('click', () => run('decode'));
+
+  // ---------- 복사 ----------
+
+  for (const btn of document.querySelectorAll<HTMLButtonElement>('.copy')) {
+    btn.addEventListener('click', async () => {
+      const target = document.getElementById(btn.dataset.target!) as HTMLTextAreaElement;
+      await navigator.clipboard.writeText(target.value);
+      const label = btn.textContent;
+      btn.textContent = '복사됨!';
+      setTimeout(() => (btn.textContent = label), 1200);
+    });
+  }
+</script>
+
+<style>
+  main {
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 2.5rem 1.5rem 4rem;
+  }
+
+  .top a {
+    color: var(--text-dim);
+    text-decoration: none;
+    font-size: 0.9rem;
+  }
+
+  .top a:hover {
+    color: var(--accent);
+  }
+
+  .intro h1 {
+    margin: 1rem 0 0.5rem;
+    font-size: clamp(1.6rem, 4vw, 2.2rem);
+    letter-spacing: -0.02em;
+  }
+
+  .intro p {
+    color: var(--text-dim);
+    margin: 0 0 1.5rem;
+  }
+
+  .modes {
+    display: inline-flex;
+    gap: 4px;
+    padding: 4px;
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    border-radius: 0.8rem;
+    margin-bottom: 1.25rem;
+  }
+
+  .mode input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .mode span {
+    display: block;
+    padding: 0.45rem 1rem;
+    border-radius: 0.6rem;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--text-dim);
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .mode input:checked + span {
+    background: var(--accent);
+    color: #fff;
+  }
+
+  .mode input:focus-visible + span {
+    outline: 2px solid var(--accent);
+  }
+
+  .panes {
+    display: grid;
+    gap: 0.9rem;
+  }
+
+  .pane-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.4rem;
+  }
+
+  .pane-head label {
+    color: var(--text-dim);
+    font-size: 0.85rem;
+    font-weight: 600;
+  }
+
+  textarea {
+    width: 100%;
+    resize: vertical;
+    border: 1px solid var(--border);
+    background: var(--bg-soft);
+    color: var(--text);
+    font-family: Consolas, 'Courier New', monospace;
+    font-size: 0.92rem;
+    line-height: 1.5;
+    padding: 0.7rem 0.85rem;
+    border-radius: 0.7rem;
+  }
+
+  textarea:focus {
+    outline: 2px solid var(--accent);
+    border-color: var(--accent);
+  }
+
+  .middle {
+    display: flex;
+    gap: 0.6rem;
+    justify-content: center;
+  }
+
+  .btn {
+    appearance: none;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    font: inherit;
+    font-weight: 600;
+    padding: 0.55rem 1.2rem;
+    border-radius: 0.7rem;
+    cursor: pointer;
+  }
+
+  .btn:hover {
+    border-color: var(--accent);
+  }
+
+  .btn-primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+  }
+
+  .btn-primary:hover {
+    filter: brightness(1.1);
+  }
+
+  .btn-small {
+    padding: 0.25rem 0.7rem;
+    font-size: 0.8rem;
+  }
+
+  .status {
+    min-height: 1.2em;
+    margin: 1rem 0 0;
+    font-size: 0.88rem;
+    color: #ff8f8f;
+    overflow-wrap: anywhere;
+  }
+</style>
