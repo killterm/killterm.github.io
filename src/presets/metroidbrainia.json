@@ -1,0 +1,139 @@
+{
+  "format": "killterm-mandalart",
+  "version": 4,
+  "topic": {
+    "text": "지식 기반 게임",
+    "checked": false
+  },
+  "groups": [
+    {
+      "title": {
+        "text": "공간 탐험",
+        "checked": false
+      },
+      "items": [
+        { "text": "Toki Tori 2+", "checked": false },
+        { "text": "Animal Well", "checked": false },
+        { "text": "Öoo", "checked": false },
+        { "text": "Full Bore", "checked": false },
+        { "text": "Leap Year", "checked": false },
+        { "text": "The Boons of IIUIR", "checked": false },
+        { "text": "Glowkeeper", "checked": false },
+        { "text": "Sylvie Miniature", "checked": false }
+      ]
+    },
+    {
+      "title": {
+        "text": "규칙 발견",
+        "checked": false
+      },
+      "items": [
+        { "text": "The Witness", "checked": false },
+        { "text": "Linelith", "checked": false },
+        { "text": "Emuurom", "checked": false },
+        { "text": "Perimeter", "checked": false },
+        { "text": "Sisyphus Is a Bug", "checked": false },
+        { "text": "Sensorium", "checked": false },
+        { "text": "Chroma Zero", "checked": false },
+        { "text": "Taiji", "checked": false }
+      ]
+    },
+    {
+      "title": {
+        "text": "퍼즐 어드벤처",
+        "checked": false
+      },
+      "items": [
+        { "text": "Myst", "checked": false },
+        { "text": "Quern - Undying Thoughts", "checked": false },
+        { "text": "LA-MULANA", "checked": false },
+        { "text": "Antichamber", "checked": false },
+        { "text": "LOCK (Dreams)", "checked": false },
+        { "text": "Platonic", "checked": false },
+        { "text": "Once Glorious Artahk", "checked": false },
+        { "text": "A Monster's Expedition", "checked": false }
+      ]
+    },
+    {
+      "title": {
+        "text": "인공어·기호 해독",
+        "checked": false
+      },
+      "items": [
+        { "text": "Chants of Sennaar", "checked": false },
+        { "text": "Heaven's Vault", "checked": false },
+        { "text": "Epigraph", "checked": false },
+        { "text": "Tunic", "checked": false },
+        { "text": "Fez", "checked": false },
+        { "text": "7 Days to End with You", "checked": false },
+        { "text": "Homicipher", "checked": false },
+        { "text": "황금 우상 사건", "checked": false }
+      ]
+    },
+    {
+      "title": {
+        "text": "DB 스릴러",
+        "checked": false
+      },
+      "items": [
+        { "text": "Her Story", "checked": false },
+        { "text": "Telling Lies", "checked": false },
+        { "text": "Immortality", "checked": false },
+        { "text": "The Roottrees Are Dead", "checked": false },
+        { "text": "Lost Wiki: Kozlovka", "checked": false },
+        { "text": "Neurocracy", "checked": false },
+        { "text": "The Incident at Galley House", "checked": false },
+        { "text": "KINOPHOBIA", "checked": false }
+      ]
+    },
+    {
+      "title": {
+        "text": "추리 게임",
+        "checked": false
+      },
+      "items": [
+        { "text": "Return of the Obra Dinn", "checked": false },
+        { "text": "Occlude", "checked": false },
+        { "text": "Rivals", "checked": false },
+        { "text": "Overboard!", "checked": false },
+        { "text": "Unheard", "checked": false },
+        { "text": "The Operator", "checked": false },
+        { "text": "Make It Good", "checked": false },
+        { "text": "The Red Pearls of Borneo", "checked": false }
+      ]
+    },
+    {
+      "title": {
+        "text": "미스터리 어드벤처",
+        "checked": false
+      },
+      "items": [
+        { "text": "Mind Diver", "checked": false },
+        { "text": "The Séance of Blake Manor", "checked": false },
+        { "text": "Strange Horticulture", "checked": false },
+        { "text": "Lorelei and the Laser Eyes", "checked": false },
+        { "text": "Spider and Web", "checked": false },
+        { "text": "Slouching Towards Bedlam", "checked": false },
+        { "text": "Hadean Lands", "checked": false },
+        { "text": "Tangle Tower", "checked": false }
+      ]
+    },
+    {
+      "title": {
+        "text": "루프·반복 학습",
+        "checked": false
+      },
+      "items": [
+        { "text": "Outer Wilds", "checked": false },
+        { "text": "Elsinore", "checked": false },
+        { "text": "Chronoquartz", "checked": false },
+        { "text": "Blue Prince", "checked": false },
+        { "text": "The Posthumous Investigation", "checked": false },
+        { "text": "Void Stranger", "checked": false },
+        { "text": "The Forgotten City", "checked": false },
+        { "text": "The Sexy Brutale", "checked": false }
+      ]
+    }
+  ],
+  "source": "thinkygames.com, azhdarchid.com"
+}

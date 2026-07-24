@@ -2,11 +2,13 @@
 import Layout from '../layouts/Layout.astro';
 import rpgPreset from '../presets/rpg.json';
 import metroidvaniaPreset from '../presets/metroidvania.json';
+import metroidbrainiaPreset from '../presets/metroidbrainia.json';
 
 // 프리셋: src/presets/*.json (JSON 내보내기 형식 그대로)을 import해서 여기에 등록
 const presets = [
   { id: 'rpg', label: 'RPG', data: rpgPreset },
   { id: 'metroidvania', label: '메트로배니아', data: metroidvaniaPreset },
+  { id: 'metroidbrainia', label: '지식 기반 게임', data: metroidbrainiaPreset },
 ];
 
 // 3×3 블록 9개가 다시 3×3으로 배열된 9×9 만다라트.
