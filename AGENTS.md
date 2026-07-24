@@ -29,14 +29,26 @@
   placeholder를 넣지 않는다. 다음 조건을 유지한다:
   - 셀 placeholder 없음
   - 설명 문구는 "주제 → 하위 주제 → 항목"의 중립적 표현만 사용
-- 입력 칸: 글자 1.15rem, 수직·수평 가운데 정렬(`align-content: center`).
-- 저장: localStorage 키 `killterm-mandalart-v1`, 형식 `{cells: string[81], source: string}`
-  (예전 배열-only 형식도 restore에서 하위 호환 처리). 배경 이미지는 용량 문제로
-  저장하지 않는다.
-- JSON 내보내기/가져오기: 내보내기는 하위 주제별 묶음 구조(v2)
-  `{format: 'killterm-mandalart', version: 2, topic, groups: [{title, items[8]}×8], source}`.
+- 입력 칸: 글자 기본 18px(보드 위 슬라이더/숫자 입력으로 12~28px 조절, 화면 표시에만
+  적용되고 생성 이미지에는 영향 없음), 수직·수평 가운데 정렬(`align-content: center`).
+- 칸별 체크: 각 칸 오른쪽 위의 체크 버튼을 누르면 초록 테두리 표시. 바깥 블록의
+  가운데 칸(또는 짝이 되는 가운데 블록의 하위 주제 칸)을 체크하면 그 묶음 전체가
+  함께 체크/해제되고, 이 두 칸은 묶음 8칸이 모두 체크됐을 때만 체크 상태를
+  유지한다(하나라도 해제되면 자동 해제). 묶음 맞바꾸기 시 체크 상태도 함께 이동하고,
+  전체 지우기·프리셋 로드 시 모두 해제된다.
+- 저장: localStorage 키 `killterm-mandalart-v1`, 형식
+  `{cells: string[81], source: string, checks: boolean[81], fontSize: number,
+  cellTransparency: number}` (예전 배열-only 형식과 일부 필드가 없는 형식도
+  restore에서 하위 호환 처리).
+  배경 이미지는 용량 문제로 저장하지 않는다.
+- JSON 내보내기/가져오기: 내보내기는 하위 주제별 묶음 구조(v4)
+  `{format: 'killterm-mandalart', version: 4, topic: {text, checked},
+  groups: [{title: {text, checked}, items: [{text, checked}×8]}×8], source}`.
+  순서가 필요한 groups·items만 list이고 칸 하나는 {text, checked} dict.
+  title의 checked는 items에서 유도되는 값이라 가져올 때는 무시하고 다시 계산한다.
   묶음/칸 순서는 가운데(4)를 제외한 읽는 순서(`AROUND = [0,1,2,3,5,6,7,8]`).
-  가져오기는 v2, v1(`{cells: string[81]}`), 배열-only 모두 허용한다.
+  가져오기는 v4, v3(문자열 칸 + 병렬 checks[8] + topicChecked),
+  v2(checks 없음 → 전부 해제), v1(`{cells: string[81]}`), 배열-only 모두 허용한다.
 - 묶음 맞바꾸기 UI: 두 셀렉트로 묶음(1~8)을 골라 하위 주제 칸 + 바깥 블록 내용을
   통째로 교환. 셀렉트 옵션에는 현재 하위 주제 텍스트가 표시된다.
 - 프리셋: `src/presets/*.json` (JSON 내보내기 형식 그대로)을 mandalart.astro
@@ -50,7 +62,11 @@
   - 가운데 칸: 파랑(#4263eb)→보라(#7048e8) 그라데이션, 하위 주제 칸: 옅은 틴트,
     일반 칸: 연회색(#f2f4f9).
   - 글자: 32px에서 시작해 28→25→22→19→16px로 내용이 들어갈 때까지 자동 축소.
-  - 칸 불투명도(배경 이미지 유무와 무관하게 항상): 일반 0.76 / 하위 주제 0.8 /
-    가운데 0.92 — 배경이 은은하게 비치는 느낌 유지.
+  - 칸 투명도: 슬라이더/숫자 입력으로 0~80% 조절, 기본 0%(완전 불투명).
+    일반 칸 alpha = 1 - 투명도이고, 하위 주제(+0.04)·가운데(+0.16)는 상대 차이를
+    유지한 채 함께 움직인다(상한 1.0). 배경을 은은하게 비치게 하려면 투명도를 올린다.
+  - 체크된 칸은 테두리 대신 면 색이 초록 계열로 바뀐다(테두리는 잘 안 보여서 폐기).
+    일반 칸: 연초록(#d3f9d8), 하위 주제 칸: 초록(#b2f2bb)→민트(#c3fae8) 틴트,
+    가운데 칸: 초록(#37b24d)→틸(#0ca678) 그라데이션. 불투명도는 기존 값 그대로.
   - 출처 텍스트: 진한 색 + 배경 이미지 위에서는 반투명 흰 띠. 흐린 회색이나
     외곽선(stroke) 방식은 뿌옇게 보여서 쓰지 않기로 했다.

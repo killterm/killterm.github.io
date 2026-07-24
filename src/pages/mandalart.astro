@@ -63,6 +63,29 @@ function cellMeta(block: number, cell: number) {
       }
     </section>
 
+    <section class="font-field" aria-label="글자 크기 조절">
+      <span>글자 크기</span>
+      <input
+        id="font-range"
+        type="range"
+        min="12"
+        max="28"
+        step="1"
+        value="18"
+        aria-label="글자 크기 슬라이더"
+      />
+      <input
+        id="font-num"
+        type="number"
+        min="12"
+        max="28"
+        step="1"
+        value="18"
+        aria-label="글자 크기 직접 입력"
+      />
+      <span>px</span>
+    </section>
+
     <section class="board-wrap" aria-label="만다라트 작성 표">
       <div class="board" id="board">
         {
@@ -71,18 +94,28 @@ function cellMeta(block: number, cell: number) {
               {positions.map((cell) => {
                 const meta = cellMeta(block, cell);
                 return (
-                  <textarea
-                    class:list={['cell', `cell-${meta.role}`]}
-                    data-block={block}
-                    data-cell={cell}
-                    data-role={meta.role}
-                    data-idx={meta.idx}
-                    readonly={meta.readonly}
-                    tabindex={meta.readonly ? -1 : 0}
-                    rows={3}
-                    maxlength={60}
-                    aria-label={`${block + 1}번 블록 ${cell + 1}번 칸`}
-                  />
+                  <div class="cell-wrap">
+                    <textarea
+                      class:list={['cell', `cell-${meta.role}`]}
+                      data-block={block}
+                      data-cell={cell}
+                      data-role={meta.role}
+                      data-idx={meta.idx}
+                      readonly={meta.readonly}
+                      tabindex={meta.readonly ? -1 : 0}
+                      rows={3}
+                      maxlength={60}
+                      aria-label={`${block + 1}번 블록 ${cell + 1}번 칸`}
+                    />
+                    <button
+                      class="cell-check"
+                      type="button"
+                      aria-pressed="false"
+                      aria-label={`${block + 1}번 블록 ${cell + 1}번 칸 체크`}
+                    >
+                      ✓
+                    </button>
+                  </div>
                 );
               })}
             </div>
@@ -100,6 +133,29 @@ function cellMeta(block: number, cell: number) {
         <span>배경 이미지</span>
         <input id="bg-file" type="file" accept="image/*" />
         <button id="bg-clear" class="btn btn-small" type="button" hidden>배경 제거</button>
+      </div>
+      <div class="transparency-field">
+        <span>칸 투명도</span>
+        <input
+          id="transparency-range"
+          type="range"
+          min="0"
+          max="80"
+          step="1"
+          value="0"
+          aria-label="칸 투명도 슬라이더"
+        />
+        <input
+          id="transparency-num"
+          type="number"
+          min="0"
+          max="80"
+          step="1"
+          value="0"
+          aria-label="칸 투명도 직접 입력"
+        />
+        <span>%</span>
+        <span class="hint">이미지 생성 시 적용됩니다. 하위 주제·가운데 칸은 조금 더 진하게 그려집니다.</span>
       </div>
       <div class="swap-field">
         <span>묶음 맞바꾸기</span>
@@ -137,6 +193,104 @@ function cellMeta(block: number, cell: number) {
 
   const STORAGE_KEY = 'killterm-mandalart-v1';
   const sourceInput = document.getElementById('source') as HTMLInputElement;
+
+  // ---------- 칸 체크 ----------
+
+  const wrapOf = (cell: HTMLTextAreaElement) => cell.parentElement as HTMLDivElement;
+
+  function setChecked(cell: HTMLTextAreaElement, checked: boolean) {
+    const wrap = wrapOf(cell);
+    wrap.classList.toggle('checked', checked);
+    wrap.querySelector('.cell-check')!.setAttribute('aria-pressed', String(checked));
+  }
+
+  const isChecked = (cell: HTMLTextAreaElement) => wrapOf(cell).classList.contains('checked');
+
+  // 묶음 전체(바깥 블록 8칸 + 가운데 칸 + 짝이 되는 하위 주제 칸)를 한 번에 체크/해제
+  function setGroupChecked(block: number, checked: boolean) {
+    setChecked(byPos(block, 4), checked);
+    setChecked(byPos(4, block), checked);
+    for (const c of AROUND) {
+      setChecked(byPos(block, c), checked);
+    }
+  }
+
+  // 묶음의 가운데 칸·하위 주제 칸은 8칸이 모두 체크됐을 때만 체크 상태를 유지
+  function syncGroupCenter(block: number) {
+    const allChecked = AROUND.every((c) => isChecked(byPos(block, c)));
+    setChecked(byPos(block, 4), allChecked);
+    setChecked(byPos(4, block), allChecked);
+  }
+
+  for (const cell of cells) {
+    wrapOf(cell)
+      .querySelector('.cell-check')!
+      .addEventListener('click', () => {
+        const next = !isChecked(cell);
+        setChecked(cell, next);
+        const role = cell.dataset.role;
+        if (role === 'mirror' || role === 'sub') {
+          // 묶음의 가운데 칸(또는 짝이 되는 하위 주제 칸)을 체크하면 묶음 전체를 체크/해제
+          const block = role === 'mirror' ? Number(cell.dataset.block) : Number(cell.dataset.idx);
+          setGroupChecked(block, next);
+        } else if (role === 'action') {
+          syncGroupCenter(Number(cell.dataset.block));
+        }
+        save();
+      });
+  }
+
+  // ---------- 글자 크기 ----------
+
+  const board = document.getElementById('board') as HTMLElement;
+  const fontRange = document.getElementById('font-range') as HTMLInputElement;
+  const fontNum = document.getElementById('font-num') as HTMLInputElement;
+  const FONT_MIN = 12;
+  const FONT_MAX = 28;
+  const FONT_DEFAULT = 18;
+
+  function applyFontSize(size: number) {
+    const clamped = Math.min(FONT_MAX, Math.max(FONT_MIN, Math.round(size)));
+    fontRange.value = String(clamped);
+    fontNum.value = String(clamped);
+    board.style.setProperty('--cell-font-size', `${clamped}px`);
+  }
+
+  fontRange.addEventListener('input', () => {
+    applyFontSize(Number(fontRange.value));
+    save();
+  });
+
+  fontNum.addEventListener('change', () => {
+    const size = Number(fontNum.value);
+    applyFontSize(Number.isFinite(size) ? size : FONT_DEFAULT);
+    save();
+  });
+
+  // ---------- 칸 투명도 (이미지 생성 시 적용) ----------
+
+  const transparencyRange = document.getElementById('transparency-range') as HTMLInputElement;
+  const transparencyNum = document.getElementById('transparency-num') as HTMLInputElement;
+  const TRANSPARENCY_MIN = 0;
+  const TRANSPARENCY_MAX = 80;
+  const TRANSPARENCY_DEFAULT = 0;
+
+  function applyCellTransparency(percent: number) {
+    const clamped = Math.min(TRANSPARENCY_MAX, Math.max(TRANSPARENCY_MIN, Math.round(percent)));
+    transparencyRange.value = String(clamped);
+    transparencyNum.value = String(clamped);
+  }
+
+  transparencyRange.addEventListener('input', () => {
+    applyCellTransparency(Number(transparencyRange.value));
+    save();
+  });
+
+  transparencyNum.addEventListener('change', () => {
+    const percent = Number(transparencyNum.value);
+    applyCellTransparency(Number.isFinite(percent) ? percent : TRANSPARENCY_DEFAULT);
+    save();
+  });
 
   // 가운데(4)를 제외한 블록/칸 위치. 묶음 번호 1~8이 이 순서에 대응한다.
   const AROUND = [0, 1, 2, 3, 5, 6, 7, 8];
@@ -182,20 +336,32 @@ function cellMeta(block: number, cell: number) {
     }
     const pa = posOfNum(a);
     const pb = posOfNum(b);
-    // 가운데 블록의 하위 주제 칸과 바깥 블록의 내용 전체를 통째로 맞바꿈
-    const swapValues = (c1: HTMLTextAreaElement, c2: HTMLTextAreaElement) => {
-      const t = c1.value;
+    // 가운데 블록의 하위 주제 칸과 바깥 블록의 내용·체크 상태 전체를 통째로 맞바꿈
+    const swapCells = (c1: HTMLTextAreaElement, c2: HTMLTextAreaElement) => {
+      const value = c1.value;
       c1.value = c2.value;
-      c2.value = t;
+      c2.value = value;
+      const checked = isChecked(c1);
+      setChecked(c1, isChecked(c2));
+      setChecked(c2, checked);
     };
-    swapValues(byPos(4, pa), byPos(4, pb));
-    for (const c of AROUND) swapValues(byPos(pa, c), byPos(pb, c));
+    swapCells(byPos(4, pa), byPos(4, pb));
+    for (const c of AROUND) swapCells(byPos(pa, c), byPos(pb, c));
+    // 바깥 블록 가운데 칸의 체크 상태도 옮겨진 내용에 맞게 갱신
+    syncGroupCenter(pa);
+    syncGroupCenter(pb);
     syncMirrors();
     save();
   });
 
   function save() {
-    const data = { cells: cells.map((c) => c.value), source: sourceInput.value };
+    const data = {
+      cells: cells.map((c) => c.value),
+      source: sourceInput.value,
+      checks: cells.map((c) => isChecked(c)),
+      fontSize: Number(fontRange.value),
+      cellTransparency: Number(transparencyRange.value),
+    };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
   }
 
@@ -204,12 +370,23 @@ function cellMeta(block: number, cell: number) {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (!raw) return;
       const data = JSON.parse(raw);
-      // 예전 형식(배열)과 새 형식({cells, source}) 모두 지원
+      // 예전 형식(배열)과 새 형식({cells, source, checks, fontSize}) 모두 지원
       const values: string[] = Array.isArray(data) ? data : (data.cells ?? []);
       cells.forEach((c, i) => {
         c.value = values[i] ?? '';
       });
-      if (!Array.isArray(data)) sourceInput.value = data.source ?? '';
+      if (!Array.isArray(data)) {
+        sourceInput.value = data.source ?? '';
+        if (Array.isArray(data.checks)) {
+          cells.forEach((c, i) => setChecked(c, data.checks[i] === true));
+        }
+        if (typeof data.fontSize === 'number') {
+          applyFontSize(data.fontSize);
+        }
+        if (typeof data.cellTransparency === 'number') {
+          applyCellTransparency(data.cellTransparency);
+        }
+      }
       syncMirrors();
     } catch {
       /* 손상된 저장 데이터는 무시 */
@@ -251,8 +428,13 @@ function cellMeta(block: number, cell: number) {
 
   document.getElementById('clear')!.addEventListener('click', () => {
     if (!confirm('모든 칸을 지울까요?')) return;
-    cells.forEach((c) => (c.value = ''));
+    cells.forEach((c) => {
+      c.value = '';
+      setChecked(c, false);
+    });
     sourceInput.value = '';
+    applyFontSize(FONT_DEFAULT);
+    applyCellTransparency(TRANSPARENCY_DEFAULT);
     localStorage.removeItem(STORAGE_KEY);
     document.getElementById('preview-section')!.hidden = true;
   });
@@ -263,14 +445,19 @@ function cellMeta(block: number, cell: number) {
 
   document.getElementById('export')!.addEventListener('click', () => {
     // 하위 주제별 묶음 구조. groups[i]가 i+1번 묶음이고,
-    // title은 하위 주제, items는 그 블록의 8칸(읽는 순서).
+    // 순서가 필요한 groups·items만 list, 칸 하나는 {text, checked} dict.
+    // title의 checked는 items에서 유도되지만 형식 일관성을 위해 함께 내보낸다.
+    const cellData = (block: number, cell: number) => ({
+      text: byPos(block, cell).value,
+      checked: isChecked(byPos(block, cell)),
+    });
     const data = {
       format: 'killterm-mandalart',
-      version: 2,
-      topic: byPos(4, 4).value,
+      version: 4,
+      topic: cellData(4, 4),
       groups: AROUND.map((p) => ({
-        title: byPos(4, p).value,
-        items: AROUND.map((c) => byPos(p, c).value),
+        title: cellData(4, p),
+        items: AROUND.map((c) => cellData(p, c)),
       })),
       source: sourceInput.value,
     };
@@ -285,9 +472,29 @@ function cellMeta(block: number, cell: number) {
 
   document.getElementById('import')!.addEventListener('click', () => importFileInput.click());
 
-  // v1(81칸 배열)·v2(하위 주제별 묶음) 데이터를 보드에 적용. 형식이 아니면 throw.
+  // v4의 {text, checked} 칸 dict와 예전 형식의 문자열 칸을 모두 같은 모양으로 정규화
+  function toCellData(value: unknown): { text: string; checked: boolean } {
+    if (typeof value === 'string') {
+      return { text: value, checked: false };
+    }
+    const cell = value as { text?: unknown; checked?: unknown };
+    return {
+      text: typeof cell?.text === 'string' ? cell.text : '',
+      checked: cell?.checked === true,
+    };
+  }
+
+  // v1(81칸 배열)·v2~v4(하위 주제별 묶음) 데이터를 보드에 적용. 형식이 아니면 throw.
   function applyData(data: unknown) {
-    const d = data as { cells?: unknown; groups?: unknown; topic?: unknown; source?: unknown };
+    const d = data as {
+      cells?: unknown;
+      groups?: unknown;
+      topic?: unknown;
+      topicChecked?: unknown;
+      source?: unknown;
+    };
+    // 체크 상태는 일단 모두 해제하고, 데이터에 있으면(v3 이상) 다시 적용
+    cells.forEach((c) => setChecked(c, false));
     if (Array.isArray(data) || (d && Array.isArray(d.cells))) {
       // v1: 81칸 배열
       const values: unknown[] = Array.isArray(data) ? data : (d.cells as unknown[]);
@@ -295,18 +502,30 @@ function cellMeta(block: number, cell: number) {
         c.value = typeof values[i] === 'string' ? (values[i] as string) : '';
       });
     } else if (d && Array.isArray(d.groups)) {
-      // v2: 하위 주제별 묶음
+      // v2~v4: 하위 주제별 묶음
+      // (v4는 칸이 {text, checked} dict, v3는 문자열 + 병렬 checks 배열 + topicChecked)
       cells.forEach((c) => (c.value = ''));
-      byPos(4, 4).value = typeof d.topic === 'string' ? d.topic : '';
+      const topic = toCellData(d.topic);
+      byPos(4, 4).value = topic.text;
+      setChecked(byPos(4, 4), topic.checked || d.topicChecked === true);
       d.groups.slice(0, 8).forEach((g: unknown, i: number) => {
-        const group = g as { title?: unknown; items?: unknown };
+        const group = g as { title?: unknown; items?: unknown; checks?: unknown };
         const p = AROUND[i];
-        byPos(4, p).value = typeof group?.title === 'string' ? group.title : '';
+        byPos(4, p).value = toCellData(group?.title).text;
         if (Array.isArray(group?.items)) {
           group.items.slice(0, 8).forEach((item: unknown, j: number) => {
-            byPos(p, AROUND[j]).value = typeof item === 'string' ? item : '';
+            const itemData = toCellData(item);
+            byPos(p, AROUND[j]).value = itemData.text;
+            setChecked(byPos(p, AROUND[j]), itemData.checked);
           });
         }
+        if (Array.isArray(group?.checks)) {
+          group.checks.slice(0, 8).forEach((checked: unknown, j: number) => {
+            setChecked(byPos(p, AROUND[j]), checked === true);
+          });
+        }
+        // 가운데 칸·하위 주제 칸의 체크는 저장값 대신 items에서 다시 계산
+        syncGroupCenter(p);
       });
     } else {
       throw new Error('invalid format');
@@ -426,20 +645,42 @@ function cellMeta(block: number, cell: number) {
     // 라운딩이 크면 칸 모서리 4개가 만나는 지점이 다이아몬드처럼 보이는 착시가 생김
     const RADIUS = 5;
 
-    // 배경 이미지 유무와 관계없이 칸에 약간의 투명도를 줘서 배경이 은은하게 비치게 함
-    const cellFill = (x: number, y: number, isCore: boolean, isSub: boolean) => {
+    // 투명도 슬라이더 값이 일반 칸 기준이 되고(0%면 완전 불투명),
+    // 하위 주제·가운데 칸은 상대 차이(+0.04 / +0.16)를 유지한 채 함께 움직인다.
+    // 체크된 칸은 같은 파스텔 톤을 유지한 채 초록 계열로 면 색만 바뀐다.
+    const alphaAction = 1 - Number(transparencyRange.value) / 100;
+    const alphaSub = Math.min(1, alphaAction + 0.04);
+    const alphaCore = Math.min(1, alphaAction + 0.16);
+
+    const cellFill = (
+      x: number,
+      y: number,
+      isCore: boolean,
+      isSub: boolean,
+      checked: boolean,
+    ) => {
       if (isCore || isSub) {
         const grad = ctx.createLinearGradient(x, y, x + CELL, y + CELL);
         if (isCore) {
-          grad.addColorStop(0, 'rgba(66, 99, 235, 0.92)');
-          grad.addColorStop(1, 'rgba(112, 72, 232, 0.92)');
+          if (checked) {
+            grad.addColorStop(0, `rgba(55, 178, 77, ${alphaCore})`);
+            grad.addColorStop(1, `rgba(12, 166, 120, ${alphaCore})`);
+          } else {
+            grad.addColorStop(0, `rgba(66, 99, 235, ${alphaCore})`);
+            grad.addColorStop(1, `rgba(112, 72, 232, ${alphaCore})`);
+          }
+        } else if (checked) {
+          grad.addColorStop(0, `rgba(178, 242, 187, ${alphaSub})`);
+          grad.addColorStop(1, `rgba(195, 250, 232, ${alphaSub})`);
         } else {
-          grad.addColorStop(0, 'rgba(219, 228, 255, 0.8)');
-          grad.addColorStop(1, 'rgba(229, 219, 255, 0.8)');
+          grad.addColorStop(0, `rgba(219, 228, 255, ${alphaSub})`);
+          grad.addColorStop(1, `rgba(229, 219, 255, ${alphaSub})`);
         }
         return grad;
       }
-      return 'rgba(255, 255, 255, 0.76)';
+      return checked
+        ? `rgba(211, 249, 216, ${alphaAction})`
+        : `rgba(255, 255, 255, ${alphaAction})`;
     };
 
     for (let block = 0; block < 9; block++) {
@@ -454,7 +695,7 @@ function cellMeta(block: number, cell: number) {
         const isCore = block === 4 && cell === 4;
         const isSub = (block === 4) !== (cell === 4); // 가운데 블록의 주변 칸 또는 바깥 블록의 가운데 칸
 
-        ctx.fillStyle = cellFill(x, y, isCore, isSub);
+        ctx.fillStyle = cellFill(x, y, isCore, isSub, isChecked(byPos(block, cell)));
         ctx.beginPath();
         ctx.roundRect(x + INSET, y + INSET, CELL - INSET * 2, CELL - INSET * 2, RADIUS);
         ctx.fill();
@@ -591,6 +832,43 @@ function cellMeta(block: number, cell: number) {
     transform: translateY(-2px);
   }
 
+  .font-field {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    margin-bottom: 1.25rem;
+    color: var(--text-dim);
+    font-size: 0.9rem;
+  }
+
+  .font-field > span:first-child {
+    font-weight: 600;
+  }
+
+  .font-field input[type='range'],
+  .transparency-field input[type='range'] {
+    width: 180px;
+    accent-color: var(--accent);
+  }
+
+  .font-field input[type='number'],
+  .transparency-field input[type='number'] {
+    width: 4.5rem;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    font: inherit;
+    font-size: 0.9rem;
+    padding: 0.35rem 0.5rem;
+    border-radius: 0.6rem;
+  }
+
+  .font-field input[type='number']:focus,
+  .transparency-field input[type='number']:focus {
+    outline: 2px solid var(--accent);
+    border-color: var(--accent);
+  }
+
   .board-wrap {
     overflow-x: auto;
     padding-bottom: 0.5rem;
@@ -617,16 +895,22 @@ function cellMeta(block: number, cell: number) {
     outline-offset: 1px;
   }
 
-  .cell {
-    width: 100%;
+  .cell-wrap {
+    position: relative;
     aspect-ratio: 1;
+  }
+
+  .cell {
+    display: block;
+    width: 100%;
+    height: 100%;
     resize: none;
     border: none;
     border-radius: 4px;
     background: var(--surface);
     color: var(--text);
     font: inherit;
-    font-size: 1.15rem;
+    font-size: var(--cell-font-size, 18px);
     line-height: 1.3;
     text-align: center;
     align-content: center; /* 수직 가운데 정렬 (모던 브라우저) */
@@ -637,6 +921,45 @@ function cellMeta(block: number, cell: number) {
   .cell:focus {
     outline: 2px solid var(--accent);
     background: var(--accent-soft);
+  }
+
+  .cell-check {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    border: 1px solid rgba(255, 255, 255, 0.35);
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.12);
+    color: var(--text);
+    font-size: 11px;
+    line-height: 1;
+    cursor: pointer;
+    opacity: 0.7;
+    transition:
+      opacity 0.15s ease,
+      background 0.15s ease,
+      border-color 0.15s ease,
+      color 0.15s ease;
+  }
+
+  .cell-wrap:hover .cell-check,
+  .cell-check:focus-visible {
+    opacity: 1;
+  }
+
+  /* 체크된 칸: 초록 테두리 (레이아웃 변동이 없도록 inset box-shadow 사용) */
+  .cell-wrap.checked .cell {
+    box-shadow: inset 0 0 0 2px #37b24d;
+  }
+
+  .cell-wrap.checked .cell-check {
+    opacity: 1;
+    background: #37b24d;
+    border-color: #37b24d;
+    color: #fff;
   }
 
   .cell-core {
@@ -726,6 +1049,20 @@ function cellMeta(block: number, cell: number) {
   .btn-small {
     padding: 0.4rem 0.9rem;
     font-size: 0.85rem;
+  }
+
+  .transparency-field {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    flex: 1 1 100%;
+    flex-wrap: wrap;
+    color: var(--text-dim);
+    font-size: 0.9rem;
+  }
+
+  .transparency-field > span:first-child {
+    font-weight: 600;
   }
 
   .swap-field {
