@@ -185,6 +185,13 @@ function cellMeta(block: number, cell: number) {
 </Layout>
 
 <script>
+  import {
+    setSubtreeChecked,
+    syncAncestors,
+    syncSubtreeFromLeaves,
+    type CheckTree,
+  } from '../lib/check-tree';
+
   const cells = Array.from(
     document.querySelectorAll<HTMLTextAreaElement>('#board .cell'),
   );
@@ -206,36 +213,60 @@ function cellMeta(block: number, cell: number) {
 
   const isChecked = (cell: HTMLTextAreaElement) => wrapOf(cell).classList.contains('checked');
 
-  // 묶음 전체(바깥 블록 8칸 + 가운데 칸 + 짝이 되는 하위 주제 칸)를 한 번에 체크/해제
-  function setGroupChecked(block: number, checked: boolean) {
-    setChecked(byPos(block, 4), checked);
-    setChecked(byPos(4, block), checked);
-    for (const c of AROUND) {
-      setChecked(byPos(block, c), checked);
-    }
+  type MandalartNodeId = 'core' | `group:${number}` | `item:${number}:${number}`;
+  const CORE_ID: MandalartNodeId = 'core';
+  const groupId = (block: number): MandalartNodeId => `group:${block}`;
+  const itemId = (block: number, cell: number): MandalartNodeId => `item:${block}:${cell}`;
+
+  function nodeIdOf(cell: HTMLTextAreaElement): MandalartNodeId {
+    const role = cell.dataset.role;
+    if (role === 'core') return CORE_ID;
+    if (role === 'sub') return groupId(Number(cell.dataset.idx));
+    if (role === 'mirror') return groupId(Number(cell.dataset.block));
+    return itemId(Number(cell.dataset.block), Number(cell.dataset.cell));
   }
 
-  // 묶음의 가운데 칸·하위 주제 칸은 8칸이 모두 체크됐을 때만 체크 상태를 유지
-  function syncGroupCenter(block: number) {
-    const allChecked = AROUND.every((c) => isChecked(byPos(block, c)));
-    setChecked(byPos(block, 4), allChecked);
-    setChecked(byPos(4, block), allChecked);
-  }
+  const checkTree: CheckTree<MandalartNodeId> = {
+    childrenOf(id) {
+      if (id === CORE_ID) return AROUND.map(groupId);
+      const [kind, block] = id.split(':');
+      return kind === 'group' ? AROUND.map((cell) => itemId(Number(block), cell)) : [];
+    },
+    parentOf(id) {
+      if (id === CORE_ID) return undefined;
+      const [kind, block] = id.split(':');
+      return kind === 'group' ? CORE_ID : groupId(Number(block));
+    },
+    isChecked(id) {
+      if (id === CORE_ID) return isChecked(byPos(4, 4));
+      const [kind, block, cell] = id.split(':');
+      return isChecked(
+        kind === 'group' ? byPos(4, Number(block)) : byPos(Number(block), Number(cell)),
+      );
+    },
+    setChecked(id, checked) {
+      if (id === CORE_ID) {
+        setChecked(byPos(4, 4), checked);
+        return;
+      }
+      const [kind, block, cell] = id.split(':');
+      const blockIndex = Number(block);
+      if (kind === 'group') {
+        setChecked(byPos(4, blockIndex), checked);
+        setChecked(byPos(blockIndex, 4), checked);
+      } else {
+        setChecked(byPos(blockIndex, Number(cell)), checked);
+      }
+    },
+  };
 
   for (const cell of cells) {
     wrapOf(cell)
       .querySelector('.cell-check')!
       .addEventListener('click', () => {
-        const next = !isChecked(cell);
-        setChecked(cell, next);
-        const role = cell.dataset.role;
-        if (role === 'mirror' || role === 'sub') {
-          // 묶음의 가운데 칸(또는 짝이 되는 하위 주제 칸)을 체크하면 묶음 전체를 체크/해제
-          const block = role === 'mirror' ? Number(cell.dataset.block) : Number(cell.dataset.idx);
-          setGroupChecked(block, next);
-        } else if (role === 'action') {
-          syncGroupCenter(Number(cell.dataset.block));
-        }
+        const id = nodeIdOf(cell);
+        setSubtreeChecked(checkTree, id, !checkTree.isChecked(id));
+        syncAncestors(checkTree, id);
         save();
       });
   }
@@ -347,9 +378,8 @@ function cellMeta(block: number, cell: number) {
     };
     swapCells(byPos(4, pa), byPos(4, pb));
     for (const c of AROUND) swapCells(byPos(pa, c), byPos(pb, c));
-    // 바깥 블록 가운데 칸의 체크 상태도 옮겨진 내용에 맞게 갱신
-    syncGroupCenter(pa);
-    syncGroupCenter(pb);
+    // 부모 칸의 체크 상태를 맞바뀐 하위 항목에 맞게 다시 계산
+    syncSubtreeFromLeaves(checkTree, CORE_ID);
     syncMirrors();
     save();
   });
@@ -387,6 +417,7 @@ function cellMeta(block: number, cell: number) {
           applyCellTransparency(data.cellTransparency);
         }
       }
+      syncSubtreeFromLeaves(checkTree, CORE_ID);
       syncMirrors();
     } catch {
       /* 손상된 저장 데이터는 무시 */
@@ -524,13 +555,13 @@ function cellMeta(block: number, cell: number) {
             setChecked(byPos(p, AROUND[j]), checked === true);
           });
         }
-        // 가운데 칸·하위 주제 칸의 체크는 저장값 대신 items에서 다시 계산
-        syncGroupCenter(p);
       });
     } else {
       throw new Error('invalid format');
     }
     sourceInput.value = d && typeof d.source === 'string' ? d.source : '';
+    // 부모 칸의 체크는 저장값 대신 하위 항목에서 다시 계산
+    syncSubtreeFromLeaves(checkTree, CORE_ID);
     syncMirrors();
     save();
   }
