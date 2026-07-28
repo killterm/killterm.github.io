@@ -35,19 +35,18 @@ const inputFormats = formats.filter((f) => !f.outputOnly);
     <section class="panes">
       <div class="pane">
         <div class="pane-head">
-          <div class="pane-title">
-            <label for="input">입력</label>
-            <select id="input-format" aria-label="입력 형식">
-              {
-                inputFormats.map((f) => (
-                  <option value={f.id} selected={f.id === 'text'}>
-                    {f.label}
-                  </option>
-                ))
-              }
-            </select>
-          </div>
+          <label for="input">입력</label>
           <button class="btn btn-small copy" data-target="input" type="button">복사</button>
+        </div>
+        <div class="format-group" role="radiogroup" aria-label="입력 형식">
+          {
+            inputFormats.map((f) => (
+              <label class="format">
+                <input type="radio" name="input-format" value={f.id} checked={f.id === 'text'} />
+                <span>{f.label}</span>
+              </label>
+            ))
+          }
         </div>
         <textarea id="input" rows="7" spellcheck="false"></textarea>
       </div>
@@ -60,19 +59,18 @@ const inputFormats = formats.filter((f) => !f.outputOnly);
 
       <div class="pane">
         <div class="pane-head">
-          <div class="pane-title">
-            <label for="output">출력</label>
-            <select id="output-format" aria-label="출력 형식">
-              {
-                formats.map((f) => (
-                  <option value={f.id} selected={f.id === 'base64'}>
-                    {f.label}
-                  </option>
-                ))
-              }
-            </select>
-          </div>
+          <label for="output">출력</label>
           <button class="btn btn-small copy" data-target="output" type="button">복사</button>
+        </div>
+        <div class="format-group" role="radiogroup" aria-label="출력 형식">
+          {
+            formats.map((f) => (
+              <label class="format">
+                <input type="radio" name="output-format" value={f.id} checked={f.id === 'base64'} />
+                <span>{f.label}</span>
+              </label>
+            ))
+          }
         </div>
         <textarea id="output" rows="7" spellcheck="false"></textarea>
       </div>
@@ -85,9 +83,18 @@ const inputFormats = formats.filter((f) => !f.outputOnly);
 <script>
   const inputArea = document.getElementById('input') as HTMLTextAreaElement;
   const outputArea = document.getElementById('output') as HTMLTextAreaElement;
-  const inputFormat = document.getElementById('input-format') as HTMLSelectElement;
-  const outputFormat = document.getElementById('output-format') as HTMLSelectElement;
   const status = document.getElementById('status') as HTMLParagraphElement;
+
+  // 입력/출력 형식 라디오 그룹(name: input-format / output-format)의 선택값 읽기·쓰기
+  const checkedFormat = (name: string) =>
+    (document.querySelector(`input[name="${name}"]:checked`) as HTMLInputElement).value;
+
+  const setCheckedFormat = (name: string, value: string) => {
+    const radio = document.querySelector(
+      `input[name="${name}"][value="${value}"]`,
+    ) as HTMLInputElement;
+    radio.checked = true;
+  };
 
   // ---------- Base64 ----------
 
@@ -213,23 +220,26 @@ const inputFormats = formats.filter((f) => !f.outputOnly);
   document.getElementById('convert')!.addEventListener('click', async () => {
     status.textContent = '';
     try {
-      const toBytes = codecs[inputFormat.value].toBytes;
+      const toBytes = codecs[checkedFormat('input-format')].toBytes;
       if (!toBytes) {
         throw new Error('해시 형식은 입력으로 사용할 수 없습니다.');
       }
       const bytes = toBytes(inputArea.value);
-      outputArea.value = await codecs[outputFormat.value].fromBytes(bytes);
+      outputArea.value = await codecs[checkedFormat('output-format')].fromBytes(bytes);
     } catch (e) {
       status.textContent = `변환 실패: ${e instanceof Error ? e.message : String(e)}`;
     }
   });
 
   document.getElementById('swap')!.addEventListener('click', () => {
-    if (!codecs[outputFormat.value].toBytes) {
+    const inputValue = checkedFormat('input-format');
+    const outputValue = checkedFormat('output-format');
+    if (!codecs[outputValue].toBytes) {
       status.textContent = '해시 형식은 입력으로 사용할 수 없어 맞바꿀 수 없습니다.';
       return;
     }
-    [inputFormat.value, outputFormat.value] = [outputFormat.value, inputFormat.value];
+    setCheckedFormat('input-format', outputValue);
+    setCheckedFormat('output-format', inputValue);
     [inputArea.value, outputArea.value] = [outputArea.value, inputArea.value];
     status.textContent = '';
   });
@@ -300,25 +310,42 @@ const inputFormats = formats.filter((f) => !f.outputOnly);
     font-weight: 600;
   }
 
-  .pane-title {
+  .format-group {
     display: flex;
-    align-items: center;
-    gap: 0.5rem;
-  }
-
-  .pane-title select {
+    flex-wrap: wrap;
+    gap: 4px;
+    width: fit-content;
+    padding: 4px;
+    background: var(--bg-soft);
     border: 1px solid var(--border);
-    background: var(--surface);
-    color: var(--text);
-    font: inherit;
-    font-size: 0.85rem;
-    padding: 0.3rem 0.5rem;
-    border-radius: 0.6rem;
+    border-radius: 0.8rem;
+    margin-bottom: 0.5rem;
   }
 
-  .pane-title select:focus {
+  .format input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .format span {
+    display: block;
+    padding: 0.35rem 0.8rem;
+    border-radius: 0.6rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text-dim);
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .format input:checked + span {
+    background: var(--accent);
+    color: #fff;
+  }
+
+  .format input:focus-visible + span {
     outline: 2px solid var(--accent);
-    border-color: var(--accent);
   }
 
   textarea {
