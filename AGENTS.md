@@ -26,6 +26,16 @@
   도메인 식별자는 소문자 유지.
 - 외부 도메인 링크의 `utm_source=killterm.github.io`는 `Layout.astro`의 전역
   스크립트가 로드 시 자동으로 붙인다. 개별 페이지에서 직접 붙이지 말 것.
+- 리퀴드 글래스(굴절): `src/lib/liquid-glass.ts` — displacement map을 캔버스로
+  생성해 SVG 필터(feImage+feDisplacementMap)로 주입하고 `backdrop-filter: url()`로
+  적용한다(kube.io/blog/liquid-glass-css-svg 기법). 주의: url()에 다른 필터 함수를
+  체이닝하면 Chromium에서 무시될 수 있어 단독으로 쓴다. Chromium 전용이므로 적용
+  대상에는 반드시 CSS 폴백(반투명 + blur)을 함께 둔다. 누르는 동안 scale이 큰
+  필터로 교체해 굴절이 강해지는 프레스 상태를 지원한다(map 재계산 없음).
+- range 슬라이더는 `src/components/GlassSlider.astro` 공용 컴포넌트를 쓴다
+  (스타일·프레스 동작·썸 굴절이 한 곳에서 관리, `--thumb-glass` CSS 변수 경유).
+  페이지 쪽에서 폭 등을 조정할 때는 컴포넌트 요소라 `:global(.glass-slider)`로
+  선택해야 한다. 테마 토글 버튼은 Layout에서 `applyLiquidGlass`로 직접 적용.
 - 테마: 다크 기본 + 라이트 지원. `Layout.astro`의 `:root` CSS 변수 팔레트
   (+`--danger`)를 라이트에서 재정의하고, OS 설정 추종(`prefers-color-scheme`) +
   수동 토글(우상단 고정 버튼, localStorage `killterm-theme`, FOUC 방지 인라인

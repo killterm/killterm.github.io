@@ -1,5 +1,6 @@
 ---
 // 사운드 채널 테스트: Web Audio 오실레이터 + 스테레오 패닝
+import GlassSlider from '../GlassSlider.astro';
 ---
 
 <div class="sd">
@@ -28,13 +29,13 @@
         <span>고음 4kHz</span>
       </label>
     </div>
-    <input id="sd-freq-slider" type="range" min="0" max="100" step="1" value="41" aria-label="주파수 조절" />
+    <GlassSlider id="sd-freq-slider" min="0" max="100" step="1" value="41" aria-label="주파수 조절" />
     <span id="sd-freq-label" class="sd-value">440Hz</span>
   </div>
 
   <div class="sd-row">
     <span class="sd-label">볼륨</span>
-    <input id="sd-volume" type="range" min="0" max="100" step="1" value="20" aria-label="볼륨" />
+    <GlassSlider id="sd-volume" min="0" max="100" step="1" value="20" aria-label="볼륨" />
     <span id="sd-volume-label" class="sd-value">20%</span>
   </div>
 
@@ -184,10 +185,6 @@
     min-width: 4.5rem;
   }
 
-  .sd input[type='range'] {
-    width: 200px;
-    accent-color: var(--accent);
-  }
 
   .sd-ch.sd-active {
     background: var(--accent);
