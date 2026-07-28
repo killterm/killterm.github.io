@@ -4,7 +4,7 @@ interface Props {
   description?: string;
 }
 
-const { title, description = 'killterm의 작은 도구 모음' } = Astro.props;
+const { title, description = 'Killterm의 작은 도구 모음' } = Astro.props;
 ---
 
 <!doctype html>
@@ -16,11 +16,48 @@ const { title, description = 'killterm의 작은 도구 모음' } = Astro.props;
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="generator" content={Astro.generator} />
     <title>{title}</title>
+    <script is:inline>
+      // FOUC 방지: 저장된 테마 선택을 스타일 적용 전에 반영 (없으면 OS 설정 추종)
+      const storedTheme = localStorage.getItem('killterm-theme');
+      if (storedTheme === 'light' || storedTheme === 'dark') {
+        document.documentElement.dataset.theme = storedTheme;
+      }
+    </script>
   </head>
   <body>
+    <button id="theme-toggle" type="button" aria-label="테마 전환">🌙</button>
     <slot />
   </body>
 </html>
+
+<script>
+  const toggleButton = document.getElementById('theme-toggle') as HTMLButtonElement;
+  const systemLight = window.matchMedia('(prefers-color-scheme: light)');
+
+  // 유효 테마 = 명시적 선택(data-theme) ?? OS 설정
+  const effectiveTheme = () =>
+    document.documentElement.dataset.theme ?? (systemLight.matches ? 'light' : 'dark');
+
+  function renderToggle() {
+    const theme = effectiveTheme();
+    toggleButton.textContent = theme === 'dark' ? '🌙' : '☀️';
+    toggleButton.setAttribute(
+      'aria-label',
+      theme === 'dark' ? '라이트 모드로 전환' : '다크 모드로 전환',
+    );
+  }
+
+  toggleButton.addEventListener('click', () => {
+    const next = effectiveTheme() === 'dark' ? 'light' : 'dark';
+    document.documentElement.dataset.theme = next;
+    localStorage.setItem('killterm-theme', next);
+    renderToggle();
+  });
+
+  // 명시적 선택 전에는 OS 테마 변경도 아이콘에 반영
+  systemLight.addEventListener('change', renderToggle);
+  renderToggle();
+</script>
 
 <style is:global>
   *,
@@ -30,6 +67,7 @@ const { title, description = 'killterm의 작은 도구 모음' } = Astro.props;
   }
 
   :root {
+    color-scheme: dark;
     --bg: #0f1117;
     --bg-soft: #171a23;
     --surface: #1e222e;
@@ -38,10 +76,36 @@ const { title, description = 'killterm의 작은 도구 모음' } = Astro.props;
     --text-dim: #9aa1b2;
     --accent: #6c8cff;
     --accent-soft: rgba(108, 140, 255, 0.14);
+    --danger: #ff8f8f;
   }
 
-  html {
-    color-scheme: dark;
+  /* 라이트 팔레트: 수동 선택(data-theme) 또는 OS 설정 추종(명시 선택 없을 때) */
+  :root[data-theme='light'] {
+    color-scheme: light;
+    --bg: #f5f6f8;
+    --bg-soft: #eceef2;
+    --surface: #ffffff;
+    --border: #d5d9e2;
+    --text: #1c2333;
+    --text-dim: #5b6270;
+    --accent: #4263eb;
+    --accent-soft: rgba(66, 99, 235, 0.12);
+    --danger: #c92a2a;
+  }
+
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme]) {
+      color-scheme: light;
+      --bg: #f5f6f8;
+      --bg-soft: #eceef2;
+      --surface: #ffffff;
+      --border: #d5d9e2;
+      --text: #1c2333;
+      --text-dim: #5b6270;
+      --accent: #4263eb;
+      --accent-soft: rgba(66, 99, 235, 0.12);
+      --danger: #c92a2a;
+    }
   }
 
   body {
@@ -64,5 +128,33 @@ const { title, description = 'killterm의 작은 도구 모음' } = Astro.props;
 
   a {
     color: inherit;
+  }
+
+  #theme-toggle {
+    position: fixed;
+    top: 1rem;
+    right: 1rem;
+    z-index: 100;
+    width: 2.4rem;
+    height: 2.4rem;
+    display: grid;
+    place-items: center;
+    font-size: 1.1rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 50%;
+    cursor: pointer;
+    transition:
+      border-color 0.15s ease,
+      transform 0.15s ease;
+  }
+
+  #theme-toggle:hover {
+    border-color: var(--accent);
+    transform: rotate(15deg);
+  }
+
+  #theme-toggle:focus-visible {
+    outline: 2px solid var(--accent);
   }
 </style>

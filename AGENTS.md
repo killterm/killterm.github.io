@@ -22,6 +22,13 @@
   저장소 설정에서 Pages Source를 "GitHub Actions"로 지정해야 동작한다.
 - 랜딩 페이지(`src/pages/index.astro`)는 런치패드 스타일 타일 그리드. 새 도구를
   추가하면 `apps` 배열에 타일을 추가한다.
+- 사이트 표기 브랜드명은 **Killterm**(첫 글자 대문자). localStorage 키(`killterm-*`)와
+  도메인 식별자는 소문자 유지.
+- 테마: 다크 기본 + 라이트 지원. `Layout.astro`의 `:root` CSS 변수 팔레트
+  (+`--danger`)를 라이트에서 재정의하고, OS 설정 추종(`prefers-color-scheme`) +
+  수동 토글(우상단 고정 버튼, localStorage `killterm-theme`, FOUC 방지 인라인
+  스크립트) 구조다. 새 스타일은 하드코딩 색 대신 CSS 변수를 쓰고, 변수로 안 되는
+  테마별 색은 `light-dark()`를 쓴다(color-scheme이 테마별로 설정되어 있어 동작).
 
 ### 탭형 도구 페이지 공통 구조 (개발 도구 · 하드웨어 테스트)
 
