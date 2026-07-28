@@ -1,0 +1,897 @@
+---
+import Layout from '../layouts/Layout.astro';
+
+// 탭 목록. 스크립트의 패널 id·해시 딥링크와 value가 일치해야 한다.
+const tabs = [
+  { id: 'timestamp', label: '타임스탬프' },
+  { id: 'json', label: 'JSON' },
+  { id: 'regex', label: '정규식' },
+];
+---
+
+<Layout
+  title="개발 도구 — killterm"
+  description="타임스탬프 변환, JSON 정리, 정규식 테스트를 브라우저 안에서 처리합니다."
+>
+  <main>
+    <nav class="top">
+      <a href="/">← 홈으로</a>
+    </nav>
+
+    <header class="intro">
+      <h1>🧰 개발 도구</h1>
+      <p>자주 쓰는 개발 유틸리티 모음입니다. 모든 처리는 브라우저 안에서만 이루어집니다.</p>
+    </header>
+
+    <div class="tabs" role="radiogroup" aria-label="도구 선택">
+      {
+        tabs.map((t) => (
+          <label class="tab">
+            <input type="radio" name="tab" value={t.id} />
+            <span>{t.label}</span>
+          </label>
+        ))
+      }
+    </div>
+
+    <!-- ---------- 타임스탬프 변환기 ---------- -->
+    <section class="panel" id="panel-timestamp" hidden>
+      <div class="field-row">
+        <input
+          id="ts-input"
+          type="text"
+          inputmode="numeric"
+          placeholder="Unix timestamp"
+          spellcheck="false"
+        />
+        <div class="chip-group" role="radiogroup" aria-label="타임스탬프 단위">
+          <label class="chip">
+            <input type="radio" name="ts-unit" value="auto" checked />
+            <span>자동</span>
+          </label>
+          <label class="chip">
+            <input type="radio" name="ts-unit" value="sec" />
+            <span>초</span>
+          </label>
+          <label class="chip">
+            <input type="radio" name="ts-unit" value="ms" />
+            <span>밀리초</span>
+          </label>
+        </div>
+        <button id="ts-now" class="btn btn-small" type="button">지금</button>
+        <span id="ts-badge" class="badge" hidden></span>
+      </div>
+
+      <div class="result-card" id="ts-results" hidden>
+        <div class="result-row">
+          <span class="result-label">KST</span>
+          <output id="ts-kst"></output>
+          <button class="btn btn-small copy" data-target="ts-kst" type="button">복사</button>
+        </div>
+        <div class="result-row">
+          <span class="result-label">UTC</span>
+          <output id="ts-utc"></output>
+          <button class="btn btn-small copy" data-target="ts-utc" type="button">복사</button>
+        </div>
+        <div class="result-row">
+          <span class="result-label">ISO 8601</span>
+          <output id="ts-iso"></output>
+          <button class="btn btn-small copy" data-target="ts-iso" type="button">복사</button>
+        </div>
+        <div class="result-row">
+          <span class="result-label">상대 시간</span>
+          <output id="ts-rel"></output>
+        </div>
+      </div>
+
+      <h2>날짜 → 타임스탬프</h2>
+      <div class="field-row">
+        <input id="dt-input" type="datetime-local" step="1" />
+        <span class="hint">브라우저 로컬 시간 기준</span>
+      </div>
+      <div class="result-card" id="dt-results" hidden>
+        <div class="result-row">
+          <span class="result-label">초</span>
+          <output id="dt-sec"></output>
+          <button class="btn btn-small copy" data-target="dt-sec" type="button">복사</button>
+        </div>
+        <div class="result-row">
+          <span class="result-label">밀리초</span>
+          <output id="dt-ms"></output>
+          <button class="btn btn-small copy" data-target="dt-ms" type="button">복사</button>
+        </div>
+      </div>
+      <p id="ts-status" class="status" role="status"></p>
+    </section>
+
+    <!-- ---------- JSON 도구 ---------- -->
+    <section class="panel" id="panel-json" hidden>
+      <div class="field-row">
+        <div class="chip-group" role="radiogroup" aria-label="들여쓰기">
+          <label class="chip">
+            <input type="radio" name="json-indent" value="2" checked />
+            <span>2칸</span>
+          </label>
+          <label class="chip">
+            <input type="radio" name="json-indent" value="4" />
+            <span>4칸</span>
+          </label>
+          <label class="chip">
+            <input type="radio" name="json-indent" value="tab" />
+            <span>탭</span>
+          </label>
+        </div>
+        <button id="json-format" class="btn btn-primary" type="button">포매팅</button>
+        <button id="json-minify" class="btn" type="button">압축</button>
+        <button id="json-sort" class="btn" type="button">키 정렬</button>
+        <button class="btn copy" data-target="json-area" type="button">복사</button>
+        <button id="json-clear" class="btn" type="button">지우기</button>
+      </div>
+      <textarea
+        id="json-area"
+        rows="16"
+        spellcheck="false"
+        placeholder='{"example": [1, 2, 3]}'></textarea>
+      <p id="json-status" class="status" role="status"></p>
+      <div id="json-error" class="error-detail" hidden>
+        <pre id="json-error-snippet"></pre>
+        <button id="json-goto" class="btn btn-small" type="button">에러 위치로 이동</button>
+      </div>
+      <p class="hint">숫자는 JavaScript 정밀도로 처리됩니다 (큰 정수는 반올림될 수 있음).</p>
+    </section>
+
+    <!-- ---------- 정규식 테스터 ---------- -->
+    <section class="panel" id="panel-regex" hidden>
+      <div class="field-row regex-pattern">
+        <span class="slash" aria-hidden="true">/</span>
+        <input id="re-pattern" type="text" placeholder="패턴" spellcheck="false" />
+        <span class="slash" aria-hidden="true">/</span>
+        <div class="chip-group" aria-label="플래그">
+          {
+            ['g', 'i', 'm', 's', 'u', 'y'].map((f) => (
+              <label class="chip">
+                <input type="checkbox" class="re-flag" value={f} checked={f === 'g'} />
+                <span>{f}</span>
+              </label>
+            ))
+          }
+        </div>
+      </div>
+      <textarea id="re-test" rows="7" spellcheck="false" placeholder="테스트 문자열"></textarea>
+      <p id="re-status" class="status" role="status"></p>
+      <h2>하이라이트</h2>
+      <pre id="re-highlight" class="highlight"></pre>
+      <h2>매치 목록</h2>
+      <div class="table-wrap">
+        <table class="match-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>위치</th>
+              <th>매치</th>
+              <th>캡처 그룹</th>
+            </tr>
+          </thead>
+          <tbody id="re-matches"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+</Layout>
+
+<script>
+  // ---------- 탭 컨트롤러 ----------
+  // 탭을 떠날 때 자원(인터벌 등)을 정리할 수 있도록 onEnter/onLeave 훅을 둔다.
+
+  const PANEL_IDS = ['timestamp', 'json', 'regex'];
+
+  type TabHooks = { onEnter?: () => void; onLeave?: () => void };
+  const tabHooks: Record<string, TabHooks> = {};
+  let currentTab = '';
+
+  function setTab(next: string) {
+    if (next === currentTab) return;
+    if (currentTab) tabHooks[currentTab]?.onLeave?.();
+    for (const id of PANEL_IDS) {
+      document.getElementById(`panel-${id}`)!.hidden = id !== next;
+    }
+    const radio = document.querySelector(
+      `input[name="tab"][value="${next}"]`,
+    ) as HTMLInputElement;
+    radio.checked = true;
+    history.replaceState(null, '', `#${next}`);
+    currentTab = next;
+    tabHooks[next]?.onEnter?.();
+  }
+
+  for (const radio of document.querySelectorAll<HTMLInputElement>('input[name="tab"]')) {
+    radio.addEventListener('change', () => setTab(radio.value));
+  }
+
+  window.addEventListener('hashchange', () => {
+    const id = location.hash.slice(1);
+    if (PANEL_IDS.includes(id)) setTab(id);
+  });
+
+  // ---------- 공통: 복사 ----------
+
+  for (const btn of document.querySelectorAll<HTMLButtonElement>('.copy')) {
+    btn.addEventListener('click', async () => {
+      const target = document.getElementById(btn.dataset.target!)!;
+      const text =
+        target instanceof HTMLTextAreaElement || target instanceof HTMLInputElement
+          ? target.value
+          : (target.textContent ?? '');
+      await navigator.clipboard.writeText(text);
+      const label = btn.textContent;
+      btn.textContent = '복사됨!';
+      setTimeout(() => (btn.textContent = label), 1200);
+    });
+  }
+
+  const checkedValue = (name: string) =>
+    (document.querySelector(`input[name="${name}"]:checked`) as HTMLInputElement).value;
+
+  // ---------- 타임스탬프 변환기 ----------
+
+  const tsInput = document.getElementById('ts-input') as HTMLInputElement;
+  const tsBadge = document.getElementById('ts-badge') as HTMLSpanElement;
+  const tsResults = document.getElementById('ts-results') as HTMLDivElement;
+  const tsStatus = document.getElementById('ts-status') as HTMLParagraphElement;
+  const tsOut = {
+    kst: document.getElementById('ts-kst') as HTMLOutputElement,
+    utc: document.getElementById('ts-utc') as HTMLOutputElement,
+    iso: document.getElementById('ts-iso') as HTMLOutputElement,
+    rel: document.getElementById('ts-rel') as HTMLOutputElement,
+  };
+
+  const dateTimeFormat = (timeZone: string) =>
+    new Intl.DateTimeFormat('ko-KR', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      weekday: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    });
+  const kstFormat = dateTimeFormat('Asia/Seoul');
+  const utcFormat = dateTimeFormat('UTC');
+  const relFormat = new Intl.RelativeTimeFormat('ko', { numeric: 'auto' });
+
+  // 현재 유효하게 파싱된 밀리초 값. 상대 시간 갱신 인터벌이 참조한다.
+  let tsParsedMs: number | null = null;
+
+  function relativeText(targetMs: number): string {
+    const diff = targetMs - Date.now();
+    const abs = Math.abs(diff);
+    const table: [number, number, Intl.RelativeTimeFormatUnit][] = [
+      [60_000, 1000, 'second'],
+      [3_600_000, 60_000, 'minute'],
+      [86_400_000, 3_600_000, 'hour'],
+      [2_592_000_000, 86_400_000, 'day'],
+      [31_536_000_000, 2_592_000_000, 'month'],
+      [Infinity, 31_536_000_000, 'year'],
+    ];
+    const [, divisor, unit] = table.find(([limit]) => abs < limit)!;
+    return relFormat.format(Math.round(diff / divisor), unit);
+  }
+
+  function renderTimestamp() {
+    tsStatus.textContent = '';
+    tsBadge.hidden = true;
+    tsParsedMs = null;
+    const raw = tsInput.value.trim();
+    if (!raw) {
+      tsResults.hidden = true;
+      return;
+    }
+    if (!/^-?\d+(\.\d+)?$/.test(raw)) {
+      tsResults.hidden = true;
+      tsStatus.textContent = '숫자만 입력해주세요.';
+      return;
+    }
+    const num = Number(raw);
+    const unitChoice = checkedValue('ts-unit');
+    let ms: number;
+    let unitLabel: string;
+    if (unitChoice === 'sec') {
+      ms = num * 1000;
+      unitLabel = '초';
+    } else if (unitChoice === 'ms') {
+      ms = num;
+      unitLabel = '밀리초';
+    } else {
+      // 자동 감지: 정수부 10자리 이하는 초, 그 이상은 밀리초로 해석
+      const intDigits = String(Math.trunc(Math.abs(num))).length;
+      const isMs = intDigits >= 11;
+      ms = isMs ? num : num * 1000;
+      unitLabel = isMs ? '밀리초' : '초';
+      tsBadge.textContent = `${unitLabel}로 해석함`;
+      tsBadge.hidden = false;
+    }
+    if (!Number.isFinite(ms) || Math.abs(ms) > 8.64e15) {
+      tsResults.hidden = true;
+      tsStatus.textContent = '표현 가능한 날짜 범위를 벗어났습니다.';
+      return;
+    }
+    const date = new Date(ms);
+    tsParsedMs = ms;
+    tsOut.kst.textContent = kstFormat.format(date);
+    tsOut.utc.textContent = utcFormat.format(date);
+    tsOut.iso.textContent = date.toISOString();
+    tsOut.rel.textContent = relativeText(ms);
+    tsResults.hidden = false;
+  }
+
+  tsInput.addEventListener('input', renderTimestamp);
+  for (const radio of document.querySelectorAll<HTMLInputElement>('input[name="ts-unit"]')) {
+    radio.addEventListener('change', renderTimestamp);
+  }
+
+  document.getElementById('ts-now')!.addEventListener('click', () => {
+    tsInput.value = String(Date.now());
+    renderTimestamp();
+  });
+
+  // 상대 시간은 탭이 보일 때만 1초 간격으로 갱신
+  let tsRelTimer: ReturnType<typeof setInterval> | null = null;
+  tabHooks.timestamp = {
+    onEnter: () => {
+      tsRelTimer = setInterval(() => {
+        if (tsParsedMs !== null) tsOut.rel.textContent = relativeText(tsParsedMs);
+      }, 1000);
+    },
+    onLeave: () => {
+      if (tsRelTimer !== null) clearInterval(tsRelTimer);
+      tsRelTimer = null;
+    },
+  };
+
+  // 날짜 → 타임스탬프 (브라우저 로컬 시간 기준)
+  const dtInput = document.getElementById('dt-input') as HTMLInputElement;
+  const dtResults = document.getElementById('dt-results') as HTMLDivElement;
+
+  dtInput.addEventListener('input', () => {
+    const date = new Date(dtInput.value);
+    if (!dtInput.value || Number.isNaN(date.getTime())) {
+      dtResults.hidden = true;
+      return;
+    }
+    (document.getElementById('dt-sec') as HTMLOutputElement).textContent = String(
+      Math.floor(date.getTime() / 1000),
+    );
+    (document.getElementById('dt-ms') as HTMLOutputElement).textContent = String(date.getTime());
+    dtResults.hidden = false;
+  });
+
+  // ---------- JSON 도구 ----------
+
+  const jsonArea = document.getElementById('json-area') as HTMLTextAreaElement;
+  const jsonStatus = document.getElementById('json-status') as HTMLParagraphElement;
+  const jsonError = document.getElementById('json-error') as HTMLDivElement;
+  const jsonSnippet = document.getElementById('json-error-snippet') as HTMLPreElement;
+  const jsonGoto = document.getElementById('json-goto') as HTMLButtonElement;
+  let jsonErrorPos: number | null = null;
+
+  function currentIndent(): string | number {
+    const v = checkedValue('json-indent');
+    return v === 'tab' ? '\t' : Number(v);
+  }
+
+  function sortKeysDeep(value: unknown): unknown {
+    if (Array.isArray(value)) return value.map(sortKeysDeep);
+    if (value !== null && typeof value === 'object') {
+      const record = value as Record<string, unknown>;
+      return Object.fromEntries(
+        Object.keys(record)
+          .sort()
+          .map((k) => [k, sortKeysDeep(record[k])]),
+      );
+    }
+    return value;
+  }
+
+  // 위치(문자 오프셋) → 줄/칸 (1-기준)
+  function locate(text: string, pos: number): { line: number; col: number } {
+    const before = text.slice(0, pos);
+    return { line: before.split('\n').length, col: pos - before.lastIndexOf('\n') };
+  }
+
+  // 브라우저별 에러 메시지에서 위치 추출: V8 "position N", Firefox "line L column C"
+  function showJsonError(e: unknown) {
+    const message = e instanceof Error ? e.message : String(e);
+    const text = jsonArea.value;
+    jsonErrorPos = null;
+    let line: number | null = null;
+    let col: number | null = null;
+    const posMatch = message.match(/position (\d+)/);
+    const lineColMatch = message.match(/line (\d+) column (\d+)/);
+    if (posMatch) {
+      jsonErrorPos = Math.min(Number(posMatch[1]), text.length);
+      ({ line, col } = locate(text, jsonErrorPos));
+    } else if (lineColMatch) {
+      line = Number(lineColMatch[1]);
+      col = Number(lineColMatch[2]);
+      jsonErrorPos = text.split('\n').slice(0, line - 1).join('\n').length + (line > 1 ? 1 : 0) + col - 1;
+    }
+    if (line !== null && col !== null) {
+      jsonStatus.textContent = `구문 오류: ${line}번째 줄 ${col}번째 칸 — ${message}`;
+      const lineText = text.split('\n')[line - 1] ?? '';
+      jsonSnippet.textContent = `${lineText}\n${' '.repeat(Math.max(0, col - 1))}^`;
+      jsonError.hidden = false;
+    } else {
+      jsonStatus.textContent = `구문 오류: ${message}`;
+      jsonError.hidden = true;
+    }
+  }
+
+  function runJson(transform: (v: unknown) => unknown, indent: string | number | undefined) {
+    jsonStatus.textContent = '';
+    jsonError.hidden = true;
+    if (jsonArea.value.trim() === '') return;
+    try {
+      const before = jsonArea.value.length;
+      jsonArea.value = JSON.stringify(transform(JSON.parse(jsonArea.value)), null, indent);
+      jsonStatus.textContent = `완료 (${before.toLocaleString()}자 → ${jsonArea.value.length.toLocaleString()}자)`;
+    } catch (e) {
+      showJsonError(e);
+    }
+  }
+
+  document
+    .getElementById('json-format')!
+    .addEventListener('click', () => runJson((v) => v, currentIndent()));
+  document
+    .getElementById('json-minify')!
+    .addEventListener('click', () => runJson((v) => v, undefined));
+  document
+    .getElementById('json-sort')!
+    .addEventListener('click', () => runJson(sortKeysDeep, currentIndent()));
+
+  document.getElementById('json-clear')!.addEventListener('click', () => {
+    jsonArea.value = '';
+    jsonStatus.textContent = '';
+    jsonError.hidden = true;
+    jsonArea.focus();
+  });
+
+  jsonGoto.addEventListener('click', () => {
+    if (jsonErrorPos === null) return;
+    jsonArea.focus();
+    jsonArea.setSelectionRange(jsonErrorPos, jsonErrorPos + 1);
+  });
+
+  // ---------- 정규식 테스터 ----------
+
+  const MATCH_LIMIT = 5000;
+  const rePattern = document.getElementById('re-pattern') as HTMLInputElement;
+  const reTest = document.getElementById('re-test') as HTMLTextAreaElement;
+  const reStatus = document.getElementById('re-status') as HTMLParagraphElement;
+  const reHighlight = document.getElementById('re-highlight') as HTMLPreElement;
+  const reMatches = document.getElementById('re-matches') as HTMLTableSectionElement;
+
+  const escapeHtml = (s: string) =>
+    s.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+
+  const reFlags = () =>
+    Array.from(document.querySelectorAll<HTMLInputElement>('.re-flag'))
+      .filter((c) => c.checked)
+      .map((c) => c.value)
+      .join('');
+
+  function runRegex() {
+    const src = reTest.value;
+    reStatus.textContent = '';
+    reMatches.innerHTML = '';
+    reHighlight.textContent = src;
+    if (rePattern.value === '') return;
+
+    let re: RegExp;
+    try {
+      re = new RegExp(rePattern.value, reFlags());
+    } catch (e) {
+      reStatus.textContent = e instanceof Error ? e.message : String(e);
+      return;
+    }
+
+    // 제로 폭 매치 무한 루프를 피하려고 수동 exec 루프 대신 matchAll을 쓴다
+    let matches: RegExpMatchArray[];
+    let truncated = false;
+    if (re.global) {
+      matches = [];
+      for (const m of src.matchAll(re)) {
+        if (matches.length >= MATCH_LIMIT) {
+          truncated = true;
+          break;
+        }
+        matches.push(m);
+      }
+    } else {
+      const single = src.match(re);
+      matches = single ? [single] : [];
+    }
+
+    // 하이라이트
+    let html = '';
+    let last = 0;
+    matches.forEach((m, i) => {
+      const start = m.index!;
+      html += escapeHtml(src.slice(last, start));
+      const classes = ['hl', i % 2 ? 'hl-b' : 'hl-a'];
+      if (m[0] === '') classes.push('hl-zw');
+      html += `<mark class="${classes.join(' ')}">${escapeHtml(m[0])}</mark>`;
+      last = start + m[0].length;
+    });
+    html += escapeHtml(src.slice(last));
+    reHighlight.innerHTML = html;
+
+    // 매치 테이블
+    for (const [i, m] of matches.entries()) {
+      const row = document.createElement('tr');
+      const groups: string[] = m.slice(1).map((g, gi) => `${gi + 1}: ${g ?? '(없음)'}`);
+      for (const [name, value] of Object.entries(m.groups ?? {})) {
+        groups.push(`${name}: ${value ?? '(없음)'}`);
+      }
+      const cells = [String(i + 1), String(m.index), m[0], groups.join('\n')];
+      for (const text of cells) {
+        const td = document.createElement('td');
+        td.textContent = text;
+        row.appendChild(td);
+      }
+      reMatches.appendChild(row);
+    }
+
+    reStatus.textContent =
+      `${matches.length.toLocaleString()}개 매치` +
+      (truncated ? ` (${MATCH_LIMIT.toLocaleString()}개까지만 표시)` : '');
+  }
+
+  let reTimer: ReturnType<typeof setTimeout> | null = null;
+  function scheduleRegex() {
+    if (reTimer !== null) clearTimeout(reTimer);
+    reTimer = setTimeout(runRegex, 150);
+  }
+
+  rePattern.addEventListener('input', scheduleRegex);
+  reTest.addEventListener('input', scheduleRegex);
+  for (const flag of document.querySelectorAll<HTMLInputElement>('.re-flag')) {
+    flag.addEventListener('change', scheduleRegex);
+  }
+
+  // ---------- 초기 탭 ----------
+
+  const initialHash = location.hash.slice(1);
+  setTab(PANEL_IDS.includes(initialHash) ? initialHash : PANEL_IDS[0]);
+</script>
+
+<style>
+  main {
+    max-width: 860px;
+    margin: 0 auto;
+    padding: 2.5rem 1.5rem 4rem;
+  }
+
+  .top a {
+    color: var(--text-dim);
+    text-decoration: none;
+    font-size: 0.9rem;
+  }
+
+  .top a:hover {
+    color: var(--accent);
+  }
+
+  .intro h1 {
+    margin: 1rem 0 0.5rem;
+    font-size: clamp(1.6rem, 4vw, 2.2rem);
+    letter-spacing: -0.02em;
+  }
+
+  .intro p {
+    color: var(--text-dim);
+    margin: 0 0 1.5rem;
+  }
+
+  .tabs {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 4px;
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    border-radius: 0.8rem;
+    margin-bottom: 1.25rem;
+  }
+
+  .tab input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .tab span {
+    display: block;
+    padding: 0.45rem 1rem;
+    border-radius: 0.6rem;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--text-dim);
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .tab input:checked + span {
+    background: var(--accent);
+    color: #fff;
+  }
+
+  .tab input:focus-visible + span {
+    outline: 2px solid var(--accent);
+  }
+
+  .panel {
+    display: grid;
+    gap: 0.9rem;
+  }
+
+  .panel[hidden] {
+    display: none;
+  }
+
+  .panel h2 {
+    margin: 0.6rem 0 0;
+    font-size: 1rem;
+    color: var(--text-dim);
+  }
+
+  .field-row {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+  }
+
+  .field-row input[type='text'],
+  .field-row input[type='datetime-local'] {
+    border: 1px solid var(--border);
+    background: var(--bg-soft);
+    color: var(--text);
+    font-family: Consolas, 'Courier New', monospace;
+    font-size: 0.92rem;
+    padding: 0.55rem 0.8rem;
+    border-radius: 0.7rem;
+  }
+
+  .field-row input[type='text'] {
+    flex: 1 1 200px;
+  }
+
+  .field-row input:focus {
+    outline: 2px solid var(--accent);
+    border-color: var(--accent);
+  }
+
+  .chip-group {
+    display: inline-flex;
+    gap: 4px;
+    padding: 3px;
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    border-radius: 0.7rem;
+  }
+
+  .chip input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .chip span {
+    display: block;
+    padding: 0.3rem 0.7rem;
+    border-radius: 0.5rem;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--text-dim);
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .chip input:checked + span {
+    background: var(--accent);
+    color: #fff;
+  }
+
+  .chip input:focus-visible + span {
+    outline: 2px solid var(--accent);
+  }
+
+  .badge {
+    font-size: 0.78rem;
+    color: var(--accent);
+    border: 1px solid var(--accent);
+    border-radius: 999px;
+    padding: 0.15rem 0.6rem;
+  }
+
+  .result-card {
+    display: grid;
+    gap: 0.5rem;
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    border-radius: 0.8rem;
+    padding: 0.9rem 1rem;
+  }
+
+  .result-row {
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+  }
+
+  .result-label {
+    flex: 0 0 5.5rem;
+    color: var(--text-dim);
+    font-size: 0.85rem;
+    font-weight: 600;
+  }
+
+  .result-row output {
+    flex: 1;
+    font-family: Consolas, 'Courier New', monospace;
+    font-size: 0.95rem;
+    overflow-wrap: anywhere;
+  }
+
+  textarea {
+    width: 100%;
+    resize: vertical;
+    border: 1px solid var(--border);
+    background: var(--bg-soft);
+    color: var(--text);
+    font-family: Consolas, 'Courier New', monospace;
+    font-size: 0.92rem;
+    line-height: 1.5;
+    padding: 0.7rem 0.85rem;
+    border-radius: 0.7rem;
+  }
+
+  textarea:focus {
+    outline: 2px solid var(--accent);
+    border-color: var(--accent);
+  }
+
+  .btn {
+    appearance: none;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    font: inherit;
+    font-weight: 600;
+    padding: 0.55rem 1.2rem;
+    border-radius: 0.7rem;
+    cursor: pointer;
+  }
+
+  .btn:hover {
+    border-color: var(--accent);
+  }
+
+  .btn-primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+  }
+
+  .btn-primary:hover {
+    filter: brightness(1.1);
+  }
+
+  .btn-small {
+    padding: 0.25rem 0.7rem;
+    font-size: 0.8rem;
+  }
+
+  .status {
+    min-height: 1.2em;
+    margin: 0;
+    font-size: 0.88rem;
+    color: #ff8f8f;
+    overflow-wrap: anywhere;
+  }
+
+  .error-detail {
+    display: grid;
+    gap: 0.5rem;
+    justify-items: start;
+  }
+
+  .error-detail pre {
+    margin: 0;
+    max-width: 100%;
+    overflow-x: auto;
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    border-radius: 0.6rem;
+    padding: 0.6rem 0.8rem;
+    font-size: 0.85rem;
+    line-height: 1.4;
+  }
+
+  .hint {
+    color: var(--text-dim);
+    font-size: 0.82rem;
+    margin: 0;
+  }
+
+  .regex-pattern .slash {
+    color: var(--text-dim);
+    font-family: Consolas, 'Courier New', monospace;
+    font-size: 1.1rem;
+  }
+
+  .highlight {
+    margin: 0;
+    min-height: 3rem;
+    max-height: 20rem;
+    overflow: auto;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    border-radius: 0.7rem;
+    padding: 0.7rem 0.85rem;
+    font-size: 0.92rem;
+    line-height: 1.5;
+  }
+
+  /* 하이라이트 mark는 JS로 innerHTML 생성되므로 :global로 선언 */
+  .highlight :global(.hl) {
+    border-radius: 3px;
+    color: inherit;
+  }
+
+  .highlight :global(.hl-a) {
+    background: rgba(108, 140, 255, 0.35);
+  }
+
+  .highlight :global(.hl-b) {
+    background: rgba(72, 187, 120, 0.35);
+  }
+
+  .highlight :global(.hl-zw) {
+    padding: 0 1px;
+    box-shadow: inset 1px 0 0 var(--accent);
+  }
+
+  .table-wrap {
+    overflow-x: auto;
+  }
+
+  .match-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.88rem;
+  }
+
+  .match-table th {
+    text-align: left;
+    color: var(--text-dim);
+    font-weight: 600;
+    padding: 0.4rem 0.6rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  /* 테이블 행은 JS로 생성되므로 :global로 선언 */
+  .match-table :global(td) {
+    padding: 0.4rem 0.6rem;
+    border-bottom: 1px solid var(--border);
+    font-family: Consolas, 'Courier New', monospace;
+    vertical-align: top;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+</style>

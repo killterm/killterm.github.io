@@ -1,0 +1,256 @@
+---
+// 반응속도 테스트: idle → waiting → go / foul 상태 머신, 5회 1세트
+---
+
+<div class="rx">
+  <div class="rx-area rx-idle" id="rx-area">
+    <div class="rx-text" id="rx-text">클릭해서 시작</div>
+    <div class="rx-sub" id="rx-sub">초록색으로 바뀌면 최대한 빨리 클릭하세요 (5회 1세트)</div>
+  </div>
+
+  <div class="rx-info">
+    <span>이번 세트 <span id="rx-rounds" class="rx-rounds"></span></span>
+    <span>세트 평균 <b id="rx-avg">-</b></span>
+    <span>
+      역대 최고 <b id="rx-best">-</b>
+      <button id="rx-reset" class="btn btn-small" type="button">기록 초기화</button>
+    </span>
+  </div>
+</div>
+
+<script>
+  const area = document.getElementById('rx-area') as HTMLDivElement;
+  const text = document.getElementById('rx-text') as HTMLDivElement;
+  const sub = document.getElementById('rx-sub') as HTMLDivElement;
+  const roundsOut = document.getElementById('rx-rounds') as HTMLSpanElement;
+  const avgOut = document.getElementById('rx-avg') as HTMLElement;
+  const bestOut = document.getElementById('rx-best') as HTMLElement;
+
+  const STORAGE_KEY = 'killterm-hwtest-reaction-v1';
+  const SET_SIZE = 5;
+
+  type State = 'idle' | 'waiting' | 'go' | 'foul' | 'done';
+  let state: State = 'idle';
+  let waitTimer: ReturnType<typeof setTimeout> | null = null;
+  let goTime = 0;
+  let rounds: number[] = [];
+
+  function loadBest(): number | null {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return null;
+      const best = JSON.parse(raw).best;
+      return typeof best === 'number' ? best : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function saveBest(best: number) {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ best }));
+  }
+
+  function renderInfo() {
+    roundsOut.textContent = rounds.length
+      ? rounds.map((r) => `${Math.round(r)}ms`).join(' · ')
+      : '-';
+    avgOut.textContent =
+      rounds.length === SET_SIZE
+        ? `${Math.round(rounds.reduce((a, b) => a + b, 0) / rounds.length)}ms`
+        : '-';
+    const best = loadBest();
+    bestOut.textContent = best === null ? '-' : `${Math.round(best)}ms`;
+  }
+
+  function setState(next: State, mainText: string, subText: string) {
+    state = next;
+    area.className = `rx-area rx-${next}`;
+    text.textContent = mainText;
+    sub.textContent = subText;
+  }
+
+  // 지수 분포 대기 — "이미 기다린 시간"이 전환 시점의 힌트가 되지 않게 한다.
+  //
+  // 균등 분포(예: 1~5초)의 문제: 오래 버틸수록 남은 후보 구간이 줄어서
+  // "앞으로 0.5초 안에 바뀔 확률"이 계속 올라간다.
+  //   1초 경과 → 0.5/4 = 12.5%,  3초 → 25%,  4초 → 50%,  4.5초 → 100%
+  // 후반부에는 반응이 아니라 타이밍 예측으로 클릭할 수 있게 된다.
+  //
+  // 지수 분포는 "매 순간 일정한 확률로 전환"하는 과정의 분포라서 같은 계산이
+  // 언제나 같다(무기억성): P(T > s+t | T > s) = P(T > t).
+  //   평균 1.5초 기준, 1초를 기다렸든 7초를 기다렸든 앞으로 0.5초 안에
+  //   바뀔 확률은 1 - e^(-0.5/1.5) ≈ 28.3%로 동일하다.
+  // 동전 던지기와 같다: 앞면이 30번 연속 안 나와도 다음 확률은 그대로다.
+  //
+  // 구현은 역변환 표본추출: U ~ [0,1) 균등 난수일 때 -mean·ln(1-U)가 지수 분포.
+  // 최소 1초를 보장하고, 꼬리가 무한히 길어지지 않게 8초 상한을 둔다.
+  // (상한 근처에서만 미세하게 예측 가능해지지만 도달 확률이 e^(-7/1.5) ≈ 1% 미만)
+  const WAIT_MIN_MS = 1000;
+  const WAIT_MEAN_EXTRA_MS = 1500;
+  const WAIT_MAX_MS = 8000;
+
+  function nextWaitMs(): number {
+    const extra = -WAIT_MEAN_EXTRA_MS * Math.log(1 - Math.random());
+    return Math.min(WAIT_MIN_MS + extra, WAIT_MAX_MS);
+  }
+
+  function startWaiting() {
+    setState('waiting', '기다리세요…', '초록색으로 바뀌면 클릭!');
+    waitTimer = setTimeout(() => {
+      waitTimer = null;
+      // 시작 시각은 실제 페인트에 가까운 rAF 콜백 안에서 기록한다
+      setState('go', '지금!', '');
+      requestAnimationFrame(() => {
+        goTime = performance.now();
+      });
+    }, nextWaitMs());
+  }
+
+  function cancelWaiting() {
+    if (waitTimer !== null) clearTimeout(waitTimer);
+    waitTimer = null;
+  }
+
+  area.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    if (state === 'idle' || state === 'done') {
+      if (state === 'done') rounds = [];
+      renderInfo();
+      startWaiting();
+      return;
+    }
+    if (state === 'waiting') {
+      // 부정 출발: 이번 라운드는 기록하지 않는다
+      cancelWaiting();
+      setState('foul', '부정 출발!', '초록색으로 바뀐 뒤 클릭하세요 — 클릭하면 계속');
+      return;
+    }
+    if (state === 'foul') {
+      startWaiting();
+      return;
+    }
+    if (state === 'go') {
+      const rt = performance.now() - goTime;
+      rounds.push(rt);
+      const best = loadBest();
+      const isBest = best === null || rt < best;
+      if (isBest) saveBest(rt);
+      if (rounds.length >= SET_SIZE) {
+        const avg = Math.round(rounds.reduce((a, b) => a + b, 0) / rounds.length);
+        setState(
+          'done',
+          `세트 완료! 평균 ${avg}ms`,
+          `${isBest ? '🎉 역대 최고 갱신! ' : ''}클릭하면 새 세트를 시작합니다`,
+        );
+      } else {
+        setState(
+          'idle',
+          `${Math.round(rt)}ms${isBest ? ' 🎉 최고 기록!' : ''}`,
+          `${rounds.length}/${SET_SIZE}회 — 클릭하면 다음 라운드`,
+        );
+      }
+      renderInfo();
+    }
+  });
+
+  // 숨긴 탭에서 setTimeout이 지연 발화해 엉뚱한 기록이 되는 것을 방지
+  function abortToIdle() {
+    if (state !== 'waiting' && state !== 'go') return;
+    cancelWaiting();
+    setState('idle', '클릭해서 시작', '중단되었습니다 — 클릭하면 이어서 진행');
+  }
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) abortToIdle();
+  });
+
+  document.addEventListener('hw:tab', (e) => {
+    const { from } = (e as CustomEvent).detail;
+    if (from === 'reaction') abortToIdle();
+  });
+
+  document.getElementById('rx-reset')!.addEventListener('click', () => {
+    localStorage.removeItem(STORAGE_KEY);
+    renderInfo();
+  });
+
+  renderInfo();
+</script>
+
+<style>
+  .rx {
+    display: grid;
+    gap: 0.9rem;
+  }
+
+  .rx-area {
+    min-height: 280px;
+    display: grid;
+    place-content: center;
+    gap: 0.5rem;
+    text-align: center;
+    border-radius: 0.9rem;
+    cursor: pointer;
+    user-select: none;
+    touch-action: manipulation;
+    padding: 1rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    transition: background 0.1s ease;
+  }
+
+  .rx-text {
+    font-size: clamp(1.4rem, 4vw, 2rem);
+    font-weight: 700;
+  }
+
+  .rx-sub {
+    color: var(--text-dim);
+    font-size: 0.9rem;
+  }
+
+  .rx-waiting {
+    background: #b3261e;
+    border-color: #b3261e;
+  }
+
+  .rx-go {
+    background: #2f9e44;
+    border-color: #2f9e44;
+  }
+
+  .rx-foul {
+    background: #b8860b;
+    border-color: #b8860b;
+  }
+
+  .rx-waiting .rx-sub,
+  .rx-go .rx-sub,
+  .rx-foul .rx-sub {
+    color: rgba(255, 255, 255, 0.85);
+  }
+
+  .rx-waiting .rx-text,
+  .rx-go .rx-text,
+  .rx-foul .rx-text {
+    color: #fff;
+  }
+
+  .rx-info {
+    display: flex;
+    align-items: center;
+    gap: 1.2rem;
+    flex-wrap: wrap;
+    color: var(--text-dim);
+    font-size: 0.9rem;
+  }
+
+  .rx-info b {
+    color: var(--text);
+  }
+
+  .rx-rounds {
+    font-family: Consolas, 'Courier New', monospace;
+    color: var(--text);
+  }
+</style>

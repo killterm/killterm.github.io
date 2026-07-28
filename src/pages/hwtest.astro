@@ -1,0 +1,236 @@
+---
+import Layout from '../layouts/Layout.astro';
+import KeyboardTab from '../components/hwtest/KeyboardTab.astro';
+import MonitorTab from '../components/hwtest/MonitorTab.astro';
+import ReactionTab from '../components/hwtest/ReactionTab.astro';
+import SoundTab from '../components/hwtest/SoundTab.astro';
+
+// 탭 목록. 스크립트의 패널 id·해시 딥링크와 value가 일치해야 한다.
+const tabs = [
+  { id: 'keyboard', label: '키보드' },
+  { id: 'monitor', label: '모니터' },
+  { id: 'reaction', label: '반응속도' },
+  { id: 'sound', label: '사운드' },
+];
+---
+
+<Layout
+  title="하드웨어 테스트 — killterm"
+  description="키보드, 모니터, 반응속도, 사운드를 브라우저 안에서 테스트합니다."
+>
+  <main id="hwtest">
+    <nav class="top">
+      <a href="/">← 홈으로</a>
+    </nav>
+
+    <header class="intro">
+      <h1>🖥️ 하드웨어 테스트</h1>
+      <p>키보드·모니터·반응속도·사운드를 확인하는 도구 모음입니다. 모든 처리는 브라우저 안에서만 이루어집니다.</p>
+    </header>
+
+    <div class="tabs" role="radiogroup" aria-label="테스트 선택">
+      {
+        tabs.map((t) => (
+          <label class="tab">
+            <input type="radio" name="tab" value={t.id} />
+            <span>{t.label}</span>
+          </label>
+        ))
+      }
+    </div>
+
+    <section class="panel" id="panel-keyboard" hidden>
+      <KeyboardTab />
+    </section>
+    <section class="panel" id="panel-monitor" hidden>
+      <MonitorTab />
+    </section>
+    <section class="panel" id="panel-reaction" hidden>
+      <ReactionTab />
+    </section>
+    <section class="panel" id="panel-sound" hidden>
+      <SoundTab />
+    </section>
+  </main>
+</Layout>
+
+<script>
+  // ---------- 탭 컨트롤러 ----------
+  // 각 탭 컴포넌트는 'hw:tab' CustomEvent({from, to})를 듣고
+  // 자기 탭을 떠날 때 자원(rAF, 오디오, 타이머)을 정리한다.
+
+  const PANEL_IDS = ['keyboard', 'monitor', 'reaction', 'sound'];
+  let currentTab = '';
+
+  function setTab(next: string) {
+    if (next === currentTab) return;
+    const from = currentTab;
+    for (const id of PANEL_IDS) {
+      document.getElementById(`panel-${id}`)!.hidden = id !== next;
+    }
+    const radio = document.querySelector(
+      `input[name="tab"][value="${next}"]`,
+    ) as HTMLInputElement;
+    radio.checked = true;
+    history.replaceState(null, '', `#${next}`);
+    currentTab = next;
+    document.dispatchEvent(new CustomEvent('hw:tab', { detail: { from, to: next } }));
+  }
+
+  for (const radio of document.querySelectorAll<HTMLInputElement>('input[name="tab"]')) {
+    radio.addEventListener('change', () => setTab(radio.value));
+  }
+
+  window.addEventListener('hashchange', () => {
+    const id = location.hash.slice(1);
+    if (PANEL_IDS.includes(id)) setTab(id);
+  });
+
+  const initialHash = location.hash.slice(1);
+  setTab(PANEL_IDS.includes(initialHash) ? initialHash : PANEL_IDS[0]);
+</script>
+
+<style>
+  main {
+    max-width: 860px;
+    margin: 0 auto;
+    padding: 2.5rem 1.5rem 4rem;
+  }
+
+  .top a {
+    color: var(--text-dim);
+    text-decoration: none;
+    font-size: 0.9rem;
+  }
+
+  .top a:hover {
+    color: var(--accent);
+  }
+
+  .intro h1 {
+    margin: 1rem 0 0.5rem;
+    font-size: clamp(1.6rem, 4vw, 2.2rem);
+    letter-spacing: -0.02em;
+  }
+
+  .intro p {
+    color: var(--text-dim);
+    margin: 0 0 1.5rem;
+  }
+
+  .tabs {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 4px;
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    border-radius: 0.8rem;
+    margin-bottom: 1.25rem;
+  }
+
+  .tab input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .tab span {
+    display: block;
+    padding: 0.45rem 1rem;
+    border-radius: 0.6rem;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--text-dim);
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .tab input:checked + span {
+    background: var(--accent);
+    color: #fff;
+  }
+
+  .tab input:focus-visible + span {
+    outline: 2px solid var(--accent);
+  }
+
+  .panel[hidden] {
+    display: none;
+  }
+</style>
+
+<style is:global>
+  /* hwtest 탭 컴포넌트들이 함께 쓰는 공통 클래스 */
+  #hwtest .btn {
+    appearance: none;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    font: inherit;
+    font-weight: 600;
+    padding: 0.55rem 1.2rem;
+    border-radius: 0.7rem;
+    cursor: pointer;
+  }
+
+  #hwtest .btn:hover {
+    border-color: var(--accent);
+  }
+
+  #hwtest .btn-primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+  }
+
+  #hwtest .btn-primary:hover {
+    filter: brightness(1.1);
+  }
+
+  #hwtest .btn-small {
+    padding: 0.25rem 0.7rem;
+    font-size: 0.8rem;
+  }
+
+  #hwtest .hint {
+    color: var(--text-dim);
+    font-size: 0.82rem;
+    margin: 0;
+  }
+
+  #hwtest .chip-group {
+    display: inline-flex;
+    gap: 4px;
+    padding: 3px;
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    border-radius: 0.7rem;
+  }
+
+  #hwtest .chip input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  #hwtest .chip span {
+    display: block;
+    padding: 0.3rem 0.7rem;
+    border-radius: 0.5rem;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--text-dim);
+    cursor: pointer;
+    user-select: none;
+  }
+
+  #hwtest .chip input:checked + span {
+    background: var(--accent);
+    color: #fff;
+  }
+
+  #hwtest .chip input:focus-visible + span {
+    outline: 2px solid var(--accent);
+  }
+</style>

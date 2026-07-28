@@ -23,6 +23,35 @@
 - 랜딩 페이지(`src/pages/index.astro`)는 런치패드 스타일 타일 그리드. 새 도구를
   추가하면 `apps` 배열에 타일을 추가한다.
 
+### 개발 도구 페이지 (`src/pages/devtools.astro`)
+
+- 탭 3개(타임스탬프/JSON/정규식)를 가진 단일 파일 페이지. 탭은 숨긴 라디오 +
+  span 세그먼트 패턴이고, `#timestamp` `#json` `#regex` 해시로 딥링크된다.
+- 탭 컨트롤러에 onEnter/onLeave 훅이 있어 상대 시간 갱신 인터벌 등은 탭을
+  떠날 때 정리한다.
+- 타임스탬프 자동 감지: 정수부 10자리 이하 초, 11자리 이상 밀리초 (배지로 표시).
+- JSON 에러 위치는 브라우저별 메시지(position/line·column)에서 추출하고,
+  추출 실패 시 메시지만 표시하는 강등 경로가 있다.
+- 정규식은 제로 폭 매치 무한 루프를 피하려고 matchAll만 쓰고, 매치 5,000개 상한.
+
+### 하드웨어 테스트 페이지 (`src/pages/hwtest.astro`)
+
+- 탭 4개(키보드/모니터/반응속도/사운드), 해시 딥링크(`#keyboard` 등).
+  탭별 마크업·스크립트·스타일은 `src/components/hwtest/*Tab.astro`로 분리.
+- 페이지의 탭 컨트롤러가 `hw:tab` CustomEvent({from, to})를 쏘고, 각 컴포넌트가
+  자기 탭을 떠날 때 자원(rAF, 오디오, 타이머)을 정리한다. 공통 버튼/칩 스타일은
+  페이지의 `<style is:global>`에 `#hwtest` 프리픽스로 선언되어 있다.
+- JS로 동적 생성하는 노드(키 로그 행 등)에는 scoped 해시가 안 붙으므로
+  `:global()` 셀렉터로 스타일링한다.
+- 키보드: 테스트 영역 포커스 시에만 캡처, Esc/F5/F11/Ctrl·Cmd 조합은 기본 동작
+  유지. Meta keyup·blur 시 눌린 키 집합 초기화(keyup 유실 대응).
+- 모니터: 전체화면 종료 감지는 `fullscreenchange`, 미지원 환경은 fixed 오버레이
+  폴백. 주사율은 rAF 간격의 중앙값으로 산출해 일반 주사율에 ±3% 스냅.
+- 반응속도: pointerdown 계측, 시작 시각은 rAF 안에서 기록. 역대 최고 기록은
+  localStorage `killterm-hwtest-reaction-v1` = `{best: number}`.
+- 사운드: AudioContext는 첫 클릭에서 지연 생성(자동재생 정책), 오실레이터는
+  재생마다 새로 생성, 시작/정지에 20ms 게인 램프(팝 방지).
+
 ### 만다라트 페이지 (`src/pages/mandalart.astro`)
 
 - **범용 도구로 유지한다.** 특정 용도(목표, 게임 장르 등)를 암시하는 문구·예시·

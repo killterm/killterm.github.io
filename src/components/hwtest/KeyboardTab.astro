@@ -1,0 +1,498 @@
+---
+// 키보드 테스터: 눌린 키 표시, 동시 입력(고스팅) 확인, 이벤트 로그, 배열 시각화
+
+// 시각화용 키보드 배열. c는 KeyboardEvent.code, l은 표시 라벨,
+// w는 키 폭(1 = 기본 키 하나), gap은 빈 공간 폭.
+type LayoutKey = { c: string; l: string; w?: number } | { gap: number };
+
+const mainRows: LayoutKey[][] = [
+  [
+    { c: 'Escape', l: 'Esc' },
+    { gap: 1 },
+    { c: 'F1', l: 'F1' },
+    { c: 'F2', l: 'F2' },
+    { c: 'F3', l: 'F3' },
+    { c: 'F4', l: 'F4' },
+    { gap: 0.5 },
+    { c: 'F5', l: 'F5' },
+    { c: 'F6', l: 'F6' },
+    { c: 'F7', l: 'F7' },
+    { c: 'F8', l: 'F8' },
+    { gap: 0.5 },
+    { c: 'F9', l: 'F9' },
+    { c: 'F10', l: 'F10' },
+    { c: 'F11', l: 'F11' },
+    { c: 'F12', l: 'F12' },
+  ],
+  [
+    { c: 'Backquote', l: '`' },
+    { c: 'Digit1', l: '1' },
+    { c: 'Digit2', l: '2' },
+    { c: 'Digit3', l: '3' },
+    { c: 'Digit4', l: '4' },
+    { c: 'Digit5', l: '5' },
+    { c: 'Digit6', l: '6' },
+    { c: 'Digit7', l: '7' },
+    { c: 'Digit8', l: '8' },
+    { c: 'Digit9', l: '9' },
+    { c: 'Digit0', l: '0' },
+    { c: 'Minus', l: '-' },
+    { c: 'Equal', l: '=' },
+    { c: 'Backspace', l: '⌫', w: 2 },
+  ],
+  [
+    { c: 'Tab', l: 'Tab', w: 1.5 },
+    { c: 'KeyQ', l: 'Q' },
+    { c: 'KeyW', l: 'W' },
+    { c: 'KeyE', l: 'E' },
+    { c: 'KeyR', l: 'R' },
+    { c: 'KeyT', l: 'T' },
+    { c: 'KeyY', l: 'Y' },
+    { c: 'KeyU', l: 'U' },
+    { c: 'KeyI', l: 'I' },
+    { c: 'KeyO', l: 'O' },
+    { c: 'KeyP', l: 'P' },
+    { c: 'BracketLeft', l: '[' },
+    { c: 'BracketRight', l: ']' },
+    { c: 'Backslash', l: '\\', w: 1.5 },
+  ],
+  [
+    { c: 'CapsLock', l: 'Caps', w: 1.75 },
+    { c: 'KeyA', l: 'A' },
+    { c: 'KeyS', l: 'S' },
+    { c: 'KeyD', l: 'D' },
+    { c: 'KeyF', l: 'F' },
+    { c: 'KeyG', l: 'G' },
+    { c: 'KeyH', l: 'H' },
+    { c: 'KeyJ', l: 'J' },
+    { c: 'KeyK', l: 'K' },
+    { c: 'KeyL', l: 'L' },
+    { c: 'Semicolon', l: ';' },
+    { c: 'Quote', l: "'" },
+    { c: 'Enter', l: 'Enter', w: 2.25 },
+  ],
+  [
+    { c: 'ShiftLeft', l: 'Shift', w: 2.25 },
+    { c: 'KeyZ', l: 'Z' },
+    { c: 'KeyX', l: 'X' },
+    { c: 'KeyC', l: 'C' },
+    { c: 'KeyV', l: 'V' },
+    { c: 'KeyB', l: 'B' },
+    { c: 'KeyN', l: 'N' },
+    { c: 'KeyM', l: 'M' },
+    { c: 'Comma', l: ',' },
+    { c: 'Period', l: '.' },
+    { c: 'Slash', l: '/' },
+    { c: 'ShiftRight', l: 'Shift', w: 2.75 },
+  ],
+  [
+    { c: 'ControlLeft', l: 'Ctrl', w: 1.25 },
+    { c: 'MetaLeft', l: 'Win', w: 1.25 },
+    { c: 'AltLeft', l: 'Alt', w: 1.25 },
+    { c: 'Space', l: '', w: 6.25 },
+    { c: 'AltRight', l: 'Alt', w: 1.25 },
+    { c: 'MetaRight', l: 'Win', w: 1.25 },
+    { c: 'ContextMenu', l: 'Menu', w: 1.25 },
+    { c: 'ControlRight', l: 'Ctrl', w: 1.25 },
+  ],
+];
+
+const navRows: LayoutKey[][] = [
+  [
+    { c: 'PrintScreen', l: 'PrtSc' },
+    { c: 'ScrollLock', l: 'ScrLk' },
+    { c: 'Pause', l: 'Pause' },
+  ],
+  [
+    { c: 'Insert', l: 'Ins' },
+    { c: 'Home', l: 'Home' },
+    { c: 'PageUp', l: 'PgUp' },
+  ],
+  [
+    { c: 'Delete', l: 'Del' },
+    { c: 'End', l: 'End' },
+    { c: 'PageDown', l: 'PgDn' },
+  ],
+  [{ gap: 3 }],
+  [{ gap: 1 }, { c: 'ArrowUp', l: '↑' }, { gap: 1 }],
+  [
+    { c: 'ArrowLeft', l: '←' },
+    { c: 'ArrowDown', l: '↓' },
+    { c: 'ArrowRight', l: '→' },
+  ],
+];
+
+const padRows: LayoutKey[][] = [
+  [{ gap: 4 }],
+  [
+    { c: 'NumLock', l: 'Num' },
+    { c: 'NumpadDivide', l: '/' },
+    { c: 'NumpadMultiply', l: '*' },
+    { c: 'NumpadSubtract', l: '-' },
+  ],
+  [
+    { c: 'Numpad7', l: '7' },
+    { c: 'Numpad8', l: '8' },
+    { c: 'Numpad9', l: '9' },
+    { c: 'NumpadAdd', l: '+' },
+  ],
+  [
+    { c: 'Numpad4', l: '4' },
+    { c: 'Numpad5', l: '5' },
+    { c: 'Numpad6', l: '6' },
+    { gap: 1 },
+  ],
+  [
+    { c: 'Numpad1', l: '1' },
+    { c: 'Numpad2', l: '2' },
+    { c: 'Numpad3', l: '3' },
+    { c: 'NumpadEnter', l: 'Ent' },
+  ],
+  [
+    { c: 'Numpad0', l: '0', w: 2 },
+    { c: 'NumpadDecimal', l: '.' },
+    { gap: 1 },
+  ],
+];
+
+const layoutBlocks = [mainRows, navRows, padRows];
+---
+
+<div class="kb">
+  <div class="kb-area" id="kb-area">
+    <p class="kb-guide" id="kb-guide">이 탭이 열려 있는 동안 키 입력을 항상 인식합니다</p>
+    <div class="kb-last" id="kb-last" hidden>
+      <div class="kb-big" id="kb-code-big"></div>
+      <div class="kb-meta">
+        <span>key: <b id="kb-key"></b></span>
+        <span>location: <b id="kb-loc"></b></span>
+      </div>
+    </div>
+  </div>
+
+  <div class="kb-row">
+    <div class="kb-chips" id="kb-chips"></div>
+  </div>
+
+  <div class="kb-layout" aria-hidden="true">
+    {
+      layoutBlocks.map((block) => (
+        <div class="kb-block">
+          {block.map((row) => (
+            <div class="kb-lrow">
+              {row.map((k) =>
+                'gap' in k ? (
+                  <span class="kb-gap" style={`--w:${k.gap}`} />
+                ) : (
+                  <span class="kb-key" style={`--w:${k.w ?? 1}`} data-code={k.c}>
+                    {k.l}
+                  </span>
+                ),
+              )}
+            </div>
+          ))}
+        </div>
+      ))
+    }
+  </div>
+
+  <div class="kb-row">
+    <span class="kb-label">
+      동시 입력 <b id="kb-count">0</b>개 (최대 <b id="kb-max">0</b>개)
+    </span>
+    <button id="kb-reset-max" class="btn btn-small" type="button">최대 초기화</button>
+    <button id="kb-reset-seen" class="btn btn-small" type="button">키 기록 초기화</button>
+    <button id="kb-clear-log" class="btn btn-small" type="button">로그 지우기</button>
+  </div>
+
+  <div class="kb-log" id="kb-log" aria-label="키 이벤트 로그"></div>
+  <p class="hint">
+    한글 입력(IME) 중에는 key가 "Process"로 표시될 수 있어 code를 기준으로 확인하세요. 동시
+    입력 최대 개수로 키보드 고스팅 여부를 확인할 수 있습니다.
+  </p>
+</div>
+
+<script>
+  const guide = document.getElementById('kb-guide') as HTMLParagraphElement;
+  const last = document.getElementById('kb-last') as HTMLDivElement;
+  const codeBig = document.getElementById('kb-code-big') as HTMLDivElement;
+  const keyOut = document.getElementById('kb-key') as HTMLElement;
+  const locOut = document.getElementById('kb-loc') as HTMLElement;
+  const chips = document.getElementById('kb-chips') as HTMLDivElement;
+  const countOut = document.getElementById('kb-count') as HTMLElement;
+  const maxOut = document.getElementById('kb-max') as HTMLElement;
+  const log = document.getElementById('kb-log') as HTMLDivElement;
+
+  const LOG_LIMIT = 200;
+  const LOCATIONS = ['표준', '왼쪽', '오른쪽', '넘버패드'];
+
+  // code → key. 현재 눌려 있는 키 집합
+  const pressed = new Map<string, string>();
+  let maxPressed = 0;
+
+  // 배열 시각화: code → 키캡 요소, 한 번이라도 눌렀던 키 집합
+  const layoutKeys = new Map<string, HTMLElement>();
+  for (const el of document.querySelectorAll<HTMLElement>('.kb-key[data-code]')) {
+    layoutKeys.set(el.dataset.code!, el);
+  }
+  const seenCodes = new Set<string>();
+
+  function renderPressed() {
+    countOut.textContent = String(pressed.size);
+    maxOut.textContent = String(maxPressed);
+    chips.innerHTML = '';
+    for (const code of pressed.keys()) {
+      const chip = document.createElement('span');
+      chip.className = 'kb-chip';
+      chip.textContent = code;
+      chips.appendChild(chip);
+    }
+    for (const [code, el] of layoutKeys) {
+      el.classList.toggle('kb-key-down', pressed.has(code));
+      el.classList.toggle('kb-key-seen', seenCodes.has(code));
+    }
+  }
+
+  function addLog(direction: '↓' | '↑', e: KeyboardEvent) {
+    const time = new Date().toLocaleTimeString('ko-KR', { hour12: false });
+    const entry = document.createElement('div');
+    entry.className = `kb-entry ${direction === '↓' ? 'kb-down' : 'kb-up'}`;
+    entry.textContent = `${direction} ${e.code}  "${e.key}"  ${time}`;
+    log.prepend(entry);
+    while (log.childElementCount > LOG_LIMIT) {
+      log.lastElementChild!.remove();
+    }
+  }
+
+  function showLast(e: KeyboardEvent) {
+    guide.hidden = true;
+    last.hidden = false;
+    codeBig.textContent = e.code || '(없음)';
+    keyOut.textContent = e.key;
+    locOut.textContent = LOCATIONS[e.location] ?? String(e.location);
+  }
+
+  function clearPressed() {
+    pressed.clear();
+    renderPressed();
+  }
+
+  // 이 탭이 보이는 동안에는 클릭·포커스 없이 항상 키를 인식한다 (Esc 포함)
+  const panel = document.getElementById('panel-keyboard') as HTMLElement;
+  const capturing = () => !panel.hidden;
+
+  document.addEventListener('keydown', (e) => {
+    if (!capturing()) return;
+    // F5/F11(새로고침·전체화면)과 Ctrl/Cmd 조합은 탈출 경로로 남기고, 나머지는 기본 동작 차단
+    const keepDefault = e.key === 'F5' || e.key === 'F11' || e.ctrlKey || e.metaKey;
+    if (!keepDefault) e.preventDefault();
+    if (!e.repeat) {
+      pressed.set(e.code, e.key);
+      seenCodes.add(e.code);
+      maxPressed = Math.max(maxPressed, pressed.size);
+      addLog('↓', e);
+    }
+    showLast(e);
+    renderPressed();
+  });
+
+  document.addEventListener('keyup', (e) => {
+    if (!capturing()) return;
+    addLog('↑', e);
+    pressed.delete(e.code);
+    // macOS에서 Meta를 누른 채 뗀 키는 keyup이 오지 않으므로 Meta를 떼면 전체 초기화
+    if (e.key === 'Meta') pressed.clear();
+    renderPressed();
+  });
+
+  // 탭을 떠나면 눌림 상태만 정리
+  document.addEventListener('hw:tab', (e) => {
+    const { from } = (e as CustomEvent).detail;
+    if (from === 'keyboard') clearPressed();
+  });
+
+  // 포커스 이탈·탭 전환 시 유령 키가 남지 않도록 초기화
+  window.addEventListener('blur', clearPressed);
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) clearPressed();
+  });
+
+  document.getElementById('kb-reset-max')!.addEventListener('click', () => {
+    maxPressed = pressed.size;
+    renderPressed();
+  });
+
+  document.getElementById('kb-reset-seen')!.addEventListener('click', () => {
+    seenCodes.clear();
+    renderPressed();
+  });
+
+  document.getElementById('kb-clear-log')!.addEventListener('click', () => {
+    log.innerHTML = '';
+  });
+</script>
+
+<style>
+  .kb {
+    display: grid;
+    gap: 0.9rem;
+  }
+
+  .kb-area {
+    min-height: 88px;
+    display: grid;
+    place-items: center;
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    border-radius: 0.9rem;
+    text-align: center;
+    padding: 0.6rem 1rem;
+  }
+
+  .kb-guide {
+    color: var(--text-dim);
+    margin: 0;
+  }
+
+  .kb-big {
+    font-family: Consolas, 'Courier New', monospace;
+    font-size: clamp(1.2rem, 3.5vw, 1.7rem);
+    font-weight: 700;
+  }
+
+  .kb-meta {
+    display: flex;
+    gap: 1.2rem;
+    justify-content: center;
+    color: var(--text-dim);
+    font-size: 0.9rem;
+    margin-top: 0.4rem;
+  }
+
+  .kb-meta b {
+    color: var(--text);
+    font-family: Consolas, 'Courier New', monospace;
+  }
+
+  .kb-row {
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+    flex-wrap: wrap;
+  }
+
+  .kb-label {
+    color: var(--text-dim);
+    font-size: 0.9rem;
+    font-weight: 600;
+  }
+
+  .kb-label b {
+    color: var(--text);
+  }
+
+  .kb-chips {
+    display: flex;
+    gap: 0.35rem;
+    flex-wrap: wrap;
+    min-height: 1.8rem;
+  }
+
+  /* 칩·로그 행은 JS로 생성되므로 :global로 선언 */
+  .kb-chips :global(.kb-chip) {
+    font-family: Consolas, 'Courier New', monospace;
+    font-size: 0.82rem;
+    background: var(--accent-soft);
+    color: var(--text);
+    border: 1px solid var(--accent);
+    border-radius: 0.5rem;
+    padding: 0.2rem 0.55rem;
+  }
+
+  /* 본문 컬럼(max-width)보다 넓어도 잘리지 않도록 컬럼 밖으로 브레이크아웃.
+     컬럼이 뷰포트 중앙에 있으므로 left 50% + translateX(-50%)로 뷰포트 기준 중앙 정렬 */
+  .kb-layout {
+    position: relative;
+    left: 50%;
+    transform: translateX(-50%);
+    width: fit-content;
+    max-width: calc(100vw - 2rem);
+    display: flex;
+    gap: 1.1rem;
+    overflow-x: auto;
+    padding: 0.9rem;
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    border-radius: 0.9rem;
+  }
+
+  .kb-block {
+    display: grid;
+    gap: 4px;
+    align-content: start;
+  }
+
+  .kb-lrow {
+    display: flex;
+    gap: 4px;
+  }
+
+  /* 폭 w짜리 키 = 기본 키 w개 + 사이 간격 (w-1)개 만큼의 너비 */
+  .kb-key,
+  .kb-gap {
+    --w: 1;
+    width: calc(var(--w) * 2.1rem + (var(--w) - 1) * 4px);
+    height: 2.1rem;
+    flex: none;
+  }
+
+  .kb-key {
+    display: grid;
+    place-items: center;
+    font-family: Consolas, 'Courier New', monospace;
+    font-size: 0.62rem;
+    color: var(--text-dim);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    overflow: hidden;
+    white-space: nowrap;
+  }
+
+  .kb-key.kb-key-seen {
+    background: var(--accent-soft);
+    border-color: var(--accent);
+    color: var(--text);
+  }
+
+  .kb-key.kb-key-down {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+  }
+
+  .kb-log {
+    max-height: 240px;
+    overflow-y: auto;
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    border-radius: 0.7rem;
+    padding: 0.5rem 0.7rem;
+    font-family: Consolas, 'Courier New', monospace;
+    font-size: 0.82rem;
+    line-height: 1.6;
+  }
+
+  .kb-log:empty::before {
+    content: '키 이벤트가 여기에 기록됩니다';
+    color: var(--text-dim);
+  }
+
+  .kb-log :global(.kb-down) {
+    color: var(--text);
+  }
+
+  .kb-log :global(.kb-up) {
+    color: var(--text-dim);
+  }
+</style>

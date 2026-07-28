@@ -1,0 +1,414 @@
+---
+// 모니터 테스트: 단색(불량화소), 잔상(고스팅), 주사율 측정
+const swatches = ['#ffffff', '#000000', '#ff0000', '#00ff00', '#0000ff', '#404040', '#808080', '#c0c0c0'];
+---
+
+<div class="mon">
+  <div class="mon-card">
+    <h2>단색 (불량화소)</h2>
+    <p class="hint">전체화면에서 클릭하거나 아무 키나 누르면 다음 색으로 넘어갑니다. Esc로 종료.</p>
+    <div class="mon-swatches" role="group" aria-label="시작 색상">
+      {
+        swatches.map((c, i) => (
+          <button
+            class:list={['mon-swatch', { 'mon-swatch-selected': i === 0 }]}
+            style={`background:${c}`}
+            data-color={c}
+            type="button"
+            aria-label={`색상 ${c}`}
+          />
+        ))
+      }
+      <input id="mon-custom" type="color" value="#ffffff" aria-label="사용자 지정 색상" />
+    </div>
+    <button id="mon-solid" class="btn btn-primary" type="button">전체화면 시작</button>
+  </div>
+
+  <div class="mon-card">
+    <h2>잔상 (고스팅)</h2>
+    <p class="hint">어두운 배경 위에서 밝은 사각형이 왕복합니다. 궤적에 잔상이 보이는지 확인하세요.</p>
+    <div class="chip-group" role="radiogroup" aria-label="이동 속도">
+      <label class="chip">
+        <input type="radio" name="mon-speed" value="300" />
+        <span>느림</span>
+      </label>
+      <label class="chip">
+        <input type="radio" name="mon-speed" value="700" checked />
+        <span>보통</span>
+      </label>
+      <label class="chip">
+        <input type="radio" name="mon-speed" value="1200" />
+        <span>빠름</span>
+      </label>
+    </div>
+    <button id="mon-ghost" class="btn btn-primary" type="button">전체화면 시작</button>
+  </div>
+
+  <div class="mon-card">
+    <h2>주사율 측정</h2>
+    <p class="hint">다른 탭·창 작업이나 절전 모드에 따라 실제보다 낮게 측정될 수 있습니다.</p>
+    <div class="mon-hz-row">
+      <button id="mon-hz" class="btn btn-primary" type="button">측정 시작</button>
+      <span id="mon-hz-live" class="mon-hz-live"></span>
+    </div>
+    <p id="mon-hz-result" class="mon-hz-result"></p>
+  </div>
+</div>
+
+<div id="mon-overlay" class="mon-overlay" hidden>
+  <canvas id="mon-canvas"></canvas>
+  <div id="mon-hint" class="mon-hint">클릭: 다음 색 · Esc: 종료</div>
+  <button id="mon-close" class="mon-close" type="button" hidden>✕ 닫기</button>
+</div>
+
+<script>
+  const overlay = document.getElementById('mon-overlay') as HTMLDivElement;
+  const canvas = document.getElementById('mon-canvas') as HTMLCanvasElement;
+  const hint = document.getElementById('mon-hint') as HTMLDivElement;
+  const closeBtn = document.getElementById('mon-close') as HTMLButtonElement;
+  const customColor = document.getElementById('mon-custom') as HTMLInputElement;
+  const hzLive = document.getElementById('mon-hz-live') as HTMLSpanElement;
+  const hzResult = document.getElementById('mon-hz-result') as HTMLParagraphElement;
+  const hzButton = document.getElementById('mon-hz') as HTMLButtonElement;
+
+  // ---------- 전체화면 오버레이 (단색·잔상 공용) ----------
+
+  const COLORS = ['#ffffff', '#000000', '#ff0000', '#00ff00', '#0000ff', '#404040', '#808080', '#c0c0c0'];
+  let mode: 'solid' | 'ghost' | null = null;
+  let colorIndex = 0;
+  let usingFallback = false;
+  let hintTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function showHint() {
+    hint.classList.add('mon-hint-visible');
+    if (hintTimer !== null) clearTimeout(hintTimer);
+    hintTimer = setTimeout(() => hint.classList.remove('mon-hint-visible'), 2000);
+  }
+
+  function applySolidColor() {
+    overlay.style.background = COLORS[colorIndex % COLORS.length];
+  }
+
+  async function openOverlay(nextMode: 'solid' | 'ghost') {
+    mode = nextMode;
+    overlay.hidden = false;
+    canvas.hidden = nextMode !== 'ghost';
+    usingFallback = false;
+    try {
+      await overlay.requestFullscreen();
+    } catch {
+      // iOS Safari 등 전체화면 미지원 → fixed 오버레이 폴백
+      usingFallback = true;
+    }
+    closeBtn.hidden = !usingFallback;
+    hint.textContent = nextMode === 'solid' ? '클릭: 다음 색 · Esc: 종료' : 'Esc: 종료';
+    showHint();
+    if (nextMode === 'ghost') {
+      overlay.style.background = '#101318';
+      startGhost();
+    } else {
+      applySolidColor();
+    }
+  }
+
+  function closeOverlay() {
+    stopGhost();
+    overlay.hidden = true;
+    mode = null;
+    if (document.fullscreenElement) document.exitFullscreen();
+  }
+
+  // Esc로 인한 전체화면 해제는 브라우저가 처리하므로 fullscreenchange가 유일한 종료 훅
+  document.addEventListener('fullscreenchange', () => {
+    if (!document.fullscreenElement && mode !== null && !usingFallback) closeOverlay();
+  });
+
+  overlay.addEventListener('pointerdown', () => {
+    if (mode === 'solid') {
+      colorIndex++;
+      applySolidColor();
+    }
+    showHint();
+  });
+
+  overlay.addEventListener('pointermove', showHint);
+
+  document.addEventListener('keydown', (e) => {
+    if (mode === null) return;
+    if (e.key === 'Escape') {
+      // 전체화면일 때는 브라우저가 먼저 처리하고, 폴백 모드에서만 직접 닫는다
+      if (usingFallback) closeOverlay();
+      return;
+    }
+    if (mode === 'solid') {
+      e.preventDefault();
+      colorIndex++;
+      applySolidColor();
+    }
+  });
+
+  closeBtn.addEventListener('click', closeOverlay);
+
+  document.getElementById('mon-solid')!.addEventListener('click', () => {
+    openOverlay('solid');
+  });
+
+  for (const swatch of document.querySelectorAll<HTMLButtonElement>('.mon-swatch')) {
+    swatch.addEventListener('click', () => {
+      document
+        .querySelectorAll('.mon-swatch')
+        .forEach((s) => s.classList.remove('mon-swatch-selected'));
+      swatch.classList.add('mon-swatch-selected');
+      const idx = COLORS.indexOf(swatch.dataset.color!);
+      colorIndex = idx >= 0 ? idx : 0;
+    });
+  }
+
+  customColor.addEventListener('input', () => {
+    COLORS[0] = customColor.value;
+    colorIndex = 0;
+  });
+
+  // ---------- 잔상 애니메이션 ----------
+
+  let ghostRaf: number | null = null;
+  let ghostCleanup: (() => void) | null = null;
+
+  function startGhost() {
+    const ctx = canvas.getContext('2d')!;
+    const resize = () => {
+      canvas.width = overlay.clientWidth;
+      canvas.height = overlay.clientHeight;
+    };
+    resize();
+    window.addEventListener('resize', resize);
+    ghostCleanup = () => window.removeEventListener('resize', resize);
+
+    const size = 120;
+    let x = 0;
+    let direction = 1;
+    let lastTime: number | null = null;
+
+    const frame = (t: number) => {
+      const speed = Number(
+        (document.querySelector('input[name="mon-speed"]:checked') as HTMLInputElement).value,
+      );
+      if (lastTime !== null) {
+        // px/초 단위로 이동해 주사율과 무관하게 같은 속도를 유지
+        const dt = (t - lastTime) / 1000;
+        x += direction * speed * dt;
+        if (x < 0 || x > canvas.width - size) {
+          direction *= -1;
+          x = Math.max(0, Math.min(x, canvas.width - size));
+        }
+      }
+      lastTime = t;
+      ctx.fillStyle = '#101318';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = '#f2f4f9';
+      ctx.fillRect(x, (canvas.height - size) / 2, size, size);
+      ghostRaf = requestAnimationFrame(frame);
+    };
+    ghostRaf = requestAnimationFrame(frame);
+  }
+
+  function stopGhost() {
+    if (ghostRaf !== null) cancelAnimationFrame(ghostRaf);
+    ghostRaf = null;
+    ghostCleanup?.();
+    ghostCleanup = null;
+  }
+
+  document.getElementById('mon-ghost')!.addEventListener('click', () => {
+    openOverlay('ghost');
+  });
+
+  // ---------- 주사율 측정 ----------
+
+  const WARMUP_FRAMES = 10;
+  const SAMPLE_FRAMES = 180;
+  const KNOWN_RATES = [60, 75, 90, 120, 144, 165, 240];
+  let hzRaf: number | null = null;
+
+  function stopHz() {
+    if (hzRaf !== null) cancelAnimationFrame(hzRaf);
+    hzRaf = null;
+    hzButton.disabled = false;
+    hzLive.textContent = '';
+  }
+
+  hzButton.addEventListener('click', () => {
+    if (document.hidden) return;
+    hzButton.disabled = true;
+    hzResult.textContent = '';
+    const samples: number[] = [];
+    let frameCount = 0;
+    let lastTime: number | null = null;
+
+    const frame = (t: number) => {
+      if (document.hidden) {
+        stopHz();
+        hzResult.textContent = '탭이 화면에 보이는 상태에서 측정해주세요.';
+        return;
+      }
+      if (lastTime !== null) {
+        const dt = t - lastTime;
+        if (frameCount > WARMUP_FRAMES && dt > 0) {
+          samples.push(dt);
+          hzLive.textContent = `측정 중… ${Math.round(1000 / dt)}fps (${samples.length}/${SAMPLE_FRAMES})`;
+        }
+      }
+      lastTime = t;
+      frameCount++;
+      if (samples.length < SAMPLE_FRAMES) {
+        hzRaf = requestAnimationFrame(frame);
+        return;
+      }
+      // 드롭 프레임이 평균을 왜곡하므로 중앙값으로 산출
+      samples.sort((a, b) => a - b);
+      const median = samples[Math.floor(samples.length / 2)];
+      const hz = 1000 / median;
+      const snapped = KNOWN_RATES.find((r) => Math.abs(hz - r) / r <= 0.03);
+      hzResult.textContent =
+        `측정 결과: ${hz.toFixed(1)}Hz` + (snapped ? ` (≈ ${snapped}Hz)` : '');
+      stopHz();
+    };
+    hzRaf = requestAnimationFrame(frame);
+  });
+
+  // ---------- 정리 ----------
+
+  document.addEventListener('hw:tab', (e) => {
+    const { from } = (e as CustomEvent).detail;
+    if (from === 'monitor') {
+      if (mode !== null) closeOverlay();
+      stopHz();
+    }
+  });
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden && mode !== null) closeOverlay();
+  });
+</script>
+
+<style>
+  .mon {
+    display: grid;
+    gap: 1rem;
+  }
+
+  .mon-card {
+    display: grid;
+    gap: 0.7rem;
+    justify-items: start;
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    border-radius: 0.9rem;
+    padding: 1rem 1.2rem;
+  }
+
+  .mon-card h2 {
+    margin: 0;
+    font-size: 1.05rem;
+  }
+
+  .mon-swatches {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    flex-wrap: wrap;
+  }
+
+  .mon-swatch {
+    width: 32px;
+    height: 32px;
+    border: 2px solid var(--border);
+    border-radius: 0.5rem;
+    cursor: pointer;
+    padding: 0;
+  }
+
+  .mon-swatch-selected {
+    border-color: var(--accent);
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+
+  #mon-custom {
+    width: 40px;
+    height: 32px;
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+    background: var(--surface);
+    padding: 2px;
+    cursor: pointer;
+  }
+
+  .mon-hz-row {
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+  }
+
+  .mon-hz-live {
+    color: var(--text-dim);
+    font-family: Consolas, 'Courier New', monospace;
+    font-size: 0.9rem;
+  }
+
+  .mon-hz-result {
+    margin: 0;
+    font-size: 1.05rem;
+    font-weight: 700;
+    min-height: 1.3em;
+  }
+
+  .mon-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    background: #ffffff;
+    cursor: pointer;
+  }
+
+  .mon-overlay[hidden] {
+    display: none;
+  }
+
+  .mon-overlay canvas {
+    position: absolute;
+    inset: 0;
+  }
+
+  .mon-hint {
+    position: absolute;
+    top: 1.2rem;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0, 0, 0, 0.65);
+    color: #fff;
+    font-size: 0.9rem;
+    padding: 0.45rem 1rem;
+    border-radius: 999px;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    pointer-events: none;
+  }
+
+  .mon-hint-visible {
+    opacity: 1;
+  }
+
+  .mon-close {
+    position: absolute;
+    top: 1rem;
+    right: 1rem;
+    background: rgba(0, 0, 0, 0.65);
+    color: #fff;
+    border: none;
+    border-radius: 0.6rem;
+    padding: 0.5rem 1rem;
+    font: inherit;
+    cursor: pointer;
+  }
+</style>

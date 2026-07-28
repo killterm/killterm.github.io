@@ -1,0 +1,205 @@
+---
+// 사운드 채널 테스트: Web Audio 오실레이터 + 스테레오 패닝
+---
+
+<div class="sd">
+  <p class="sd-warning">🔊 이어폰·스피커 볼륨을 낮춘 뒤 시작하세요.</p>
+
+  <div class="sd-row">
+    <button class="btn sd-ch" data-pan="-1" type="button">◀ 왼쪽만</button>
+    <button class="btn sd-ch" data-pan="0" type="button">양쪽</button>
+    <button class="btn sd-ch" data-pan="1" type="button">오른쪽만 ▶</button>
+    <button id="sd-stop" class="btn" type="button">■ 정지</button>
+  </div>
+
+  <div class="sd-row">
+    <span class="sd-label">주파수</span>
+    <div class="chip-group" role="radiogroup" aria-label="주파수 프리셋">
+      <label class="chip">
+        <input type="radio" name="sd-freq" value="100" />
+        <span>저음 100Hz</span>
+      </label>
+      <label class="chip">
+        <input type="radio" name="sd-freq" value="440" checked />
+        <span>중음 440Hz</span>
+      </label>
+      <label class="chip">
+        <input type="radio" name="sd-freq" value="4000" />
+        <span>고음 4kHz</span>
+      </label>
+    </div>
+    <input id="sd-freq-slider" type="range" min="0" max="100" step="1" value="41" aria-label="주파수 조절" />
+    <span id="sd-freq-label" class="sd-value">440Hz</span>
+  </div>
+
+  <div class="sd-row">
+    <span class="sd-label">볼륨</span>
+    <input id="sd-volume" type="range" min="0" max="100" step="1" value="20" aria-label="볼륨" />
+    <span id="sd-volume-label" class="sd-value">20%</span>
+  </div>
+
+  <p class="hint">iOS 무음 모드에서는 소리가 나지 않을 수 있습니다.</p>
+</div>
+
+<script>
+  const freqSlider = document.getElementById('sd-freq-slider') as HTMLInputElement;
+  const freqLabel = document.getElementById('sd-freq-label') as HTMLSpanElement;
+  const volumeSlider = document.getElementById('sd-volume') as HTMLInputElement;
+  const volumeLabel = document.getElementById('sd-volume-label') as HTMLSpanElement;
+  const channelButtons = Array.from(document.querySelectorAll<HTMLButtonElement>('.sd-ch'));
+
+  const FREQ_MIN = 40;
+  const FREQ_MAX = 10000;
+  const RAMP = 0.02;
+
+  // 자동재생 정책 때문에 AudioContext는 첫 클릭 핸들러 안에서 지연 생성한다
+  let ctx: AudioContext | null = null;
+  let osc: OscillatorNode | null = null;
+  let gain: GainNode | null = null;
+  let panner: StereoPannerNode | null = null;
+
+  // 슬라이더(0~100) ↔ 주파수(로그 스케일)
+  const sliderToFreq = (v: number) => Math.round(FREQ_MIN * Math.pow(FREQ_MAX / FREQ_MIN, v / 100));
+  const freqToSlider = (f: number) =>
+    Math.round((Math.log(f / FREQ_MIN) / Math.log(FREQ_MAX / FREQ_MIN)) * 100);
+
+  const currentFreq = () => sliderToFreq(Number(freqSlider.value));
+  const currentVolume = () => Number(volumeSlider.value) / 100;
+
+  const formatFreq = (f: number) => (f >= 1000 ? `${(f / 1000).toFixed(1)}kHz` : `${f}Hz`);
+
+  function markActive(pan: number | null) {
+    for (const btn of channelButtons) {
+      btn.classList.toggle('sd-active', pan !== null && Number(btn.dataset.pan) === pan);
+    }
+  }
+
+  async function play(pan: number) {
+    ctx ??= new AudioContext();
+    if (ctx.state === 'suspended') await ctx.resume();
+    if (!osc) {
+      // 오실레이터는 stop() 후 재사용할 수 없으므로 재생마다 새로 만든다
+      gain = ctx.createGain();
+      gain.gain.value = 0;
+      panner = ctx.createStereoPanner();
+      osc = ctx.createOscillator();
+      osc.type = 'sine';
+      osc.frequency.value = currentFreq();
+      osc.connect(gain).connect(panner).connect(ctx.destination);
+      osc.start();
+      // 클릭 팝 방지: 짧은 게인 램프로 시작
+      gain.gain.linearRampToValueAtTime(currentVolume(), ctx.currentTime + RAMP);
+    }
+    panner!.pan.value = pan;
+    markActive(pan);
+  }
+
+  function stop() {
+    if (!ctx || !osc || !gain) return;
+    const now = ctx.currentTime;
+    gain.gain.setValueAtTime(gain.gain.value, now);
+    gain.gain.linearRampToValueAtTime(0, now + RAMP);
+    osc.stop(now + RAMP + 0.01);
+    osc = null;
+    gain = null;
+    panner = null;
+    markActive(null);
+  }
+
+  for (const btn of channelButtons) {
+    btn.addEventListener('click', () => play(Number(btn.dataset.pan)));
+  }
+
+  document.getElementById('sd-stop')!.addEventListener('click', stop);
+
+  function applyFreq(f: number) {
+    freqLabel.textContent = formatFreq(f);
+    if (ctx && osc) osc.frequency.setValueAtTime(f, ctx.currentTime);
+  }
+
+  freqSlider.addEventListener('input', () => {
+    applyFreq(currentFreq());
+    // 프리셋과 다른 값이 되면 프리셋 선택 해제
+    for (const radio of document.querySelectorAll<HTMLInputElement>('input[name="sd-freq"]')) {
+      radio.checked = Number(radio.value) === currentFreq();
+    }
+  });
+
+  for (const radio of document.querySelectorAll<HTMLInputElement>('input[name="sd-freq"]')) {
+    radio.addEventListener('change', () => {
+      const f = Number(radio.value);
+      freqSlider.value = String(freqToSlider(f));
+      applyFreq(f);
+    });
+  }
+
+  volumeSlider.addEventListener('input', () => {
+    volumeLabel.textContent = `${volumeSlider.value}%`;
+    if (ctx && gain) gain.gain.setValueAtTime(currentVolume(), ctx.currentTime);
+  });
+
+  // 탭 이탈·페이지 숨김 시 반드시 정지
+  document.addEventListener('hw:tab', (e) => {
+    const { from } = (e as CustomEvent).detail;
+    if (from === 'sound') {
+      stop();
+      ctx?.suspend();
+    }
+  });
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      stop();
+      ctx?.suspend();
+    }
+  });
+
+  window.addEventListener('pagehide', stop);
+</script>
+
+<style>
+  .sd {
+    display: grid;
+    gap: 1rem;
+  }
+
+  .sd-warning {
+    margin: 0;
+    padding: 0.6rem 0.9rem;
+    background: rgba(255, 183, 77, 0.12);
+    border: 1px solid rgba(255, 183, 77, 0.5);
+    border-radius: 0.7rem;
+    font-size: 0.9rem;
+  }
+
+  .sd-row {
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+    flex-wrap: wrap;
+  }
+
+  .sd-label {
+    color: var(--text-dim);
+    font-size: 0.9rem;
+    font-weight: 600;
+    flex: 0 0 3.2rem;
+  }
+
+  .sd-value {
+    font-family: Consolas, 'Courier New', monospace;
+    font-size: 0.9rem;
+    min-width: 4.5rem;
+  }
+
+  .sd input[type='range'] {
+    width: 200px;
+    accent-color: var(--accent);
+  }
+
+  .sd-ch.sd-active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+  }
+</style>
