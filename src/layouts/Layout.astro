@@ -25,9 +25,52 @@ const { title, description = 'Killterm의 작은 도구 모음' } = Astro.props;
     </script>
   </head>
   <body>
-    <button id="theme-toggle" type="button" aria-label="테마 전환">
-      <span id="theme-toggle-icon" aria-hidden="true">🌙</span>
-    </button>
+    <fieldset id="theme-switcher" class="theme-switcher">
+      <legend class="theme-switcher__legend">테마 선택</legend>
+      <label class="theme-switcher__option" aria-label="라이트 모드">
+        <input
+          class="theme-switcher__input"
+          type="radio"
+          name="theme"
+          value="light"
+        />
+        <svg
+          class="theme-switcher__icon"
+          aria-hidden="true"
+          xmlns="http://www.w3.org/2000/svg"
+          fill="none"
+          viewBox="0 0 36 36"
+        >
+          <path
+            fill="var(--icon-color)"
+            fill-rule="evenodd"
+            d="M18 12a6 6 0 1 1 0 12 6 6 0 0 1 0-12Zm0 2a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z"
+            clip-rule="evenodd"></path>
+          <path
+            fill="var(--icon-color)"
+            d="M17 6.038a1 1 0 1 1 2 0v3a1 1 0 0 1-2 0v-3ZM24.244 7.742a1 1 0 1 1 1.618 1.176L24.1 11.345a1 1 0 1 1-1.618-1.176l1.763-2.427ZM29.104 13.379a1 1 0 0 1 .618 1.902l-2.854.927a1 1 0 1 1-.618-1.902l2.854-.927ZM29.722 20.795a1 1 0 0 1-.619 1.902l-2.853-.927a1 1 0 1 1 .618-1.902l2.854.927ZM25.862 27.159a1 1 0 0 1-1.618 1.175l-1.763-2.427a1 1 0 1 1 1.618-1.175l1.763 2.427ZM19 30.038a1 1 0 0 1-2 0v-3a1 1 0 1 1 2 0v3ZM11.755 28.334a1 1 0 0 1-1.618-1.175l1.764-2.427a1 1 0 1 1 1.618 1.175l-1.764 2.427ZM6.896 22.697a1 1 0 1 1-.618-1.902l2.853-.927a1 1 0 1 1 .618 1.902l-2.853-.927ZM6.278 15.28a1 1 0 1 1 .618-1.901l2.853.927a1 1 0 1 1-.618 1.902l-2.853-.927ZM10.137 8.918a1 1 0 0 1 1.618-1.176l1.764 2.427a1 1 0 0 1-1.618 1.176l-1.764-2.427Z"></path>
+        </svg>
+      </label>
+      <label class="theme-switcher__option" aria-label="다크 모드">
+        <input
+          class="theme-switcher__input"
+          type="radio"
+          name="theme"
+          value="dark"
+        />
+        <svg
+          class="theme-switcher__icon"
+          aria-hidden="true"
+          xmlns="http://www.w3.org/2000/svg"
+          fill="none"
+          viewBox="0 0 36 36"
+        >
+          <path
+            fill="var(--icon-color)"
+            d="M12.5 8.473a10.968 10.968 0 0 1 8.785-.97 7.435 7.435 0 0 0-3.737 4.672l-.09.373A7.454 7.454 0 0 0 28.732 20.4a10.97 10.97 0 0 1-5.232 7.125l-.497.27c-5.014 2.566-11.175.916-14.234-3.813l-.295-.483C5.53 18.403 7.13 11.93 12.017 8.77l.483-.297Zm4.234.616a8.946 8.946 0 0 0-2.805.883l-.429.234A9 9 0 0 0 10.206 22.5l.241.395A9 9 0 0 0 22.5 25.794l.416-.255a8.94 8.94 0 0 0 2.167-1.99 9.433 9.433 0 0 1-2.782-.313c-5.043-1.352-8.036-6.535-6.686-11.578l.147-.491c.242-.745.573-1.44.972-2.078Z"></path>
+        </svg>
+      </label>
+    </fieldset>
     <slot />
   </body>
 </html>
@@ -35,44 +78,47 @@ const { title, description = 'Killterm의 작은 도구 모음' } = Astro.props;
 <script>
   import { applyLiquidGlass } from '../lib/liquid-glass';
 
-  const toggleButton = document.getElementById('theme-toggle') as HTMLButtonElement;
+  const themeSwitcher = document.getElementById('theme-switcher') as HTMLFieldSetElement;
+  const themeInputs = Array.from(
+    themeSwitcher.querySelectorAll<HTMLInputElement>('input[name="theme"]'),
+  );
   const systemLight = window.matchMedia('(prefers-color-scheme: light)');
 
   // 유효 테마 = 명시적 선택(data-theme) ?? OS 설정
   const effectiveTheme = () =>
     document.documentElement.dataset.theme ?? (systemLight.matches ? 'light' : 'dark');
 
-  const toggleIcon = document.getElementById('theme-toggle-icon') as HTMLSpanElement;
-
-  function renderToggle() {
+  function renderSwitcher() {
     const theme = effectiveTheme();
-    toggleIcon.textContent = theme === 'dark' ? '🌙' : '☀️';
-    toggleButton.setAttribute(
-      'aria-label',
-      theme === 'dark' ? '라이트 모드로 전환' : '다크 모드로 전환',
-    );
+    for (const input of themeInputs) input.checked = input.value === theme;
   }
 
-  toggleButton.addEventListener('click', () => {
-    const next = effectiveTheme() === 'dark' ? 'light' : 'dark';
-    document.documentElement.dataset.theme = next;
-    localStorage.setItem('killterm-theme', next);
-    renderToggle();
-  });
+  for (const input of themeInputs) {
+    input.addEventListener('change', () => {
+      if (!input.checked) return;
+      themeSwitcher.dataset.previous = effectiveTheme();
+      document.documentElement.dataset.theme = input.value;
+      localStorage.setItem('killterm-theme', input.value);
+      renderSwitcher();
+    });
+  }
 
   // 명시적 선택 전에는 OS 테마 변경도 아이콘에 반영
-  systemLight.addEventListener('change', renderToggle);
-  renderToggle();
+  systemLight.addEventListener('change', renderSwitcher);
+  renderSwitcher();
+  requestAnimationFrame(() => {
+    themeSwitcher.dataset.ready = 'true';
+  });
 
-  // 테마 토글을 리퀴드 글래스(굴절)로. 누르면 굴절이 강해진다.
+  // 테마 선택기를 리퀴드 글래스(굴절)로 표현한다.
   // 미지원 브라우저는 CSS 폴백(blur) 유지
-  const toggleRadius = toggleButton.getBoundingClientRect().width / 2;
-  applyLiquidGlass(toggleButton, {
-    radius: toggleRadius,
-    bezel: toggleRadius * 0.8,
-    strength: 24,
-    hoverStrength: 44,
-    pressedStrength: 72,
+  const switcherRadius = themeSwitcher.getBoundingClientRect().height / 2;
+  applyLiquidGlass(themeSwitcher, {
+    radius: switcherRadius,
+    bezel: switcherRadius * 0.72,
+    strength: 18,
+    hoverStrength: 26,
+    pressedStrength: 38,
   });
 
   // 외부 도메인으로 가는 모든 링크에 출처(utm_source)를 자동으로 붙인다.
@@ -156,53 +202,153 @@ const { title, description = 'Killterm의 작은 도구 모음' } = Astro.props;
     color: inherit;
   }
 
-  #theme-toggle {
+  .theme-switcher {
     position: fixed;
     top: 1rem;
     right: 1rem;
     z-index: 100;
-    width: 2.4rem;
-    height: 2.4rem;
+    display: flex;
+    align-items: center;
+    width: 5.5rem;
+    height: 2.8rem;
+    margin: 0;
+    padding: 0.25rem;
+    border: 0;
+    border-radius: 99rem;
+    background: light-dark(rgba(187, 187, 188, 0.18), rgba(187, 187, 188, 0.1));
+    backdrop-filter: blur(8px) saturate(150%);
+    -webkit-backdrop-filter: blur(8px) saturate(150%);
+    box-shadow:
+      inset 0 0 0 1px light-dark(rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.04)),
+      inset 1.8px 3px 0 -2px light-dark(rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.27)),
+      inset -2px -2px 0 -2px light-dark(rgba(255, 255, 255, 0.8), rgba(255, 255, 255, 0.24)),
+      inset -3px -8px 1px -6px light-dark(rgba(255, 255, 255, 0.6), rgba(255, 255, 255, 0.18)),
+      inset -0.3px -1px 4px light-dark(rgba(0, 0, 0, 0.12), rgba(0, 0, 0, 0.24)),
+      inset -1.5px 2.5px 0 -2px light-dark(rgba(0, 0, 0, 0.2), rgba(0, 0, 0, 0.4)),
+      0 1px 5px light-dark(rgba(0, 0, 0, 0.1), rgba(0, 0, 0, 0.2)),
+      0 6px 16px light-dark(rgba(0, 0, 0, 0.08), rgba(0, 0, 0, 0.16));
+    transition:
+      background-color 0.4s cubic-bezier(1, 0, 0.4, 1),
+      box-shadow 0.4s cubic-bezier(1, 0, 0.4, 1);
+  }
+
+  .theme-switcher::after {
+    content: '';
+    position: absolute;
+    top: 0.25rem;
+    left: 0.25rem;
+    z-index: -1;
+    width: calc((100% - 0.5rem) / 2);
+    height: calc(100% - 0.5rem);
+    border-radius: 99rem;
+    background: light-dark(rgba(255, 255, 255, 0.42), rgba(187, 187, 188, 0.22));
+    box-shadow:
+      inset 0 0 0 1px light-dark(rgba(255, 255, 255, 0.32), rgba(255, 255, 255, 0.07)),
+      inset 2px 1px 0 -1px light-dark(rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.27)),
+      inset -1.5px -1px 0 -1px light-dark(rgba(255, 255, 255, 0.8), rgba(255, 255, 255, 0.24)),
+      inset -1px 2px 3px -1px light-dark(rgba(0, 0, 0, 0.2), rgba(0, 0, 0, 0.4)),
+      0 3px 6px light-dark(rgba(0, 0, 0, 0.08), rgba(0, 0, 0, 0.16));
+    transition:
+      translate 0.4s cubic-bezier(1, 0, 0.4, 1),
+      background-color 0.4s cubic-bezier(1, 0, 0.4, 1),
+      box-shadow 0.4s cubic-bezier(1, 0, 0.4, 1);
+  }
+
+  .theme-switcher:has(input[value='dark']:checked)::after {
+    translate: 100% 0;
+  }
+
+  .theme-switcher[data-ready='true']:has(input[value='light']:checked)::after {
+    transform-origin: right;
+    animation: theme-toggle-light 0.44s ease;
+  }
+
+  .theme-switcher[data-ready='true']:has(input[value='dark']:checked)::after {
+    transform-origin: left;
+    animation: theme-toggle-dark 0.44s ease;
+  }
+
+  .theme-switcher__legend,
+  .theme-switcher__input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    border: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    clip: rect(0 0 0 0);
+    clip-path: inset(100%);
+  }
+
+  .theme-switcher__option {
+    --icon-color: var(--text);
+    position: relative;
+    z-index: 1;
     display: grid;
+    flex: 1;
+    height: 100%;
     place-items: center;
-    font-size: 1.1rem;
-    background: light-dark(rgba(255, 255, 255, 0.4), rgba(255, 255, 255, 0.08));
-    border: 1px solid light-dark(rgba(255, 255, 255, 0.85), rgba(255, 255, 255, 0.25));
-    border-radius: 50%;
-    box-shadow:
-      inset 0 1px 0 light-dark(rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0.28)),
-      0 4px 14px light-dark(rgba(28, 35, 51, 0.15), rgba(0, 0, 0, 0.35));
-    backdrop-filter: blur(10px) saturate(150%);
-    -webkit-backdrop-filter: blur(10px) saturate(150%);
+    border-radius: 99rem;
     cursor: pointer;
-    transition: border-color 0.15s ease;
   }
 
-  /* backdrop-filter 요소에 transform을 걸면 필터링된 사각 영역이 뒤 배경과
-     어긋나 그대로 드러나므로, 움직임 효과는 안쪽 아이콘에만 준다 */
-  #theme-toggle-icon {
+  .theme-switcher__icon {
     display: block;
-    transition: transform 0.15s ease;
+    width: 1.8rem;
+    height: 1.8rem;
+    transition: scale 0.2s cubic-bezier(0.5, 0, 0, 1);
   }
 
-  /* 호버: 색 테두리 대신 유리 하이라이트가 밝아지는 반응 */
-  #theme-toggle:hover {
-    border-color: light-dark(rgba(255, 255, 255, 1), rgba(255, 255, 255, 0.5));
-    box-shadow:
-      inset 0 1px 0 light-dark(rgba(255, 255, 255, 1), rgba(255, 255, 255, 0.5)),
-      inset 0 -10px 14px -10px light-dark(rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.3)),
-      0 6px 20px light-dark(rgba(28, 35, 51, 0.22), rgba(0, 0, 0, 0.45));
+  .theme-switcher__option:hover {
+    --icon-color: var(--accent);
   }
 
-  #theme-toggle:hover #theme-toggle-icon {
-    transform: rotate(15deg);
+  .theme-switcher__option:hover .theme-switcher__icon {
+    scale: 1.16;
   }
 
-  #theme-toggle:active #theme-toggle-icon {
-    transform: scale(0.85);
+  .theme-switcher__option:has(input:checked) {
+    --icon-color: var(--text);
+    cursor: default;
   }
 
-  #theme-toggle:focus-visible {
+  .theme-switcher__option:has(input:checked) .theme-switcher__icon {
+    scale: 1;
+  }
+
+  .theme-switcher:has(input:focus-visible) {
     outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  @keyframes theme-toggle-light {
+    0%,
+    100% {
+      scale: 1 1;
+    }
+    50% {
+      scale: 1.16 1;
+    }
+  }
+
+  @keyframes theme-toggle-dark {
+    0%,
+    100% {
+      scale: 1 1;
+    }
+    50% {
+      scale: 1.16 1;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .theme-switcher,
+    .theme-switcher::after,
+    .theme-switcher__icon {
+      transition: none;
+      animation: none;
+    }
   }
 </style>

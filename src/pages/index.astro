@@ -60,6 +60,30 @@ const apps = [
     <div class="blob blob-b"></div>
     <div class="blob blob-c"></div>
   </div>
+  <svg class="glass-filter" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+    <filter
+      id="glass-blur"
+      x="0"
+      y="0"
+      width="100%"
+      height="100%"
+      filterUnits="objectBoundingBox"
+    >
+      <feTurbulence
+        type="fractalNoise"
+        baseFrequency="0.003 0.007"
+        numOctaves="1"
+        result="turbulence"
+      />
+      <feDisplacementMap
+        in="SourceGraphic"
+        in2="turbulence"
+        scale="200"
+        xChannelSelector="R"
+        yChannelSelector="G"
+      />
+    </filter>
+  </svg>
   <main>
     <header class="hero">
       <h1>Killterm</h1>
@@ -74,6 +98,11 @@ const apps = [
         apps.map((app) =>
           app.ready ? (
             <a class="tile" href={app.href}>
+              <span class="tile-glass" aria-hidden="true">
+                <span class="tile-glass-bend"></span>
+                <span class="tile-glass-face"></span>
+                <span class="tile-glass-edge"></span>
+              </span>
               <span class="tile-icon" aria-hidden="true">
                 {app.icon}
               </span>
@@ -82,6 +111,11 @@ const apps = [
             </a>
           ) : (
             <div class="tile tile-disabled" aria-disabled="true">
+              <span class="tile-glass" aria-hidden="true">
+                <span class="tile-glass-bend"></span>
+                <span class="tile-glass-face"></span>
+                <span class="tile-glass-edge"></span>
+              </span>
               <span class="tile-icon" aria-hidden="true">
                 {app.icon}
               </span>
@@ -98,6 +132,61 @@ const apps = [
     </footer>
   </main>
 </Layout>
+
+<script>
+  import { createLiquidGlassFilter, supportsLiquidGlass } from '../lib/liquid-glass';
+
+  // 굴절은 별도 bend 레이어에 적용하고, 타일에서 발생한 포인터 상태에 맞춰
+  // 필터를 교체한다. 미지원 브라우저에서는 CSS blur 폴백을 그대로 사용한다.
+  for (const tile of document.querySelectorAll<HTMLElement>('.tile')) {
+    if (!supportsLiquidGlass()) break;
+    const bend = tile.querySelector<HTMLElement>('.tile-glass-bend')!;
+    const rect = bend.getBoundingClientRect();
+    const radius = Number.parseFloat(getComputedStyle(tile).borderRadius);
+    const geometry = {
+      width: Math.round(rect.width),
+      height: Math.round(rect.height),
+      radius,
+      bezel: Math.min(20, radius * 0.75),
+    };
+    const filters = {
+      rest: `url(#${createLiquidGlassFilter(geometry, 12)})`,
+      hover: `url(#${createLiquidGlassFilter(geometry, 22)})`,
+      pressed: `url(#${createLiquidGlassFilter(geometry, 38)})`,
+    };
+    const interactive = tile.matches('a.tile');
+    let hovered = false;
+    let pressed = false;
+    const update = () => {
+      bend.style.backdropFilter = pressed
+        ? filters.pressed
+        : hovered
+          ? filters.hover
+          : filters.rest;
+    };
+    update();
+    if (!interactive) continue;
+    tile.addEventListener('pointerenter', () => {
+      hovered = true;
+      update();
+    });
+    tile.addEventListener('pointerleave', () => {
+      hovered = false;
+      pressed = false;
+      update();
+    });
+    tile.addEventListener('pointerdown', () => {
+      pressed = true;
+      update();
+    });
+    const release = () => {
+      pressed = false;
+      update();
+    };
+    tile.addEventListener('pointerup', release);
+    tile.addEventListener('pointercancel', release);
+  }
+</script>
 
 <style>
   main {
@@ -202,46 +291,72 @@ const apps = [
     gap: 0.4rem;
     padding: 1.25rem;
     text-align: center;
-    background: linear-gradient(
-      150deg,
-      light-dark(rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0.09)),
-      light-dark(rgba(255, 255, 255, 0.28), rgba(255, 255, 255, 0.03))
-    );
-    backdrop-filter: blur(20px) saturate(160%);
-    -webkit-backdrop-filter: blur(20px) saturate(160%);
-    border: 1px solid light-dark(rgba(255, 255, 255, 0.75), rgba(255, 255, 255, 0.14));
+    border: 0;
     border-radius: 1.6rem;
-    box-shadow:
-      0 10px 34px light-dark(rgba(28, 35, 51, 0.12), rgba(0, 0, 0, 0.35)),
-      inset 0 1px 0 light-dark(rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.22));
+    isolation: isolate;
     text-decoration: none;
-    transition:
-      transform 0.18s ease,
-      border-color 0.18s ease,
-      box-shadow 0.18s ease;
   }
 
-  /* 유리 위쪽에 비치는 스펙큘러 하이라이트 */
-  .tile::after {
-    content: '';
+  .tile-glass,
+  .tile-glass-bend,
+  .tile-glass-face,
+  .tile-glass-edge {
     position: absolute;
     inset: 0;
     border-radius: inherit;
-    background: radial-gradient(
-      120% 70% at 22% 0%,
-      light-dark(rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0.13)),
-      transparent 46%
-    );
     pointer-events: none;
   }
 
-  a.tile:hover,
-  a.tile:focus-visible {
-    transform: translateY(-5px) scale(1.02);
-    border-color: light-dark(rgba(255, 255, 255, 1), rgba(255, 255, 255, 0.3));
+  .tile-glass {
+    overflow: hidden;
+    z-index: 0;
+  }
+
+  /* bend: 배경을 굴절시키는 실제 유리층 */
+  .tile-glass-bend {
+    z-index: 0;
+    background: linear-gradient(
+      150deg,
+      light-dark(rgba(255, 255, 255, 0.42), rgba(255, 255, 255, 0.08)),
+      light-dark(rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.025))
+    );
+    filter: url('#glass-blur');
+    backdrop-filter: blur(3px) saturate(145%);
+    -webkit-backdrop-filter: blur(3px) saturate(145%);
+  }
+
+  .glass-filter {
+    position: absolute;
+    width: 0;
+    height: 0;
+    overflow: hidden;
+  }
+
+  /* face: 유리판의 무게와 바닥 그림자 */
+  .tile-glass-face {
+    z-index: 1;
+    box-shadow: 0 10px 34px light-dark(rgba(28, 35, 51, 0.13), rgba(0, 0, 0, 0.36));
+    transition: box-shadow 0.22s ease;
+  }
+
+  /* edge는 움직이지 않는 내부 굴절광만 표현한다. */
+  .tile-glass-edge {
+    z-index: 2;
+    opacity: 0.68;
     box-shadow:
-      0 16px 44px light-dark(rgba(28, 35, 51, 0.18), rgba(0, 0, 0, 0.5)),
-      inset 0 1px 0 light-dark(rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0.3));
+      inset 3px 3px 3px light-dark(rgba(255, 255, 255, 0.62), rgba(255, 255, 255, 0.3)),
+      inset -3px -3px 3px light-dark(rgba(255, 255, 255, 0.38), rgba(255, 255, 255, 0.16));
+    transition: opacity 0.22s ease;
+  }
+
+  a.tile:hover .tile-glass-face,
+  a.tile:focus-visible .tile-glass-face {
+    box-shadow: 0 16px 44px light-dark(rgba(28, 35, 51, 0.19), rgba(0, 0, 0, 0.52));
+  }
+
+  a.tile:hover .tile-glass-edge,
+  a.tile:focus-visible .tile-glass-edge {
+    opacity: 1;
   }
 
   a.tile:focus-visible {
@@ -249,11 +364,18 @@ const apps = [
     outline-offset: 2px;
   }
 
-  /* backdrop-filter 미지원 브라우저는 기존 면 색으로 강등 */
+  /* backdrop-filter 미지원 브라우저는 불투명한 면 색으로 강등 */
   @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-    .tile {
+    .tile-glass-bend {
       background: var(--surface);
     }
+  }
+
+  .tile-icon,
+  .tile-name,
+  .tile-desc {
+    position: relative;
+    z-index: 3;
   }
 
   .tile-icon {
@@ -270,6 +392,19 @@ const apps = [
     box-shadow:
       inset 0 1px 0 light-dark(rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0.2)),
       0 4px 14px light-dark(rgba(28, 35, 51, 0.1), rgba(0, 0, 0, 0.3));
+    transition: transform 0.18s ease;
+  }
+
+  a.tile:hover .tile-icon,
+  a.tile:focus-visible .tile-icon {
+    transform: translateY(-2px) scale(1.04);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .tile-icon,
+    .tile-glass-edge {
+      transition: none;
+    }
   }
 
   .tile-name {
