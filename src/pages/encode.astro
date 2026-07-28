@@ -1,16 +1,23 @@
 ---
 import Layout from '../layouts/Layout.astro';
 
-const modes = [
-  { id: 'base64', label: 'Base64' },
-  { id: 'url', label: 'URL (%)' },
-  { id: 'utf8', label: 'UTF-8 (16진수)' },
+// 입력/출력 형식 선택지. 변환 로직의 codecs와 id가 일치해야 한다.
+// outputOnly(해시처럼 되돌릴 수 없는 형식)는 출력 셀렉트에만 나타난다.
+const formats = [
+  { id: 'text', label: '텍스트 (UTF-8)', outputOnly: false },
+  { id: 'euckr', label: '텍스트 (EUC-KR)', outputOnly: false },
+  { id: 'base64', label: 'Base64', outputOnly: false },
+  { id: 'url', label: 'URL (%)', outputOnly: false },
+  { id: 'hex', label: '16진수 바이트', outputOnly: false },
+  { id: 'sha1', label: 'SHA-1 해시', outputOnly: true },
+  { id: 'sha256', label: 'SHA-256 해시', outputOnly: true },
 ];
+const inputFormats = formats.filter((f) => !f.outputOnly);
 ---
 
 <Layout
   title="인코딩 변환 — killterm"
-  description="Base64, URL(%) 인코딩, UTF-8 바이트를 브라우저 안에서 인코딩/디코딩합니다."
+  description="입력과 출력의 형식을 골라 브라우저 안에서 서로 변환합니다."
 >
   <main>
     <nav class="top">
@@ -20,42 +27,54 @@ const modes = [
     <header class="intro">
       <h1>🔤 인코딩 변환</h1>
       <p>
-        Base64, URL(%) 인코딩, UTF-8 바이트(16진수)를 서로 변환합니다. 모든 처리는 브라우저
-        안에서만 이루어집니다.
+        입력과 출력의 형식을 각각 고른 뒤 변환하세요. 모든 처리는 브라우저 안에서만
+        이루어집니다.
       </p>
     </header>
-
-    <div class="modes" role="radiogroup" aria-label="변환 방식">
-      {
-        modes.map((m, i) => (
-          <label class="mode">
-            <input type="radio" name="mode" value={m.id} checked={i === 0} />
-            <span>{m.label}</span>
-          </label>
-        ))
-      }
-    </div>
 
     <section class="panes">
       <div class="pane">
         <div class="pane-head">
-          <label for="plain">원본 텍스트</label>
-          <button class="btn btn-small copy" data-target="plain" type="button">복사</button>
+          <div class="pane-title">
+            <label for="input">입력</label>
+            <select id="input-format" aria-label="입력 형식">
+              {
+                inputFormats.map((f) => (
+                  <option value={f.id} selected={f.id === 'text'}>
+                    {f.label}
+                  </option>
+                ))
+              }
+            </select>
+          </div>
+          <button class="btn btn-small copy" data-target="input" type="button">복사</button>
         </div>
-        <textarea id="plain" rows="7" spellcheck="false"></textarea>
+        <textarea id="input" rows="7" spellcheck="false"></textarea>
       </div>
 
       <div class="middle">
-        <button id="encode" class="btn btn-primary" type="button">인코딩 ↓</button>
-        <button id="decode" class="btn" type="button">디코딩 ↑</button>
+        <button id="convert" class="btn btn-primary" type="button">변환 ↓</button>
+        <button id="swap" class="btn" type="button">⇅ 맞바꾸기</button>
+        <button id="clear" class="btn" type="button">전체 지우기</button>
       </div>
 
       <div class="pane">
         <div class="pane-head">
-          <label for="encoded">변환 결과</label>
-          <button class="btn btn-small copy" data-target="encoded" type="button">복사</button>
+          <div class="pane-title">
+            <label for="output">출력</label>
+            <select id="output-format" aria-label="출력 형식">
+              {
+                formats.map((f) => (
+                  <option value={f.id} selected={f.id === 'base64'}>
+                    {f.label}
+                  </option>
+                ))
+              }
+            </select>
+          </div>
+          <button class="btn btn-small copy" data-target="output" type="button">복사</button>
         </div>
-        <textarea id="encoded" rows="7" spellcheck="false"></textarea>
+        <textarea id="output" rows="7" spellcheck="false"></textarea>
       </div>
     </section>
 
@@ -64,12 +83,11 @@ const modes = [
 </Layout>
 
 <script>
-  const plain = document.getElementById('plain') as HTMLTextAreaElement;
-  const encoded = document.getElementById('encoded') as HTMLTextAreaElement;
+  const inputArea = document.getElementById('input') as HTMLTextAreaElement;
+  const outputArea = document.getElementById('output') as HTMLTextAreaElement;
+  const inputFormat = document.getElementById('input-format') as HTMLSelectElement;
+  const outputFormat = document.getElementById('output-format') as HTMLSelectElement;
   const status = document.getElementById('status') as HTMLParagraphElement;
-
-  const mode = () =>
-    (document.querySelector('input[name="mode"]:checked') as HTMLInputElement).value;
 
   // ---------- Base64 ----------
 
@@ -110,30 +128,118 @@ const modes = [
   const utf8Encode = (s: string) => new TextEncoder().encode(s);
   const utf8Decode = (b: Uint8Array) => new TextDecoder('utf-8', { fatal: true }).decode(b);
 
-  // ---------- 변환 ----------
+  // ---------- EUC-KR ----------
+  // 브라우저는 EUC-KR 디코더(TextDecoder)만 제공하므로, 인코딩은 가능한 2바이트
+  // 조합을 전부 디코딩해 만든 역매핑 테이블로 처리한다. 첫 사용 시 한 번만 생성.
 
-  function run(direction: 'encode' | 'decode') {
-    status.textContent = '';
-    try {
-      if (direction === 'encode') {
-        const text = plain.value;
-        if (mode() === 'base64') encoded.value = bytesToBase64(utf8Encode(text));
-        else if (mode() === 'url') encoded.value = encodeURIComponent(text);
-        else encoded.value = bytesToHex(utf8Encode(text));
-      } else {
-        const text = encoded.value;
-        if (mode() === 'base64') plain.value = utf8Decode(base64ToBytes(text));
-        else if (mode() === 'url') plain.value = decodeURIComponent(text.replace(/\+/g, '%20'));
-        else plain.value = utf8Decode(hexToBytes(text));
+  let euckrTable: Map<string, [number, number]> | null = null;
+
+  function buildEuckrTable(): Map<string, [number, number]> {
+    const pairs: [number, number][] = [];
+    for (let lead = 0x81; lead <= 0xfe; lead++) {
+      for (let trail = 0x41; trail <= 0xfe; trail++) {
+        pairs.push([lead, trail]);
       }
-    } catch (e) {
-      const what = direction === 'encode' ? '인코딩' : '디코딩';
-      status.textContent = `${what} 실패: ${e instanceof Error ? e.message : String(e)}`;
     }
+    // [lead, trail, 0x00]을 이어 붙여 한 번에 디코딩한 뒤 NUL로 잘라서
+    // 정확히 한 글자로 디코딩된 조합만 테이블에 담는다.
+    const buf = new Uint8Array(pairs.length * 3);
+    pairs.forEach(([lead, trail], i) => {
+      buf[i * 3] = lead;
+      buf[i * 3 + 1] = trail;
+    });
+    const chunks = new TextDecoder('euc-kr').decode(buf).split('\u0000');
+    const table = new Map<string, [number, number]>();
+    pairs.forEach((pair, i) => {
+      const ch = chunks[i];
+      if (ch.length === 1 && ch !== '�' && !table.has(ch)) {
+        table.set(ch, pair);
+      }
+    });
+    return table;
   }
 
-  document.getElementById('encode')!.addEventListener('click', () => run('encode'));
-  document.getElementById('decode')!.addEventListener('click', () => run('decode'));
+  function euckrEncode(text: string): Uint8Array {
+    euckrTable ??= buildEuckrTable();
+    const out: number[] = [];
+    for (const ch of text) {
+      const code = ch.codePointAt(0)!;
+      if (code < 0x80) {
+        out.push(code);
+        continue;
+      }
+      const pair = euckrTable.get(ch);
+      if (!pair) {
+        throw new Error(`EUC-KR로 표현할 수 없는 문자입니다: ${ch}`);
+      }
+      out.push(pair[0], pair[1]);
+    }
+    return new Uint8Array(out);
+  }
+
+  const euckrDecode = (b: Uint8Array) => new TextDecoder('euc-kr', { fatal: true }).decode(b);
+
+  // ---------- 해시 ----------
+
+  async function digestToHex(algorithm: 'SHA-1' | 'SHA-256', bytes: Uint8Array): Promise<string> {
+    const hash = await crypto.subtle.digest(algorithm, bytes);
+    return Array.from(new Uint8Array(hash), (b) => b.toString(16).padStart(2, '0')).join('');
+  }
+
+  // ---------- 변환 ----------
+
+  // 형식별 코덱. 모든 변환은 bytes(Uint8Array)를 중간 표현으로 거쳐
+  // "입력 형식 → bytes → 출력 형식" 두 단계로 이루어진다.
+  // toBytes가 없는 형식(해시)은 출력 전용이다.
+  const codecs: Record<
+    string,
+    {
+      toBytes?: (s: string) => Uint8Array;
+      fromBytes: (b: Uint8Array) => string | Promise<string>;
+    }
+  > = {
+    text: { toBytes: utf8Encode, fromBytes: utf8Decode },
+    euckr: { toBytes: euckrEncode, fromBytes: euckrDecode },
+    base64: { toBytes: base64ToBytes, fromBytes: bytesToBase64 },
+    url: {
+      toBytes: (s) => utf8Encode(decodeURIComponent(s.replace(/\+/g, '%20'))),
+      fromBytes: (b) => encodeURIComponent(utf8Decode(b)),
+    },
+    hex: { toBytes: hexToBytes, fromBytes: bytesToHex },
+    sha1: { fromBytes: (b) => digestToHex('SHA-1', b) },
+    sha256: { fromBytes: (b) => digestToHex('SHA-256', b) },
+  };
+
+  document.getElementById('convert')!.addEventListener('click', async () => {
+    status.textContent = '';
+    try {
+      const toBytes = codecs[inputFormat.value].toBytes;
+      if (!toBytes) {
+        throw new Error('해시 형식은 입력으로 사용할 수 없습니다.');
+      }
+      const bytes = toBytes(inputArea.value);
+      outputArea.value = await codecs[outputFormat.value].fromBytes(bytes);
+    } catch (e) {
+      status.textContent = `변환 실패: ${e instanceof Error ? e.message : String(e)}`;
+    }
+  });
+
+  document.getElementById('swap')!.addEventListener('click', () => {
+    if (!codecs[outputFormat.value].toBytes) {
+      status.textContent = '해시 형식은 입력으로 사용할 수 없어 맞바꿀 수 없습니다.';
+      return;
+    }
+    [inputFormat.value, outputFormat.value] = [outputFormat.value, inputFormat.value];
+    [inputArea.value, outputArea.value] = [outputArea.value, inputArea.value];
+    status.textContent = '';
+  });
+
+  document.getElementById('clear')!.addEventListener('click', () => {
+    inputArea.value = '';
+    outputArea.value = '';
+    status.textContent = '';
+    inputArea.focus();
+  });
 
   // ---------- 복사 ----------
 
@@ -176,42 +282,6 @@ const modes = [
     margin: 0 0 1.5rem;
   }
 
-  .modes {
-    display: inline-flex;
-    gap: 4px;
-    padding: 4px;
-    background: var(--bg-soft);
-    border: 1px solid var(--border);
-    border-radius: 0.8rem;
-    margin-bottom: 1.25rem;
-  }
-
-  .mode input {
-    position: absolute;
-    opacity: 0;
-    pointer-events: none;
-  }
-
-  .mode span {
-    display: block;
-    padding: 0.45rem 1rem;
-    border-radius: 0.6rem;
-    font-size: 0.9rem;
-    font-weight: 600;
-    color: var(--text-dim);
-    cursor: pointer;
-    user-select: none;
-  }
-
-  .mode input:checked + span {
-    background: var(--accent);
-    color: #fff;
-  }
-
-  .mode input:focus-visible + span {
-    outline: 2px solid var(--accent);
-  }
-
   .panes {
     display: grid;
     gap: 0.9rem;
@@ -228,6 +298,27 @@ const modes = [
     color: var(--text-dim);
     font-size: 0.85rem;
     font-weight: 600;
+  }
+
+  .pane-title {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .pane-title select {
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    font: inherit;
+    font-size: 0.85rem;
+    padding: 0.3rem 0.5rem;
+    border-radius: 0.6rem;
+  }
+
+  .pane-title select:focus {
+    outline: 2px solid var(--accent);
+    border-color: var(--accent);
   }
 
   textarea {
