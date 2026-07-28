@@ -16,6 +16,11 @@ const { title, description = 'Killterm의 작은 도구 모음' } = Astro.props;
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="generator" content={Astro.generator} />
     <title>{title}</title>
+    <style is:inline>
+      #theme-switcher {
+        visibility: hidden;
+      }
+    </style>
     <script is:inline>
       // FOUC 방지: 저장된 테마 선택을 스타일 적용 전에 반영 (없으면 OS 설정 추종)
       const storedTheme = localStorage.getItem('killterm-theme');
@@ -202,7 +207,7 @@ const { title, description = 'Killterm의 작은 도구 모음' } = Astro.props;
     color: inherit;
   }
 
-  .theme-switcher {
+  #theme-switcher.theme-switcher {
     position: fixed;
     top: 1rem;
     right: 1rem;
@@ -230,6 +235,7 @@ const { title, description = 'Killterm의 작은 도구 모음' } = Astro.props;
     transition:
       background-color 0.4s cubic-bezier(1, 0, 0.4, 1),
       box-shadow 0.4s cubic-bezier(1, 0, 0.4, 1);
+    visibility: visible;
   }
 
   .theme-switcher::after {
