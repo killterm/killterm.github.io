@@ -57,6 +57,15 @@ const { title, description = 'Killterm의 작은 도구 모음' } = Astro.props;
   // 명시적 선택 전에는 OS 테마 변경도 아이콘에 반영
   systemLight.addEventListener('change', renderToggle);
   renderToggle();
+
+  // 외부 도메인으로 가는 모든 링크에 출처(utm_source)를 자동으로 붙인다.
+  // 페이지의 링크는 전부 정적이므로 로드 시 한 번 순회하면 충분하다.
+  for (const anchor of document.querySelectorAll<HTMLAnchorElement>('a[href^="http"]')) {
+    const url = new URL(anchor.href);
+    if (url.host === location.host) continue;
+    url.searchParams.set('utm_source', 'killterm.github.io');
+    anchor.href = url.toString();
+  }
 </script>
 
 <style is:global>

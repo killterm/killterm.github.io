@@ -1,0 +1,16 @@
+---
+import ToolPage from '../../components/ToolPage.astro';
+import MouseTab from '../../components/hwtest/MouseTab.astro';
+import { hwtest } from '../../lib/tool-tabs';
+---
+
+<ToolPage
+  title="마우스 테스터 — Killterm"
+  description="마우스 버튼, 더블클릭 오작동, 스크롤, 폴링레이트를 확인합니다."
+  heading={hwtest.heading}
+  intro={hwtest.intro}
+  tabs={hwtest.tabs}
+  active="/hwtest/mouse/"
+>
+  <MouseTab />
+</ToolPage>

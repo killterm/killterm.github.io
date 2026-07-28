@@ -1,0 +1,16 @@
+---
+import ToolPage from '../../components/ToolPage.astro';
+import NetworkTab from '../../components/hwtest/NetworkTab.astro';
+import { hwtest } from '../../lib/tool-tabs';
+---
+
+<ToolPage
+  title="네트워크 속도 측정 — Killterm"
+  description="인터넷 속도를 측정할 수 있는 외부 서비스 모음."
+  heading={hwtest.heading}
+  intro={hwtest.intro}
+  tabs={hwtest.tabs}
+  active="/hwtest/network/"
+>
+  <NetworkTab />
+</ToolPage>

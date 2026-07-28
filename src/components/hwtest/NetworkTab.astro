@@ -1,0 +1,72 @@
+---
+// 네트워크 속도 측정: 정확한 측정을 위해 외부 서비스로 연결한다
+const services = [
+  { label: 'Speedtest', note: 'Ookla', url: 'https://www.speedtest.net/' },
+  { label: 'Fast.com', note: 'Netflix', url: 'https://fast.com/' },
+  { label: 'Cloudflare Speed Test', note: 'Cloudflare', url: 'https://speed.cloudflare.com/' },
+  { label: 'Google Fiber Speedtest', note: 'Google', url: 'https://fiber.google.com/speedtest/' },
+];
+---
+
+<div class="net">
+  <p class="hint">인터넷 속도 측정은 아래 외부 서비스를 이용하세요. 새 탭으로 열립니다.</p>
+  <ul class="net-links">
+    {
+      services.map((s) => (
+        <li>
+          <a href={s.url} target="_blank" rel="noopener noreferrer">
+            <span class="net-label">{s.label}</span>
+            <span class="net-note">
+              {new URL(s.url).hostname.replace(/^www\./, '')} · {s.note}
+            </span>
+          </a>
+        </li>
+      ))
+    }
+  </ul>
+</div>
+
+<style>
+  .net {
+    display: grid;
+    gap: 0.9rem;
+  }
+
+  .net-links {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 0.7rem;
+  }
+
+  .net-links a {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    padding: 0.8rem 1rem;
+    border-radius: 0.8rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    text-decoration: none;
+    transition:
+      border-color 0.15s ease,
+      background 0.15s ease;
+  }
+
+  .net-links a:hover,
+  .net-links a:focus-visible {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+  }
+
+  .net-label {
+    font-weight: 600;
+  }
+
+  .net-note {
+    font-size: 0.78rem;
+    color: var(--text-dim);
+  }
+</style>

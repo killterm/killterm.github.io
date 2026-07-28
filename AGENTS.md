@@ -24,6 +24,8 @@
   추가하면 `apps` 배열에 타일을 추가한다.
 - 사이트 표기 브랜드명은 **Killterm**(첫 글자 대문자). localStorage 키(`killterm-*`)와
   도메인 식별자는 소문자 유지.
+- 외부 도메인 링크의 `utm_source=killterm.github.io`는 `Layout.astro`의 전역
+  스크립트가 로드 시 자동으로 붙인다. 개별 페이지에서 직접 붙이지 말 것.
 - 테마: 다크 기본 + 라이트 지원. `Layout.astro`의 `:root` CSS 변수 팔레트
   (+`--danger`)를 라이트에서 재정의하고, OS 설정 추종(`prefers-color-scheme`) +
   수동 토글(우상단 고정 버튼, localStorage `killterm-theme`, FOUC 방지 인라인
@@ -33,7 +35,8 @@
 ### 탭형 도구 페이지 공통 구조 (개발 도구 · 하드웨어 테스트)
 
 - 탭 하나가 곧 정적 페이지 하나다 (해시 대신 고유 URL 경로):
-  `/devtools/{timestamp,json,regex}/`, `/hwtest/{keyboard,monitor,reaction,sound}/`.
+  `/devtools/{timestamp,json,regex}/`,
+  `/hwtest/{keyboard,mouse,monitor,reaction,sound,network}/`.
 - 공용 셸은 `src/components/ToolPage.astro` — 홈 링크·소개·링크형 탭 바·본문
   슬롯. 공통 컨트롤 스타일(.btn/.chip/.status/.hint/.field-row/textarea)은
   여기의 `<style is:global>`에 `.tool-main` 프리픽스로 선언되어 있다.
@@ -57,6 +60,9 @@
 - 키보드: 전용 페이지라 포커스 없이 항상 캡처(Esc 포함). F5/F11/Ctrl·Cmd 조합만
   기본 동작 유지. Meta keyup·blur 시 눌린 키 집합 초기화(keyup 유실 대응).
   배열 시각화(104키)는 본문 컬럼 밖으로 브레이크아웃해 뷰포트 폭까지 쓴다.
+- 마우스: 버튼 5개 시각화(눌림/눌렀던 기록), 같은 버튼 클릭 간격 80ms 미만은
+  의심 더블클릭으로 표시, 휠 카운트, 폴링레이트(250ms 창 이벤트 수 × 4,
+  지원 시 pointerrawupdate). 테스트 영역 안에서만 기본 동작 차단.
 - 모니터: 전체화면 종료 감지는 `fullscreenchange`, 미지원 환경은 fixed 오버레이
   폴백. 주사율은 rAF 간격의 중앙값으로 산출해 일반 주사율에 ±3% 스냅.
 - 반응속도: pointerdown 계측, 시작 시각은 rAF 안에서 기록. 역대 최고 기록은

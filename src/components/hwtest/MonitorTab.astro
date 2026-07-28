@@ -53,6 +53,13 @@ const swatches = ['#ffffff', '#000000', '#ff0000', '#00ff00', '#0000ff', '#40404
     </div>
     <p id="mon-hz-result" class="mon-hz-result"></p>
   </div>
+
+  <p class="mon-ext hint">
+    더 정밀한 모션 블러·프레임 테스트는 <a
+      href="https://testufo.com/framerates"
+      target="_blank"
+      rel="noopener noreferrer">TestUFO</a>를 이용하세요. 새 탭으로 열립니다.
+  </p>
 </div>
 
 <div id="mon-overlay" class="mon-overlay" hidden>
@@ -353,6 +360,11 @@ const swatches = ['#ffffff', '#000000', '#ff0000', '#00ff00', '#0000ff', '#40404
     font-size: 1.05rem;
     font-weight: 700;
     min-height: 1.3em;
+  }
+
+  .mon-ext a {
+    color: var(--accent);
+    font-weight: 600;
   }
 
   .mon-overlay {

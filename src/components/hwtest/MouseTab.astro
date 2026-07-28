@@ -1,0 +1,346 @@
+---
+// 마우스 테스터: 버튼 시각화, 클릭 간격(더블클릭 오작동), 스크롤, 폴링레이트
+---
+
+<div class="ms">
+  <div class="ms-top">
+    <div class="ms-area" id="ms-area">
+      <div class="ms-mouse" aria-hidden="true">
+        <div class="ms-btn ms-left" data-btn="0"></div>
+        <div class="ms-btn ms-wheel" data-btn="1"></div>
+        <div class="ms-btn ms-right" data-btn="2"></div>
+        <div class="ms-btn ms-back" data-btn="3">◂</div>
+        <div class="ms-btn ms-fwd" data-btn="4">▸</div>
+      </div>
+      <p class="ms-guide">이 영역 안에서 클릭·스크롤·이동해 보세요</p>
+    </div>
+
+    <div class="ms-panel">
+      <div class="ms-stat">
+        <span class="ms-stat-label">스크롤</span>
+        <span>↑ <b id="ms-scroll-up">0</b> · ↓ <b id="ms-scroll-down">0</b></span>
+      </div>
+      <div class="ms-stat">
+        <span class="ms-stat-label">폴링레이트</span>
+        <span>현재 <b id="ms-hz">0</b>Hz · 최대 <b id="ms-hz-max">0</b>Hz</span>
+      </div>
+      <div class="ms-stat">
+        <span class="ms-stat-label">의심 더블클릭</span>
+        <span><b id="ms-suspect">0</b>회 (간격 80ms 미만)</span>
+      </div>
+      <button id="ms-reset" class="btn btn-small" type="button">기록 초기화</button>
+    </div>
+  </div>
+
+  <div class="ms-log" id="ms-log" aria-label="클릭 로그"></div>
+  <p class="hint">
+    같은 버튼의 클릭 간격이 80ms 미만이면 스위치 노후로 인한 의도치 않은 더블클릭일 수
+    있어 빨간색으로 표시됩니다. 폴링레이트는 영역 안에서 마우스를 빠르게 움직일 때
+    측정됩니다. 측면(뒤로/앞으로) 버튼은 브라우저에 따라 페이지 이동이 함께 일어날 수
+    있습니다.
+  </p>
+</div>
+
+<script>
+  const area = document.getElementById('ms-area') as HTMLDivElement;
+  const log = document.getElementById('ms-log') as HTMLDivElement;
+  const scrollUpOut = document.getElementById('ms-scroll-up') as HTMLElement;
+  const scrollDownOut = document.getElementById('ms-scroll-down') as HTMLElement;
+  const hzOut = document.getElementById('ms-hz') as HTMLElement;
+  const hzMaxOut = document.getElementById('ms-hz-max') as HTMLElement;
+  const suspectOut = document.getElementById('ms-suspect') as HTMLElement;
+
+  const BUTTON_NAMES = ['왼쪽', '휠(가운데)', '오른쪽', '뒤로(측면)', '앞으로(측면)'];
+  const DOUBLE_CLICK_SUSPECT_MS = 80;
+  const LOG_LIMIT = 100;
+
+  const buttonEls = new Map<number, HTMLElement>();
+  for (const el of document.querySelectorAll<HTMLElement>('.ms-btn')) {
+    buttonEls.set(Number(el.dataset.btn), el);
+  }
+
+  // 버튼별 마지막 pointerdown 시각 (클릭 간격 계산용)
+  const lastDown = new Map<number, number>();
+  let suspectCount = 0;
+  let scrollUp = 0;
+  let scrollDown = 0;
+
+  function addLog(button: number, interval: number | null) {
+    const entry = document.createElement('div');
+    const suspicious = interval !== null && interval < DOUBLE_CLICK_SUSPECT_MS;
+    entry.className = `ms-entry${suspicious ? ' ms-suspect' : ''}`;
+    const name = BUTTON_NAMES[button] ?? `버튼 ${button}`;
+    const intervalText = interval === null ? '첫 클릭' : `간격 ${Math.round(interval)}ms`;
+    entry.textContent = `${name} · ${intervalText}${suspicious ? ' ⚠ 의심 더블클릭' : ''}`;
+    log.prepend(entry);
+    while (log.childElementCount > LOG_LIMIT) {
+      log.lastElementChild!.remove();
+    }
+  }
+
+  area.addEventListener('pointerdown', (e) => {
+    const el = buttonEls.get(e.button);
+    el?.classList.add('ms-down');
+    el?.classList.add('ms-seen');
+    const now = performance.now();
+    const prev = lastDown.get(e.button);
+    const interval = prev === undefined ? null : now - prev;
+    lastDown.set(e.button, now);
+    if (interval !== null && interval < DOUBLE_CLICK_SUSPECT_MS) {
+      suspectCount++;
+      suspectOut.textContent = String(suspectCount);
+    }
+    addLog(e.button, interval);
+  });
+
+  area.addEventListener('pointerup', (e) => {
+    buttonEls.get(e.button)?.classList.remove('ms-down');
+  });
+
+  area.addEventListener('pointerleave', () => {
+    for (const el of buttonEls.values()) el.classList.remove('ms-down');
+  });
+
+  // 테스트 영역 안에서는 우클릭 메뉴·휠클릭 자동 스크롤 등 기본 동작을 막는다
+  area.addEventListener('contextmenu', (e) => e.preventDefault());
+  area.addEventListener('mousedown', (e) => e.preventDefault());
+  area.addEventListener('mouseup', (e) => {
+    if (e.button === 3 || e.button === 4) e.preventDefault();
+  });
+  area.addEventListener('auxclick', (e) => e.preventDefault());
+
+  // ---------- 스크롤 ----------
+
+  const wheelEl = buttonEls.get(1)!;
+  let wheelFlashTimer: ReturnType<typeof setTimeout> | null = null;
+
+  area.addEventListener(
+    'wheel',
+    (e) => {
+      e.preventDefault();
+      if (e.deltaY < 0) scrollUpOut.textContent = String(++scrollUp);
+      if (e.deltaY > 0) scrollDownOut.textContent = String(++scrollDown);
+      wheelEl.classList.add('ms-down');
+      wheelEl.classList.add('ms-seen');
+      if (wheelFlashTimer !== null) clearTimeout(wheelFlashTimer);
+      wheelFlashTimer = setTimeout(() => wheelEl.classList.remove('ms-down'), 120);
+    },
+    { passive: false },
+  );
+
+  // ---------- 폴링레이트 ----------
+  // 최근 250ms 동안 들어온 이동 이벤트 수 × 4 ≈ Hz.
+  // 브라우저가 이벤트를 합쳐 보내는 것을 피하려고 지원 시 pointerrawupdate를 쓴다.
+
+  const moveTimes: number[] = [];
+  let maxHz = 0;
+
+  const onMove = () => {
+    const now = performance.now();
+    moveTimes.push(now);
+    while (moveTimes.length > 0 && now - moveTimes[0] > 250) {
+      moveTimes.shift();
+    }
+  };
+
+  const rawUpdateSupported = 'onpointerrawupdate' in area;
+  area.addEventListener(rawUpdateSupported ? 'pointerrawupdate' : 'pointermove', onMove);
+
+  // 표시는 100ms마다 갱신 (이벤트마다 갱신하면 그 자체가 부하)
+  setInterval(() => {
+    if (document.hidden) return;
+    const now = performance.now();
+    while (moveTimes.length > 0 && now - moveTimes[0] > 250) {
+      moveTimes.shift();
+    }
+    const hz = moveTimes.length * 4;
+    maxHz = Math.max(maxHz, hz);
+    hzOut.textContent = String(hz);
+    hzMaxOut.textContent = String(maxHz);
+  }, 100);
+
+  // ---------- 초기화 ----------
+
+  document.getElementById('ms-reset')!.addEventListener('click', () => {
+    lastDown.clear();
+    suspectCount = 0;
+    scrollUp = 0;
+    scrollDown = 0;
+    maxHz = 0;
+    moveTimes.length = 0;
+    suspectOut.textContent = '0';
+    scrollUpOut.textContent = '0';
+    scrollDownOut.textContent = '0';
+    hzMaxOut.textContent = '0';
+    log.innerHTML = '';
+    for (const el of buttonEls.values()) {
+      el.classList.remove('ms-down');
+      el.classList.remove('ms-seen');
+    }
+  });
+</script>
+
+<style>
+  .ms {
+    display: grid;
+    gap: 0.9rem;
+  }
+
+  .ms-top {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+
+  .ms-area {
+    flex: 1 1 320px;
+    min-height: 280px;
+    display: grid;
+    place-content: center;
+    gap: 1rem;
+    justify-items: center;
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    border-radius: 0.9rem;
+    padding: 1rem;
+    touch-action: none;
+    user-select: none;
+  }
+
+  .ms-guide {
+    margin: 0;
+    color: var(--text-dim);
+    font-size: 0.85rem;
+  }
+
+  /* 마우스 모양 다이어그램 */
+  .ms-mouse {
+    position: relative;
+    width: 130px;
+    height: 190px;
+    border: 2px solid var(--border);
+    border-radius: 65px 65px 58px 58px;
+    background: var(--surface);
+  }
+
+  .ms-btn {
+    position: absolute;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    transition: background 0.08s ease;
+  }
+
+  .ms-left {
+    top: 0;
+    left: 0;
+    width: 48%;
+    height: 42%;
+    border-radius: 62px 8px 8px 8px;
+  }
+
+  .ms-right {
+    top: 0;
+    right: 0;
+    width: 48%;
+    height: 42%;
+    border-radius: 8px 62px 8px 8px;
+  }
+
+  .ms-wheel {
+    top: 12%;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 16px;
+    height: 38px;
+    border-radius: 8px;
+    z-index: 1;
+  }
+
+  .ms-back,
+  .ms-fwd {
+    left: -14px;
+    width: 14px;
+    height: 26px;
+    border-radius: 6px 0 0 6px;
+    display: grid;
+    place-items: center;
+    font-size: 0.6rem;
+    color: var(--text-dim);
+  }
+
+  .ms-back {
+    top: 52%;
+  }
+
+  .ms-fwd {
+    top: 36%;
+  }
+
+  .ms-btn.ms-seen {
+    background: var(--accent-soft);
+    border-color: var(--accent);
+  }
+
+  .ms-btn.ms-down {
+    background: var(--accent);
+    border-color: var(--accent);
+  }
+
+  .ms-panel {
+    flex: 1 1 220px;
+    display: grid;
+    gap: 0.7rem;
+    align-content: start;
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    border-radius: 0.9rem;
+    padding: 1rem 1.2rem;
+    font-size: 0.92rem;
+  }
+
+  .ms-stat {
+    display: grid;
+    gap: 0.1rem;
+  }
+
+  .ms-stat-label {
+    color: var(--text-dim);
+    font-size: 0.82rem;
+    font-weight: 600;
+  }
+
+  .ms-stat b {
+    font-family: Consolas, 'Courier New', monospace;
+  }
+
+  .ms-panel .btn {
+    justify-self: start;
+  }
+
+  .ms-log {
+    max-height: 200px;
+    overflow-y: auto;
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    border-radius: 0.7rem;
+    padding: 0.5rem 0.7rem;
+    font-family: Consolas, 'Courier New', monospace;
+    font-size: 0.82rem;
+    line-height: 1.6;
+  }
+
+  .ms-log:empty::before {
+    content: '클릭이 여기에 기록됩니다';
+    color: var(--text-dim);
+  }
+
+  /* 로그 행은 JS로 생성되므로 :global로 선언 */
+  .ms-log :global(.ms-entry) {
+    color: var(--text-dim);
+  }
+
+  .ms-log :global(.ms-suspect) {
+    color: var(--danger);
+    font-weight: 600;
+  }
+</style>

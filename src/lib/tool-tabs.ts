@@ -18,8 +18,10 @@ export const hwtest = {
     '키보드·모니터·반응속도·사운드를 확인하는 도구 모음입니다. 모든 처리는 브라우저 안에서만 이루어집니다.',
   tabs: [
     { label: '키보드', href: '/hwtest/keyboard/' },
+    { label: '마우스', href: '/hwtest/mouse/' },
     { label: '모니터', href: '/hwtest/monitor/' },
     { label: '반응속도', href: '/hwtest/reaction/' },
     { label: '사운드', href: '/hwtest/sound/' },
+    { label: '네트워크', href: '/hwtest/network/' },
   ] satisfies ToolTab[],
 };
