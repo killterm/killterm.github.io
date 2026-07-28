@@ -76,6 +76,17 @@ const { title, description = 'Killterm의 작은 도구 모음' } = Astro.props;
         </svg>
       </label>
     </fieldset>
+    <script is:inline>
+      {
+        const theme =
+          document.documentElement.dataset.theme ??
+          (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+        const input = document.querySelector(
+          `#theme-switcher input[value="${theme}"]`,
+        );
+        if (input instanceof HTMLInputElement) input.checked = true;
+      }
+    </script>
     <slot />
   </body>
 </html>
@@ -101,19 +112,21 @@ const { title, description = 'Killterm의 작은 도구 모음' } = Astro.props;
   for (const input of themeInputs) {
     input.addEventListener('change', () => {
       if (!input.checked) return;
-      themeSwitcher.dataset.previous = effectiveTheme();
+      themeSwitcher.dataset.animating = input.value;
       document.documentElement.dataset.theme = input.value;
       localStorage.setItem('killterm-theme', input.value);
       renderSwitcher();
+      window.setTimeout(() => {
+        if (themeSwitcher.dataset.animating === input.value) {
+          delete themeSwitcher.dataset.animating;
+        }
+      }, 500);
     });
   }
 
   // 명시적 선택 전에는 OS 테마 변경도 아이콘에 반영
   systemLight.addEventListener('change', renderSwitcher);
   renderSwitcher();
-  requestAnimationFrame(() => {
-    themeSwitcher.dataset.ready = 'true';
-  });
 
   // 테마 선택기를 리퀴드 글래스(굴절)로 표현한다.
   // 미지원 브라우저는 CSS 폴백(blur) 유지
@@ -255,7 +268,6 @@ const { title, description = 'Killterm의 작은 도구 모음' } = Astro.props;
       inset -1px 2px 3px -1px light-dark(rgba(0, 0, 0, 0.2), rgba(0, 0, 0, 0.4)),
       0 3px 6px light-dark(rgba(0, 0, 0, 0.08), rgba(0, 0, 0, 0.16));
     transition:
-      translate 0.4s cubic-bezier(1, 0, 0.4, 1),
       background-color 0.4s cubic-bezier(1, 0, 0.4, 1),
       box-shadow 0.4s cubic-bezier(1, 0, 0.4, 1);
   }
@@ -264,12 +276,19 @@ const { title, description = 'Killterm의 작은 도구 모음' } = Astro.props;
     translate: 100% 0;
   }
 
-  .theme-switcher[data-ready='true']:has(input[value='light']:checked)::after {
+  .theme-switcher[data-animating]::after {
+    transition:
+      translate 0.4s cubic-bezier(1, 0, 0.4, 1),
+      background-color 0.4s cubic-bezier(1, 0, 0.4, 1),
+      box-shadow 0.4s cubic-bezier(1, 0, 0.4, 1);
+  }
+
+  .theme-switcher[data-animating='light']:has(input[value='light']:checked)::after {
     transform-origin: right;
     animation: theme-toggle-light 0.44s ease;
   }
 
-  .theme-switcher[data-ready='true']:has(input[value='dark']:checked)::after {
+  .theme-switcher[data-animating='dark']:has(input[value='dark']:checked)::after {
     transform-origin: left;
     animation: theme-toggle-dark 0.44s ease;
   }
