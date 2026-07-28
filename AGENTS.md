@@ -18,8 +18,8 @@
 
 - Astro 정적 사이트. GitHub Pages 사용자 사이트(저장소 이름 = `killterm.github.io`)라서
   **base 경로 없이 루트로 서비스**된다. `astro.config.mjs`의 `site`만 설정.
-- 배포는 `.github/workflows/deploy.yml`이 담당 (push 시 자동). 저장소 설정에서
-  Pages Source를 "GitHub Actions"로 지정해야 동작한다. 기본 브랜치는 `master`.
+- 배포는 `.github/workflows/deploy.yml`이 담당 (`release` 브랜치 push 시 자동).
+  저장소 설정에서 Pages Source를 "GitHub Actions"로 지정해야 동작한다.
 - 랜딩 페이지(`src/pages/index.astro`)는 런치패드 스타일 타일 그리드. 새 도구를
   추가하면 `apps` 배열에 타일을 추가한다.
 
