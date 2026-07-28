@@ -278,14 +278,6 @@ const swatches = ['#ffffff', '#000000', '#ff0000', '#00ff00', '#0000ff', '#40404
 
   // ---------- 정리 ----------
 
-  document.addEventListener('hw:tab', (e) => {
-    const { from } = (e as CustomEvent).detail;
-    if (from === 'monitor') {
-      if (mode !== null) closeOverlay();
-      stopHz();
-    }
-  });
-
   document.addEventListener('visibilitychange', () => {
     if (document.hidden && mode !== null) closeOverlay();
   });

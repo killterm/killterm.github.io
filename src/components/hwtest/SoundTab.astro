@@ -138,15 +138,7 @@
     if (ctx && gain) gain.gain.setValueAtTime(currentVolume(), ctx.currentTime);
   });
 
-  // 탭 이탈·페이지 숨김 시 반드시 정지
-  document.addEventListener('hw:tab', (e) => {
-    const { from } = (e as CustomEvent).detail;
-    if (from === 'sound') {
-      stop();
-      ctx?.suspend();
-    }
-  });
-
+  // 페이지 숨김·이탈 시 반드시 정지
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) {
       stop();

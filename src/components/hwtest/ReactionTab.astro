@@ -164,11 +164,6 @@
     if (document.hidden) abortToIdle();
   });
 
-  document.addEventListener('hw:tab', (e) => {
-    const { from } = (e as CustomEvent).detail;
-    if (from === 'reaction') abortToIdle();
-  });
-
   document.getElementById('rx-reset')!.addEventListener('click', () => {
     localStorage.removeItem(STORAGE_KEY);
     renderInfo();

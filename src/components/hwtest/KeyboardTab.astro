@@ -160,7 +160,7 @@ const layoutBlocks = [mainRows, navRows, padRows];
 
 <div class="kb">
   <div class="kb-area" id="kb-area">
-    <p class="kb-guide" id="kb-guide">이 탭이 열려 있는 동안 키 입력을 항상 인식합니다</p>
+    <p class="kb-guide" id="kb-guide">이 페이지가 열려 있는 동안 키 입력을 항상 인식합니다</p>
     <div class="kb-last" id="kb-last" hidden>
       <div class="kb-big" id="kb-code-big"></div>
       <div class="kb-meta">
@@ -277,12 +277,8 @@ const layoutBlocks = [mainRows, navRows, padRows];
     renderPressed();
   }
 
-  // 이 탭이 보이는 동안에는 클릭·포커스 없이 항상 키를 인식한다 (Esc 포함)
-  const panel = document.getElementById('panel-keyboard') as HTMLElement;
-  const capturing = () => !panel.hidden;
-
+  // 전용 페이지이므로 클릭·포커스 없이 항상 키를 인식한다 (Esc 포함)
   document.addEventListener('keydown', (e) => {
-    if (!capturing()) return;
     // F5/F11(새로고침·전체화면)과 Ctrl/Cmd 조합은 탈출 경로로 남기고, 나머지는 기본 동작 차단
     const keepDefault = e.key === 'F5' || e.key === 'F11' || e.ctrlKey || e.metaKey;
     if (!keepDefault) e.preventDefault();
@@ -297,18 +293,11 @@ const layoutBlocks = [mainRows, navRows, padRows];
   });
 
   document.addEventListener('keyup', (e) => {
-    if (!capturing()) return;
     addLog('↑', e);
     pressed.delete(e.code);
     // macOS에서 Meta를 누른 채 뗀 키는 keyup이 오지 않으므로 Meta를 떼면 전체 초기화
     if (e.key === 'Meta') pressed.clear();
     renderPressed();
-  });
-
-  // 탭을 떠나면 눌림 상태만 정리
-  document.addEventListener('hw:tab', (e) => {
-    const { from } = (e as CustomEvent).detail;
-    if (from === 'keyboard') clearPressed();
   });
 
   // 포커스 이탈·탭 전환 시 유령 키가 남지 않도록 초기화

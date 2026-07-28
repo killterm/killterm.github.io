@@ -1,0 +1,256 @@
+---
+// 타임스탬프 변환기: Unix timestamp ↔ KST/UTC/ISO/상대 시간
+---
+
+<div class="ts">
+  <div class="field-row">
+    <input
+      id="ts-input"
+      type="text"
+      inputmode="numeric"
+      placeholder="Unix timestamp"
+      spellcheck="false"
+    />
+    <div class="chip-group" role="radiogroup" aria-label="타임스탬프 단위">
+      <label class="chip">
+        <input type="radio" name="ts-unit" value="auto" checked />
+        <span>자동</span>
+      </label>
+      <label class="chip">
+        <input type="radio" name="ts-unit" value="sec" />
+        <span>초</span>
+      </label>
+      <label class="chip">
+        <input type="radio" name="ts-unit" value="ms" />
+        <span>밀리초</span>
+      </label>
+    </div>
+    <button id="ts-now" class="btn btn-small" type="button">지금</button>
+    <span id="ts-badge" class="badge" hidden></span>
+  </div>
+
+  <div class="result-card" id="ts-results" hidden>
+    <div class="result-row">
+      <span class="result-label">KST</span>
+      <output id="ts-kst"></output>
+      <button class="btn btn-small copy" data-target="ts-kst" type="button">복사</button>
+    </div>
+    <div class="result-row">
+      <span class="result-label">UTC</span>
+      <output id="ts-utc"></output>
+      <button class="btn btn-small copy" data-target="ts-utc" type="button">복사</button>
+    </div>
+    <div class="result-row">
+      <span class="result-label">ISO 8601</span>
+      <output id="ts-iso"></output>
+      <button class="btn btn-small copy" data-target="ts-iso" type="button">복사</button>
+    </div>
+    <div class="result-row">
+      <span class="result-label">상대 시간</span>
+      <output id="ts-rel"></output>
+    </div>
+  </div>
+
+  <h2>날짜 → 타임스탬프</h2>
+  <div class="field-row">
+    <input id="dt-input" type="datetime-local" step="1" />
+    <span class="hint">브라우저 로컬 시간 기준</span>
+  </div>
+  <div class="result-card" id="dt-results" hidden>
+    <div class="result-row">
+      <span class="result-label">초</span>
+      <output id="dt-sec"></output>
+      <button class="btn btn-small copy" data-target="dt-sec" type="button">복사</button>
+    </div>
+    <div class="result-row">
+      <span class="result-label">밀리초</span>
+      <output id="dt-ms"></output>
+      <button class="btn btn-small copy" data-target="dt-ms" type="button">복사</button>
+    </div>
+  </div>
+  <p id="ts-status" class="status" role="status"></p>
+</div>
+
+<script>
+  import { setupCopyButtons } from '../../lib/copy-buttons';
+
+  setupCopyButtons();
+
+  const checkedValue = (name: string) =>
+    (document.querySelector(`input[name="${name}"]:checked`) as HTMLInputElement).value;
+
+  const tsInput = document.getElementById('ts-input') as HTMLInputElement;
+  const tsBadge = document.getElementById('ts-badge') as HTMLSpanElement;
+  const tsResults = document.getElementById('ts-results') as HTMLDivElement;
+  const tsStatus = document.getElementById('ts-status') as HTMLParagraphElement;
+  const tsOut = {
+    kst: document.getElementById('ts-kst') as HTMLOutputElement,
+    utc: document.getElementById('ts-utc') as HTMLOutputElement,
+    iso: document.getElementById('ts-iso') as HTMLOutputElement,
+    rel: document.getElementById('ts-rel') as HTMLOutputElement,
+  };
+
+  const dateTimeFormat = (timeZone: string) =>
+    new Intl.DateTimeFormat('ko-KR', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      weekday: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    });
+  const kstFormat = dateTimeFormat('Asia/Seoul');
+  const utcFormat = dateTimeFormat('UTC');
+  const relFormat = new Intl.RelativeTimeFormat('ko', { numeric: 'auto' });
+
+  // 현재 유효하게 파싱된 밀리초 값. 상대 시간 갱신 인터벌이 참조한다.
+  let tsParsedMs: number | null = null;
+
+  function relativeText(targetMs: number): string {
+    const diff = targetMs - Date.now();
+    const abs = Math.abs(diff);
+    const table: [number, number, Intl.RelativeTimeFormatUnit][] = [
+      [60_000, 1000, 'second'],
+      [3_600_000, 60_000, 'minute'],
+      [86_400_000, 3_600_000, 'hour'],
+      [2_592_000_000, 86_400_000, 'day'],
+      [31_536_000_000, 2_592_000_000, 'month'],
+      [Infinity, 31_536_000_000, 'year'],
+    ];
+    const [, divisor, unit] = table.find(([limit]) => abs < limit)!;
+    return relFormat.format(Math.round(diff / divisor), unit);
+  }
+
+  function renderTimestamp() {
+    tsStatus.textContent = '';
+    tsBadge.hidden = true;
+    tsParsedMs = null;
+    const raw = tsInput.value.trim();
+    if (!raw) {
+      tsResults.hidden = true;
+      return;
+    }
+    if (!/^-?\d+(\.\d+)?$/.test(raw)) {
+      tsResults.hidden = true;
+      tsStatus.textContent = '숫자만 입력해주세요.';
+      return;
+    }
+    const num = Number(raw);
+    const unitChoice = checkedValue('ts-unit');
+    let ms: number;
+    let unitLabel: string;
+    if (unitChoice === 'sec') {
+      ms = num * 1000;
+      unitLabel = '초';
+    } else if (unitChoice === 'ms') {
+      ms = num;
+      unitLabel = '밀리초';
+    } else {
+      // 자동 감지: 정수부 10자리 이하는 초, 그 이상은 밀리초로 해석
+      const intDigits = String(Math.trunc(Math.abs(num))).length;
+      const isMs = intDigits >= 11;
+      ms = isMs ? num : num * 1000;
+      unitLabel = isMs ? '밀리초' : '초';
+      tsBadge.textContent = `${unitLabel}로 해석함`;
+      tsBadge.hidden = false;
+    }
+    if (!Number.isFinite(ms) || Math.abs(ms) > 8.64e15) {
+      tsResults.hidden = true;
+      tsStatus.textContent = '표현 가능한 날짜 범위를 벗어났습니다.';
+      return;
+    }
+    const date = new Date(ms);
+    tsParsedMs = ms;
+    tsOut.kst.textContent = kstFormat.format(date);
+    tsOut.utc.textContent = utcFormat.format(date);
+    tsOut.iso.textContent = date.toISOString();
+    tsOut.rel.textContent = relativeText(ms);
+    tsResults.hidden = false;
+  }
+
+  tsInput.addEventListener('input', renderTimestamp);
+  for (const radio of document.querySelectorAll<HTMLInputElement>('input[name="ts-unit"]')) {
+    radio.addEventListener('change', renderTimestamp);
+  }
+
+  document.getElementById('ts-now')!.addEventListener('click', () => {
+    tsInput.value = String(Date.now());
+    renderTimestamp();
+  });
+
+  // 상대 시간을 1초 간격으로 갱신 (백그라운드 탭에서는 건너뜀)
+  setInterval(() => {
+    if (document.hidden || tsParsedMs === null) return;
+    tsOut.rel.textContent = relativeText(tsParsedMs);
+  }, 1000);
+
+  // 날짜 → 타임스탬프 (브라우저 로컬 시간 기준)
+  const dtInput = document.getElementById('dt-input') as HTMLInputElement;
+  const dtResults = document.getElementById('dt-results') as HTMLDivElement;
+
+  dtInput.addEventListener('input', () => {
+    const date = new Date(dtInput.value);
+    if (!dtInput.value || Number.isNaN(date.getTime())) {
+      dtResults.hidden = true;
+      return;
+    }
+    (document.getElementById('dt-sec') as HTMLOutputElement).textContent = String(
+      Math.floor(date.getTime() / 1000),
+    );
+    (document.getElementById('dt-ms') as HTMLOutputElement).textContent = String(date.getTime());
+    dtResults.hidden = false;
+  });
+</script>
+
+<style>
+  .ts {
+    display: grid;
+    gap: 0.9rem;
+  }
+
+  .ts h2 {
+    margin: 0.6rem 0 0;
+    font-size: 1rem;
+    color: var(--text-dim);
+  }
+
+  .badge {
+    font-size: 0.78rem;
+    color: var(--accent);
+    border: 1px solid var(--accent);
+    border-radius: 999px;
+    padding: 0.15rem 0.6rem;
+  }
+
+  .result-card {
+    display: grid;
+    gap: 0.5rem;
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    border-radius: 0.8rem;
+    padding: 0.9rem 1rem;
+  }
+
+  .result-row {
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+  }
+
+  .result-label {
+    flex: 0 0 5.5rem;
+    color: var(--text-dim);
+    font-size: 0.85rem;
+    font-weight: 600;
+  }
+
+  .result-row output {
+    flex: 1;
+    font-family: Consolas, 'Courier New', monospace;
+    font-size: 0.95rem;
+    overflow-wrap: anywhere;
+  }
+</style>

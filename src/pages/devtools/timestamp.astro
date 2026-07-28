@@ -1,0 +1,16 @@
+---
+import ToolPage from '../../components/ToolPage.astro';
+import TimestampTab from '../../components/devtools/TimestampTab.astro';
+import { devtools } from '../../lib/tool-tabs';
+---
+
+<ToolPage
+  title="타임스탬프 변환 — killterm"
+  description="Unix timestamp를 KST/UTC 날짜와 상대 시간으로 변환합니다."
+  heading={devtools.heading}
+  intro={devtools.intro}
+  tabs={devtools.tabs}
+  active="/devtools/timestamp/"
+>
+  <TimestampTab />
+</ToolPage>

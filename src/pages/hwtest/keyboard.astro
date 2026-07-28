@@ -1,0 +1,16 @@
+---
+import ToolPage from '../../components/ToolPage.astro';
+import KeyboardTab from '../../components/hwtest/KeyboardTab.astro';
+import { hwtest } from '../../lib/tool-tabs';
+---
+
+<ToolPage
+  title="키보드 테스터 — killterm"
+  description="눌린 키와 동시 입력(고스팅)을 배열 시각화로 확인합니다."
+  heading={hwtest.heading}
+  intro={hwtest.intro}
+  tabs={hwtest.tabs}
+  active="/hwtest/keyboard/"
+>
+  <KeyboardTab />
+</ToolPage>

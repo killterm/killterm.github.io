@@ -1,0 +1,16 @@
+---
+import ToolPage from '../../components/ToolPage.astro';
+import JsonTab from '../../components/devtools/JsonTab.astro';
+import { devtools } from '../../lib/tool-tabs';
+---
+
+<ToolPage
+  title="JSON 도구 — killterm"
+  description="JSON을 포매팅·압축·키 정렬하고 구문 오류 위치를 확인합니다."
+  heading={devtools.heading}
+  intro={devtools.intro}
+  tabs={devtools.tabs}
+  active="/devtools/json/"
+>
+  <JsonTab />
+</ToolPage>

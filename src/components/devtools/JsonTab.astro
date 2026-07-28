@@ -1,0 +1,167 @@
+---
+// JSON 도구: 포매팅/압축/키 정렬, 파싱 에러 위치 표시
+---
+
+<div class="js-tool">
+  <div class="field-row">
+    <div class="chip-group" role="radiogroup" aria-label="들여쓰기">
+      <label class="chip">
+        <input type="radio" name="json-indent" value="2" checked />
+        <span>2칸</span>
+      </label>
+      <label class="chip">
+        <input type="radio" name="json-indent" value="4" />
+        <span>4칸</span>
+      </label>
+      <label class="chip">
+        <input type="radio" name="json-indent" value="tab" />
+        <span>탭</span>
+      </label>
+    </div>
+    <button id="json-format" class="btn btn-primary" type="button">포매팅</button>
+    <button id="json-minify" class="btn" type="button">압축</button>
+    <button id="json-sort" class="btn" type="button">키 정렬</button>
+    <button class="btn copy" data-target="json-area" type="button">복사</button>
+    <button id="json-clear" class="btn" type="button">지우기</button>
+  </div>
+  <textarea
+    id="json-area"
+    rows="16"
+    spellcheck="false"
+    placeholder='{"example": [1, 2, 3]}'></textarea>
+  <p id="json-status" class="status" role="status"></p>
+  <div id="json-error" class="error-detail" hidden>
+    <pre id="json-error-snippet"></pre>
+    <button id="json-goto" class="btn btn-small" type="button">에러 위치로 이동</button>
+  </div>
+  <p class="hint">숫자는 JavaScript 정밀도로 처리됩니다 (큰 정수는 반올림될 수 있음).</p>
+</div>
+
+<script>
+  import { setupCopyButtons } from '../../lib/copy-buttons';
+
+  setupCopyButtons();
+
+  const checkedValue = (name: string) =>
+    (document.querySelector(`input[name="${name}"]:checked`) as HTMLInputElement).value;
+
+  const jsonArea = document.getElementById('json-area') as HTMLTextAreaElement;
+  const jsonStatus = document.getElementById('json-status') as HTMLParagraphElement;
+  const jsonError = document.getElementById('json-error') as HTMLDivElement;
+  const jsonSnippet = document.getElementById('json-error-snippet') as HTMLPreElement;
+  const jsonGoto = document.getElementById('json-goto') as HTMLButtonElement;
+  let jsonErrorPos: number | null = null;
+
+  function currentIndent(): string | number {
+    const v = checkedValue('json-indent');
+    return v === 'tab' ? '\t' : Number(v);
+  }
+
+  function sortKeysDeep(value: unknown): unknown {
+    if (Array.isArray(value)) return value.map(sortKeysDeep);
+    if (value !== null && typeof value === 'object') {
+      const record = value as Record<string, unknown>;
+      return Object.fromEntries(
+        Object.keys(record)
+          .sort()
+          .map((k) => [k, sortKeysDeep(record[k])]),
+      );
+    }
+    return value;
+  }
+
+  // 위치(문자 오프셋) → 줄/칸 (1-기준)
+  function locate(text: string, pos: number): { line: number; col: number } {
+    const before = text.slice(0, pos);
+    return { line: before.split('\n').length, col: pos - before.lastIndexOf('\n') };
+  }
+
+  // 브라우저별 에러 메시지에서 위치 추출: V8 "position N", Firefox "line L column C"
+  function showJsonError(e: unknown) {
+    const message = e instanceof Error ? e.message : String(e);
+    const text = jsonArea.value;
+    jsonErrorPos = null;
+    let line: number | null = null;
+    let col: number | null = null;
+    const posMatch = message.match(/position (\d+)/);
+    const lineColMatch = message.match(/line (\d+) column (\d+)/);
+    if (posMatch) {
+      jsonErrorPos = Math.min(Number(posMatch[1]), text.length);
+      ({ line, col } = locate(text, jsonErrorPos));
+    } else if (lineColMatch) {
+      line = Number(lineColMatch[1]);
+      col = Number(lineColMatch[2]);
+      jsonErrorPos = text.split('\n').slice(0, line - 1).join('\n').length + (line > 1 ? 1 : 0) + col - 1;
+    }
+    if (line !== null && col !== null) {
+      jsonStatus.textContent = `구문 오류: ${line}번째 줄 ${col}번째 칸 — ${message}`;
+      const lineText = text.split('\n')[line - 1] ?? '';
+      jsonSnippet.textContent = `${lineText}\n${' '.repeat(Math.max(0, col - 1))}^`;
+      jsonError.hidden = false;
+    } else {
+      jsonStatus.textContent = `구문 오류: ${message}`;
+      jsonError.hidden = true;
+    }
+  }
+
+  function runJson(transform: (v: unknown) => unknown, indent: string | number | undefined) {
+    jsonStatus.textContent = '';
+    jsonError.hidden = true;
+    if (jsonArea.value.trim() === '') return;
+    try {
+      const before = jsonArea.value.length;
+      jsonArea.value = JSON.stringify(transform(JSON.parse(jsonArea.value)), null, indent);
+      jsonStatus.textContent = `완료 (${before.toLocaleString()}자 → ${jsonArea.value.length.toLocaleString()}자)`;
+    } catch (e) {
+      showJsonError(e);
+    }
+  }
+
+  document
+    .getElementById('json-format')!
+    .addEventListener('click', () => runJson((v) => v, currentIndent()));
+  document
+    .getElementById('json-minify')!
+    .addEventListener('click', () => runJson((v) => v, undefined));
+  document
+    .getElementById('json-sort')!
+    .addEventListener('click', () => runJson(sortKeysDeep, currentIndent()));
+
+  document.getElementById('json-clear')!.addEventListener('click', () => {
+    jsonArea.value = '';
+    jsonStatus.textContent = '';
+    jsonError.hidden = true;
+    jsonArea.focus();
+  });
+
+  jsonGoto.addEventListener('click', () => {
+    if (jsonErrorPos === null) return;
+    jsonArea.focus();
+    jsonArea.setSelectionRange(jsonErrorPos, jsonErrorPos + 1);
+  });
+</script>
+
+<style>
+  .js-tool {
+    display: grid;
+    gap: 0.9rem;
+  }
+
+  .error-detail {
+    display: grid;
+    gap: 0.5rem;
+    justify-items: start;
+  }
+
+  .error-detail pre {
+    margin: 0;
+    max-width: 100%;
+    overflow-x: auto;
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    border-radius: 0.6rem;
+    padding: 0.6rem 0.8rem;
+    font-size: 0.85rem;
+    line-height: 1.4;
+  }
+</style>

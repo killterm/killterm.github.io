@@ -1,0 +1,218 @@
+---
+// 정규식 테스터: 매치 하이라이트와 캡처 그룹 표시
+const flags = ['g', 'i', 'm', 's', 'u', 'y'];
+---
+
+<div class="re">
+  <div class="field-row regex-pattern">
+    <span class="slash" aria-hidden="true">/</span>
+    <input id="re-pattern" type="text" placeholder="패턴" spellcheck="false" />
+    <span class="slash" aria-hidden="true">/</span>
+    <div class="chip-group" aria-label="플래그">
+      {
+        flags.map((f) => (
+          <label class="chip">
+            <input type="checkbox" class="re-flag" value={f} checked={f === 'g'} />
+            <span>{f}</span>
+          </label>
+        ))
+      }
+    </div>
+  </div>
+  <textarea id="re-test" rows="7" spellcheck="false" placeholder="테스트 문자열"></textarea>
+  <p id="re-status" class="status" role="status"></p>
+  <h2>하이라이트</h2>
+  <pre id="re-highlight" class="highlight"></pre>
+  <h2>매치 목록</h2>
+  <div class="table-wrap">
+    <table class="match-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>위치</th>
+          <th>매치</th>
+          <th>캡처 그룹</th>
+        </tr>
+      </thead>
+      <tbody id="re-matches"></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+  const MATCH_LIMIT = 5000;
+  const rePattern = document.getElementById('re-pattern') as HTMLInputElement;
+  const reTest = document.getElementById('re-test') as HTMLTextAreaElement;
+  const reStatus = document.getElementById('re-status') as HTMLParagraphElement;
+  const reHighlight = document.getElementById('re-highlight') as HTMLPreElement;
+  const reMatches = document.getElementById('re-matches') as HTMLTableSectionElement;
+
+  const escapeHtml = (s: string) =>
+    s.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+
+  const reFlags = () =>
+    Array.from(document.querySelectorAll<HTMLInputElement>('.re-flag'))
+      .filter((c) => c.checked)
+      .map((c) => c.value)
+      .join('');
+
+  function runRegex() {
+    const src = reTest.value;
+    reStatus.textContent = '';
+    reMatches.innerHTML = '';
+    reHighlight.textContent = src;
+    if (rePattern.value === '') return;
+
+    let re: RegExp;
+    try {
+      re = new RegExp(rePattern.value, reFlags());
+    } catch (e) {
+      reStatus.textContent = e instanceof Error ? e.message : String(e);
+      return;
+    }
+
+    // 제로 폭 매치 무한 루프를 피하려고 수동 exec 루프 대신 matchAll을 쓴다
+    let matches: RegExpMatchArray[];
+    let truncated = false;
+    if (re.global) {
+      matches = [];
+      for (const m of src.matchAll(re)) {
+        if (matches.length >= MATCH_LIMIT) {
+          truncated = true;
+          break;
+        }
+        matches.push(m);
+      }
+    } else {
+      const single = src.match(re);
+      matches = single ? [single] : [];
+    }
+
+    // 하이라이트
+    let html = '';
+    let last = 0;
+    matches.forEach((m, i) => {
+      const start = m.index!;
+      html += escapeHtml(src.slice(last, start));
+      const classes = ['hl', i % 2 ? 'hl-b' : 'hl-a'];
+      if (m[0] === '') classes.push('hl-zw');
+      html += `<mark class="${classes.join(' ')}">${escapeHtml(m[0])}</mark>`;
+      last = start + m[0].length;
+    });
+    html += escapeHtml(src.slice(last));
+    reHighlight.innerHTML = html;
+
+    // 매치 테이블
+    for (const [i, m] of matches.entries()) {
+      const row = document.createElement('tr');
+      const groups: string[] = m.slice(1).map((g, gi) => `${gi + 1}: ${g ?? '(없음)'}`);
+      for (const [name, value] of Object.entries(m.groups ?? {})) {
+        groups.push(`${name}: ${value ?? '(없음)'}`);
+      }
+      const cells = [String(i + 1), String(m.index), m[0], groups.join('\n')];
+      for (const text of cells) {
+        const td = document.createElement('td');
+        td.textContent = text;
+        row.appendChild(td);
+      }
+      reMatches.appendChild(row);
+    }
+
+    reStatus.textContent =
+      `${matches.length.toLocaleString()}개 매치` +
+      (truncated ? ` (${MATCH_LIMIT.toLocaleString()}개까지만 표시)` : '');
+  }
+
+  let reTimer: ReturnType<typeof setTimeout> | null = null;
+  function scheduleRegex() {
+    if (reTimer !== null) clearTimeout(reTimer);
+    reTimer = setTimeout(runRegex, 150);
+  }
+
+  rePattern.addEventListener('input', scheduleRegex);
+  reTest.addEventListener('input', scheduleRegex);
+  for (const flag of document.querySelectorAll<HTMLInputElement>('.re-flag')) {
+    flag.addEventListener('change', scheduleRegex);
+  }
+</script>
+
+<style>
+  .re {
+    display: grid;
+    gap: 0.9rem;
+  }
+
+  .re h2 {
+    margin: 0.6rem 0 0;
+    font-size: 1rem;
+    color: var(--text-dim);
+  }
+
+  .regex-pattern .slash {
+    color: var(--text-dim);
+    font-family: Consolas, 'Courier New', monospace;
+    font-size: 1.1rem;
+  }
+
+  .highlight {
+    margin: 0;
+    min-height: 3rem;
+    max-height: 20rem;
+    overflow: auto;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    border-radius: 0.7rem;
+    padding: 0.7rem 0.85rem;
+    font-size: 0.92rem;
+    line-height: 1.5;
+  }
+
+  /* 하이라이트 mark는 JS로 innerHTML 생성되므로 :global로 선언 */
+  .highlight :global(.hl) {
+    border-radius: 3px;
+    color: inherit;
+  }
+
+  .highlight :global(.hl-a) {
+    background: rgba(108, 140, 255, 0.35);
+  }
+
+  .highlight :global(.hl-b) {
+    background: rgba(72, 187, 120, 0.35);
+  }
+
+  .highlight :global(.hl-zw) {
+    padding: 0 1px;
+    box-shadow: inset 1px 0 0 var(--accent);
+  }
+
+  .table-wrap {
+    overflow-x: auto;
+  }
+
+  .match-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.88rem;
+  }
+
+  .match-table th {
+    text-align: left;
+    color: var(--text-dim);
+    font-weight: 600;
+    padding: 0.4rem 0.6rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  /* 테이블 행은 JS로 생성되므로 :global로 선언 */
+  .match-table :global(td) {
+    padding: 0.4rem 0.6rem;
+    border-bottom: 1px solid var(--border);
+    font-family: Consolas, 'Courier New', monospace;
+    vertical-align: top;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+</style>

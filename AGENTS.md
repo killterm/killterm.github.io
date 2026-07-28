@@ -23,28 +23,33 @@
 - 랜딩 페이지(`src/pages/index.astro`)는 런치패드 스타일 타일 그리드. 새 도구를
   추가하면 `apps` 배열에 타일을 추가한다.
 
-### 개발 도구 페이지 (`src/pages/devtools.astro`)
+### 탭형 도구 페이지 공통 구조 (개발 도구 · 하드웨어 테스트)
 
-- 탭 3개(타임스탬프/JSON/정규식)를 가진 단일 파일 페이지. 탭은 숨긴 라디오 +
-  span 세그먼트 패턴이고, `#timestamp` `#json` `#regex` 해시로 딥링크된다.
-- 탭 컨트롤러에 onEnter/onLeave 훅이 있어 상대 시간 갱신 인터벌 등은 탭을
-  떠날 때 정리한다.
+- 탭 하나가 곧 정적 페이지 하나다 (해시 대신 고유 URL 경로):
+  `/devtools/{timestamp,json,regex}/`, `/hwtest/{keyboard,monitor,reaction,sound}/`.
+- 공용 셸은 `src/components/ToolPage.astro` — 홈 링크·소개·링크형 탭 바·본문
+  슬롯. 공통 컨트롤 스타일(.btn/.chip/.status/.hint/.field-row/textarea)은
+  여기의 `<style is:global>`에 `.tool-main` 프리픽스로 선언되어 있다.
+- 탭 목록·소개 문구는 `src/lib/tool-tabs.ts`에서 공유하고, 각 페이지는
+  `active`로 자기 경로를 넘긴다. 탭 마크업·스크립트·스타일은
+  `src/components/{devtools,hwtest}/*Tab.astro`에 있다.
+- `/devtools/`·`/hwtest/` index는 옛 해시 링크(`/hwtest/#keyboard`) 호환용
+  리다이렉트 페이지다 (해시를 경로로 매핑).
+- JS로 동적 생성하는 노드(키 로그 행, 매치 테이블 등)에는 scoped 해시가 안
+  붙으므로 `:global()` 셀렉터로 스타일링한다.
+
+### 개발 도구 (`src/pages/devtools/`)
+
 - 타임스탬프 자동 감지: 정수부 10자리 이하 초, 11자리 이상 밀리초 (배지로 표시).
+  [지금] 버튼은 밀리초를 넣는다.
 - JSON 에러 위치는 브라우저별 메시지(position/line·column)에서 추출하고,
   추출 실패 시 메시지만 표시하는 강등 경로가 있다.
 - 정규식은 제로 폭 매치 무한 루프를 피하려고 matchAll만 쓰고, 매치 5,000개 상한.
 
-### 하드웨어 테스트 페이지 (`src/pages/hwtest.astro`)
-
-- 탭 4개(키보드/모니터/반응속도/사운드), 해시 딥링크(`#keyboard` 등).
-  탭별 마크업·스크립트·스타일은 `src/components/hwtest/*Tab.astro`로 분리.
-- 페이지의 탭 컨트롤러가 `hw:tab` CustomEvent({from, to})를 쏘고, 각 컴포넌트가
-  자기 탭을 떠날 때 자원(rAF, 오디오, 타이머)을 정리한다. 공통 버튼/칩 스타일은
-  페이지의 `<style is:global>`에 `#hwtest` 프리픽스로 선언되어 있다.
-- JS로 동적 생성하는 노드(키 로그 행 등)에는 scoped 해시가 안 붙으므로
-  `:global()` 셀렉터로 스타일링한다.
-- 키보드: 테스트 영역 포커스 시에만 캡처, Esc/F5/F11/Ctrl·Cmd 조합은 기본 동작
-  유지. Meta keyup·blur 시 눌린 키 집합 초기화(keyup 유실 대응).
+### 하드웨어 테스트 (`src/pages/hwtest/`)
+- 키보드: 전용 페이지라 포커스 없이 항상 캡처(Esc 포함). F5/F11/Ctrl·Cmd 조합만
+  기본 동작 유지. Meta keyup·blur 시 눌린 키 집합 초기화(keyup 유실 대응).
+  배열 시각화(104키)는 본문 컬럼 밖으로 브레이크아웃해 뷰포트 폭까지 쓴다.
 - 모니터: 전체화면 종료 감지는 `fullscreenchange`, 미지원 환경은 fixed 오버레이
   폴백. 주사율은 rAF 간격의 중앙값으로 산출해 일반 주사율에 ±3% 스냅.
 - 반응속도: pointerdown 계측, 시작 시각은 rAF 안에서 기록. 역대 최고 기록은

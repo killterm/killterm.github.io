@@ -1,0 +1,20 @@
+---
+// 옛 해시 링크(/devtools/#json 등) 호환용 리다이렉트 페이지
+---
+
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <title>개발 도구 — killterm</title>
+    <script is:inline>
+      const valid = ['timestamp', 'json', 'regex'];
+      const hash = location.hash.slice(1);
+      location.replace(`/devtools/${valid.includes(hash) ? hash : 'timestamp'}/`);
+    </script>
+    <noscript>
+      <meta http-equiv="refresh" content="0;url=/devtools/timestamp/" />
+    </noscript>
+  </head>
+  <body></body>
+</html>

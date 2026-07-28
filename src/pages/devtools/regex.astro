@@ -1,0 +1,16 @@
+---
+import ToolPage from '../../components/ToolPage.astro';
+import RegexTab from '../../components/devtools/RegexTab.astro';
+import { devtools } from '../../lib/tool-tabs';
+---
+
+<ToolPage
+  title="정규식 테스터 — killterm"
+  description="정규식 매치를 하이라이트하고 캡처 그룹을 확인합니다."
+  heading={devtools.heading}
+  intro={devtools.intro}
+  tabs={devtools.tabs}
+  active="/devtools/regex/"
+>
+  <RegexTab />
+</ToolPage>

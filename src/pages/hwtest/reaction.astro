@@ -1,0 +1,16 @@
+---
+import ToolPage from '../../components/ToolPage.astro';
+import ReactionTab from '../../components/hwtest/ReactionTab.astro';
+import { hwtest } from '../../lib/tool-tabs';
+---
+
+<ToolPage
+  title="반응속도 테스트 — killterm"
+  description="화면이 초록색으로 바뀌면 클릭! 반응속도를 측정합니다."
+  heading={hwtest.heading}
+  intro={hwtest.intro}
+  tabs={hwtest.tabs}
+  active="/hwtest/reaction/"
+>
+  <ReactionTab />
+</ToolPage>

@@ -1,0 +1,244 @@
+---
+// 탭형 도구 페이지 공용 셸: 홈 링크 + 소개 + 탭(링크) 바 + 본문 슬롯.
+// 탭은 해시가 아니라 각자 고유한 URL 경로를 가진 정적 페이지다.
+import Layout from '../layouts/Layout.astro';
+import type { ToolTab } from '../lib/tool-tabs';
+
+interface Props {
+  title: string;
+  description: string;
+  heading: string;
+  intro: string;
+  tabs: ToolTab[];
+  active: string;
+}
+
+const { title, description, heading, intro, tabs, active } = Astro.props;
+---
+
+<Layout title={title} description={description}>
+  <main class="tool-main">
+    <nav class="top">
+      <a href="/">← 홈으로</a>
+    </nav>
+
+    <header class="intro">
+      <h1>{heading}</h1>
+      <p>{intro}</p>
+    </header>
+
+    <nav class="tabs" aria-label="도구 선택">
+      {
+        tabs.map((t) => (
+          <a
+            class:list={['tab', { 'tab-active': t.href === active }]}
+            href={t.href}
+            aria-current={t.href === active ? 'page' : undefined}
+          >
+            {t.label}
+          </a>
+        ))
+      }
+    </nav>
+
+    <div class="tool-body">
+      <slot />
+    </div>
+  </main>
+</Layout>
+
+<style>
+  main {
+    max-width: 860px;
+    margin: 0 auto;
+    padding: 2.5rem 1.5rem 4rem;
+  }
+
+  .top a {
+    color: var(--text-dim);
+    text-decoration: none;
+    font-size: 0.9rem;
+  }
+
+  .top a:hover {
+    color: var(--accent);
+  }
+
+  .intro h1 {
+    margin: 1rem 0 0.5rem;
+    font-size: clamp(1.6rem, 4vw, 2.2rem);
+    letter-spacing: -0.02em;
+  }
+
+  .intro p {
+    color: var(--text-dim);
+    margin: 0 0 1.5rem;
+  }
+
+  .tabs {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 4px;
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    border-radius: 0.8rem;
+    margin-bottom: 1.25rem;
+  }
+
+  .tab {
+    display: block;
+    padding: 0.45rem 1rem;
+    border-radius: 0.6rem;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--text-dim);
+    text-decoration: none;
+    user-select: none;
+  }
+
+  .tab:hover {
+    color: var(--text);
+  }
+
+  .tab:focus-visible {
+    outline: 2px solid var(--accent);
+  }
+
+  .tab-active {
+    background: var(--accent);
+    color: #fff;
+  }
+
+  .tab-active:hover {
+    color: #fff;
+  }
+</style>
+
+<style is:global>
+  /* 탭 컴포넌트들이 함께 쓰는 공통 컨트롤 스타일 */
+  .tool-main .btn {
+    appearance: none;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    font: inherit;
+    font-weight: 600;
+    padding: 0.55rem 1.2rem;
+    border-radius: 0.7rem;
+    cursor: pointer;
+  }
+
+  .tool-main .btn:hover {
+    border-color: var(--accent);
+  }
+
+  .tool-main .btn-primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+  }
+
+  .tool-main .btn-primary:hover {
+    filter: brightness(1.1);
+  }
+
+  .tool-main .btn-small {
+    padding: 0.25rem 0.7rem;
+    font-size: 0.8rem;
+  }
+
+  .tool-main .hint {
+    color: var(--text-dim);
+    font-size: 0.82rem;
+    margin: 0;
+  }
+
+  .tool-main .status {
+    min-height: 1.2em;
+    margin: 0;
+    font-size: 0.88rem;
+    color: #ff8f8f;
+    overflow-wrap: anywhere;
+  }
+
+  .tool-main .chip-group {
+    display: inline-flex;
+    gap: 4px;
+    padding: 3px;
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    border-radius: 0.7rem;
+  }
+
+  .tool-main .chip input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .tool-main .chip span {
+    display: block;
+    padding: 0.3rem 0.7rem;
+    border-radius: 0.5rem;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--text-dim);
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .tool-main .chip input:checked + span {
+    background: var(--accent);
+    color: #fff;
+  }
+
+  .tool-main .chip input:focus-visible + span {
+    outline: 2px solid var(--accent);
+  }
+
+  .tool-main .field-row {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+  }
+
+  .tool-main .field-row input[type='text'],
+  .tool-main .field-row input[type='datetime-local'] {
+    border: 1px solid var(--border);
+    background: var(--bg-soft);
+    color: var(--text);
+    font-family: Consolas, 'Courier New', monospace;
+    font-size: 0.92rem;
+    padding: 0.55rem 0.8rem;
+    border-radius: 0.7rem;
+  }
+
+  .tool-main .field-row input[type='text'] {
+    flex: 1 1 200px;
+  }
+
+  .tool-main .field-row input:focus {
+    outline: 2px solid var(--accent);
+    border-color: var(--accent);
+  }
+
+  .tool-main textarea {
+    width: 100%;
+    resize: vertical;
+    border: 1px solid var(--border);
+    background: var(--bg-soft);
+    color: var(--text);
+    font-family: Consolas, 'Courier New', monospace;
+    font-size: 0.92rem;
+    line-height: 1.5;
+    padding: 0.7rem 0.85rem;
+    border-radius: 0.7rem;
+  }
+
+  .tool-main textarea:focus {
+    outline: 2px solid var(--accent);
+    border-color: var(--accent);
+  }
+</style>

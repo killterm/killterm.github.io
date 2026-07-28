@@ -1,0 +1,20 @@
+---
+// 옛 해시 링크(/hwtest/#keyboard 등) 호환용 리다이렉트 페이지
+---
+
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <title>하드웨어 테스트 — killterm</title>
+    <script is:inline>
+      const valid = ['keyboard', 'monitor', 'reaction', 'sound'];
+      const hash = location.hash.slice(1);
+      location.replace(`/hwtest/${valid.includes(hash) ? hash : 'keyboard'}/`);
+    </script>
+    <noscript>
+      <meta http-equiv="refresh" content="0;url=/hwtest/keyboard/" />
+    </noscript>
+  </head>
+  <body></body>
+</html>

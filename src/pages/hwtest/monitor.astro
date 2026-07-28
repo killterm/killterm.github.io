@@ -1,0 +1,16 @@
+---
+import ToolPage from '../../components/ToolPage.astro';
+import MonitorTab from '../../components/hwtest/MonitorTab.astro';
+import { hwtest } from '../../lib/tool-tabs';
+---
+
+<ToolPage
+  title="모니터 테스트 — killterm"
+  description="불량화소, 잔상, 주사율을 확인합니다."
+  heading={hwtest.heading}
+  intro={hwtest.intro}
+  tabs={hwtest.tabs}
+  active="/hwtest/monitor/"
+>
+  <MonitorTab />
+</ToolPage>
