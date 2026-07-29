@@ -5,60 +5,231 @@ const categories = [
   {
     name: '게임 정보',
     links: [
-      { label: 'HowLongToBeat (플레이 타임)', url: 'https://howlongtobeat.com/' },
-      { label: 'MapGenie (지도)', url: 'https://mapgenie.io/' },
-      { label: 'Delisted Games Watch List (판매 중단)', url: 'https://delistedgames.com/watch-list/' },
+      {
+        label: 'HowLongToBeat',
+        description: '게임 클리어까지 걸리는 평균 플레이 타임',
+        url: 'https://howlongtobeat.com/',
+      },
+      {
+        label: 'MapGenie',
+        description: '게임별 인터랙티브 지도와 수집 요소 체크',
+        url: 'https://mapgenie.io/',
+      },
+      {
+        label: 'Delisted Games Watch List',
+        description: '판매 중단됐거나 중단 예정인 게임 목록',
+        url: 'https://delistedgames.com/watch-list/',
+      },
     ],
   },
   {
     name: 'Steam DB',
     links: [
-      { label: 'SteamDB', url: 'https://steamdb.info/' },
-      { label: 'IsThereAnyDeal', url: 'https://isthereanydeal.com/' },
-      { label: 'Game Bundle Guardian', url: 'https://gamebundleguardian.com/' },
+      {
+        label: 'SteamDB',
+        description: 'Steam 게임 데이터베이스와 가격 기록, 게임별 실시간 동시접속자 수 확인',
+        url: 'https://steamdb.info/',
+      },
+      {
+        label: 'IsThereAnyDeal',
+        description: '여러 상점의 최저가와 할인 추적',
+        url: 'https://isthereanydeal.com/',
+      },
+      {
+        label: 'Game Bundle Guardian',
+        description: '게임 번들 구성과 평점 확인',
+        url: 'https://gamebundleguardian.com/',
+      },
     ],
   },
   {
     name: 'Steam 통계',
     links: [
-      { label: 'Steam250', url: 'https://steam250.com/' },
-      { label: 'Games Stats', url: 'https://games-stats.com/' },
+      {
+        label: 'Steam250',
+        description: '평점 기반 Steam 게임 순위',
+        url: 'https://steam250.com/',
+      },
+      {
+        label: 'Games Stats',
+        description: 'Steam 게임 판매량·매출 추정 통계',
+        url: 'https://games-stats.com/',
+      },
     ],
   },
   {
     name: 'Steam 동시접속자',
     links: [
-      { label: 'SteamDB Charts', url: 'https://steamdb.info/charts/' },
-      { label: 'Steam 공식 차트', url: 'https://store.steampowered.com/charts/' },
+      {
+        label: 'SteamDB Charts',
+        description: '게임별 동시접속자 추이',
+        url: 'https://steamdb.info/charts/',
+      },
+      {
+        label: 'Steam 공식 차트',
+        description: 'Steam 공식 인기·판매 차트',
+        url: 'https://store.steampowered.com/charts/',
+      },
     ],
   },
   {
     name: 'Steam 리뷰 요약',
     links: [
-      { label: 'Compath', url: 'https://compath.vercel.app/' },
-      { label: 'Vaporlens', url: 'https://vaporlens.app/' },
+      {
+        label: 'Compath',
+        description: '유저 리뷰를 요약해 한눈에 보기',
+        url: 'https://compath.vercel.app/',
+      },
+      {
+        label: 'Vaporlens',
+        description: 'AI가 유저 리뷰를 주제별로 요약',
+        url: 'https://vaporlens.app/',
+      },
     ],
   },
   {
     name: 'PS DB',
-    links: [{ label: 'PSprices (KR)', url: 'https://psprices.com/region-kr/index' }],
+    links: [
+      {
+        label: 'PSprices',
+        description: 'PS 스토어 지역별 할인·최저가 추적',
+        url: 'https://psprices.com/region-kr/index',
+      },
+    ],
   },
   {
     name: '위키',
-    links: [{ label: 'PCGamingWiki', url: 'https://www.pcgamingwiki.com/' }],
+    links: [
+      {
+        label: 'PCGamingWiki',
+        description: 'PC 게임 설정·호환성 문제 해결 위키',
+        url: 'https://www.pcgamingwiki.com/',
+      },
+    ],
   },
   {
     name: '컨트롤러',
     links: [
-      { label: 'Gamepad Tester (테스트)', url: 'https://gamepad-tester.com/' },
-      { label: 'Gamepad Viewer (캡쳐)', url: 'https://gamepadviewer.com/?p=1&s=8' },
+      {
+        label: 'Gamepad Tester',
+        description: '컨트롤러 버튼·스틱 입력 테스트',
+        url: 'https://gamepad-tester.com/',
+      },
+      {
+        label: 'Gamepad Viewer',
+        description: '방송·캡쳐 화면용 컨트롤러 입력 오버레이',
+        url: 'https://gamepadviewer.com/?p=1&s=8',
+      },
     ],
   },
   {
     name: '폰트 정보',
     links: [
-      { label: 'Font Info', url: 'https://fontinfo.app/' },
-      { label: '눈누', url: 'https://noonnu.cc/index' },
+      {
+        label: 'Font Info',
+        description: '폰트 파일 정보를 브라우저에서 확인',
+        url: 'https://fontinfo.app/',
+      },
+      {
+        label: '눈누',
+        description: '상업용 무료 한글 폰트 모음',
+        url: 'https://noonnu.cc/index',
+      },
+    ],
+  },
+  {
+    name: '게임 컨퍼런스',
+    links: [
+      {
+        label: 'Game Conference Guide',
+        description: '전 세계 게임 컨퍼런스·행사 일정 모음',
+        url: 'https://gameconfguide.com/',
+      },
+      {
+        label: 'GDC Vault',
+        description: 'GDC 발표 영상·자료 아카이브',
+        url: 'https://gdcvault.com/',
+      },
+      {
+        label: 'Unlocking the Vault',
+        description: 'Game Developer의 GDC Vault 추천 발표 하이라이트 시리즈',
+        url: 'https://www.gamedeveloper.com/series/unlocking-the-vault-gdc-vault-highlights-game-dev-tips',
+      },
+    ],
+  },
+  {
+    name: '게임 디자인',
+    links: [
+      {
+        label: 'Game UI Database',
+        description: '게임 UI 스크린샷을 화면 유형별로 검색',
+        url: 'https://www.gameuidatabase.com/',
+      },
+      {
+        label: 'Interface In Game',
+        description: '게임 인터페이스 스크린샷 레퍼런스 모음',
+        url: 'https://interfaceingame.com/',
+      },
+      {
+        label: 'GameDiscoverCo',
+        description: 'Steam 판매·발견성 분석 뉴스레터',
+        url: 'https://gamediscover.co/',
+      },
+      {
+        label: 'Lost Garden',
+        description: 'Daniel Cook의 게임 디자인 이론 에세이',
+        url: 'https://lostgarden.com/',
+      },
+    ],
+  },
+  {
+    name: '개발자 토크',
+    links: [
+      {
+        label: 'NDC',
+        description: '넥슨 개발자 컨퍼런스 발표 영상 채널',
+        url: 'https://www.youtube.com/NDCKR',
+      },
+      {
+        label: 'GMTK',
+        description: 'Game Maker\'s Toolkit — 게임 디자인 분석 채널',
+        url: 'https://www.youtube.com/@GMTK',
+      },
+      {
+        label: 'Jonathan Blow Talks',
+        description: 'Jonathan Blow 강연 모음 재생목록',
+        url: 'https://www.youtube.com/playlist?list=PL1tgpR5Or1xPrfl370_GlXgIX2GKZWqFE',
+      },
+      {
+        label: 'Jonathan Blow Interviews & Chats',
+        description: 'Jonathan Blow 인터뷰·대담 모음 재생목록',
+        url: 'https://www.youtube.com/playlist?list=PL1tgpR5Or1xPNQjvIn1i7yhyBnJBLZ9GB',
+      },
+    ],
+  },
+  {
+    name: '플레이테스트',
+    links: [
+      {
+        label: 'Player.gg',
+        description: '출시 전 게임 플레이테스트 참여 플랫폼',
+        url: 'https://player.gg/',
+      },
+    ],
+  },
+  {
+    name: '한글 패치',
+    links: [
+      {
+        label: '한식구',
+        description: '한글화 정보 공유 카페',
+        url: 'https://cafe.naver.com/hansicgu',
+      },
+      {
+        label: '한패넷',
+        description: '유저 한글 패치 검색·모음',
+        url: 'https://hanpe.net/hanguls',
+      },
     ],
   },
   {
@@ -66,18 +237,22 @@ const categories = [
     links: [
       {
         label: 'SteamDB',
+        description: 'Steam 상점 페이지에 SteamDB 정보 표시',
         url: 'https://chromewebstore.google.com/detail/steamdb/kdbmhfkmnlmbkgbabkdealhhbfhlmmon',
       },
       {
         label: 'Augmented Steam',
+        description: 'Steam 상점에 최저가 등 부가 정보 표시 (IsThereAnyDeal)',
         url: 'https://chromewebstore.google.com/detail/augmented-steam/dnhpnfgdlenaccegplpojghhmaamnnfp',
       },
       {
         label: "alike03's Subscription Info on Steam",
+        description: '게임의 구독 서비스 포함 여부 표시',
         url: 'https://chromewebstore.google.com/detail/alike03s-subscription-inf/jecikjbpiedagpmibmgpfgnkfpomgeok',
       },
       {
         label: 'KOSTEAM',
+        description: 'Steam 페이지에 유저 한글 패치 유무 표시',
         url: 'https://chromewebstore.google.com/detail/kosteam/cbcganplchikpgchgppklcblpjibhnnc',
       },
     ],
@@ -109,6 +284,7 @@ const categories = [
                 <li>
                   <a href={link.url} target="_blank" rel="noopener noreferrer">
                     <span class="label">{link.label}</span>
+                    <span class="desc">{link.description}</span>
                     <span class="domain">{new URL(link.url).hostname.replace(/^www\./, '')}</span>
                   </a>
                 </li>
@@ -202,8 +378,15 @@ const categories = [
     font-size: 0.95rem;
   }
 
-  .domain {
-    font-size: 0.78rem;
+  .desc {
+    font-size: 0.82rem;
     color: var(--text-dim);
+    line-height: 1.4;
+  }
+
+  .domain {
+    font-size: 0.75rem;
+    color: var(--text-dim);
+    opacity: 0.65;
   }
 </style>
