@@ -87,6 +87,25 @@
 - 위치: Geolocation API + permissions.query로 권한 상태 표시. 지도(OSM 임베드)는
   좌표가 외부로 전달되므로 반드시 명시적 버튼으로만 연다.
 
+### GLB 뷰어 (`src/pages/glb.astro`)
+
+- three.js 기반 GLB/GLTF 뷰어. 파일은 로컬에서 `URL.createObjectURL`로만 읽고
+  서버 업로드 없음(안내 문구 유지). three는 이 페이지에서만 import되어
+  다른 페이지 번들에 영향 없다.
+- DRACO 압축 지원: 디코더는 `public/draco/`에 커밋되어 있다
+  (three 패키지의 `examples/jsm/libs/draco/gltf/`에서 복사, CDN 의존 없음).
+  three 업그레이드 시 함께 갱신할 것.
+- Box3 바운딩으로 카메라·그리드 자동 프레이밍, 배경색은 --bg-soft를 읽어
+  테마 연동(MutationObserver로 data-theme 감시). 새 모델 로드 시 이전
+  geometry/material을 dispose한다.
+- 기본 모델 3개가 `public/models/`에 내장되어 있다 — Fox.glb(PixelMannen·
+  @tomkranis, CC BY 4.0), RobotExpressive.glb(Tomás Laulhé, CC0),
+  Duck.gltf(base64 내장형 단일 .gltf, Sony, SCEA Shared Source License).
+  페이지의 출처 표기를 유지할 것. 애니메이션 컨트롤은 숨기지 않고
+  disabled + 음영으로 표시한다.
+- 애니메이션이 없는 모델에는 뷰어가 KeyframeTrack으로 기본 클립(회전/둥실)을
+  런타임 생성해 제공한다 (자동 재생은 하지 않음).
+
 ### 만다라트 페이지 (`src/pages/mandalart.astro`)
 
 - **범용 도구로 유지한다.** 특정 용도(목표, 게임 장르 등)를 암시하는 문구·예시·
