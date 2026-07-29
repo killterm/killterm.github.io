@@ -1,0 +1,180 @@
+---
+// 웹캠 테스트: 미리보기, 장치 선택, 해상도/프레임레이트 표시, 좌우 반전
+---
+
+<div class="wc">
+  <div class="wc-row">
+    <button id="wc-start" class="btn btn-primary" type="button">카메라 시작</button>
+    <button id="wc-stop" class="btn" type="button" hidden>정지</button>
+    <select id="wc-device" class="wc-select" aria-label="카메라 선택" hidden></select>
+    <label class="wc-mirror" id="wc-mirror-label" hidden>
+      <input type="checkbox" id="wc-mirror" checked />
+      좌우 반전
+    </label>
+  </div>
+
+  <div class="wc-stage">
+    <video id="wc-video" autoplay playsinline muted hidden></video>
+    <p class="wc-placeholder" id="wc-placeholder">
+      카메라를 시작하면 여기에 미리보기가 표시됩니다.<br />
+      영상은 브라우저 밖으로 전송되지 않습니다.
+    </p>
+  </div>
+
+  <p id="wc-info" class="hint"></p>
+  <p id="wc-status" class="status" role="status"></p>
+</div>
+
+<script>
+  const startButton = document.getElementById('wc-start') as HTMLButtonElement;
+  const stopButton = document.getElementById('wc-stop') as HTMLButtonElement;
+  const deviceSelect = document.getElementById('wc-device') as HTMLSelectElement;
+  const mirrorLabel = document.getElementById('wc-mirror-label') as HTMLLabelElement;
+  const mirrorCheckbox = document.getElementById('wc-mirror') as HTMLInputElement;
+  const video = document.getElementById('wc-video') as HTMLVideoElement;
+  const placeholder = document.getElementById('wc-placeholder') as HTMLParagraphElement;
+  const info = document.getElementById('wc-info') as HTMLParagraphElement;
+  const status = document.getElementById('wc-status') as HTMLParagraphElement;
+
+  let stream: MediaStream | null = null;
+
+  function applyMirror() {
+    video.style.transform = mirrorCheckbox.checked ? 'scaleX(-1)' : '';
+  }
+
+  function stop() {
+    if (stream) {
+      for (const track of stream.getTracks()) track.stop();
+    }
+    stream = null;
+    video.srcObject = null;
+    video.hidden = true;
+    placeholder.hidden = false;
+    stopButton.hidden = true;
+    startButton.hidden = false;
+    info.textContent = '';
+  }
+
+  function describeError(e: unknown): string {
+    if (e instanceof DOMException) {
+      if (e.name === 'NotAllowedError') return '카메라 권한이 거부되었습니다. 브라우저 설정에서 허용해주세요.';
+      if (e.name === 'NotFoundError') return '사용할 수 있는 카메라가 없습니다.';
+      if (e.name === 'NotReadableError') return '카메라가 다른 프로그램에서 사용 중입니다.';
+    }
+    return `카메라를 시작하지 못했습니다: ${e instanceof Error ? e.message : String(e)}`;
+  }
+
+  async function refreshDeviceList() {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const cameras = devices.filter((d) => d.kind === 'videoinput');
+    if (cameras.length < 2) return;
+    const current = stream?.getVideoTracks()[0]?.getSettings().deviceId;
+    deviceSelect.innerHTML = '';
+    for (const [i, camera] of cameras.entries()) {
+      const option = document.createElement('option');
+      option.value = camera.deviceId;
+      option.textContent = camera.label || `카메라 ${i + 1}`;
+      option.selected = camera.deviceId === current;
+      deviceSelect.appendChild(option);
+    }
+    deviceSelect.hidden = false;
+  }
+
+  async function start(deviceId?: string) {
+    status.textContent = '';
+    stop();
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: deviceId ? { deviceId: { exact: deviceId } } : true,
+      });
+    } catch (e) {
+      status.textContent = describeError(e);
+      return;
+    }
+    video.srcObject = stream;
+    video.hidden = false;
+    placeholder.hidden = true;
+    startButton.hidden = true;
+    stopButton.hidden = false;
+    mirrorLabel.hidden = false;
+    applyMirror();
+
+    const track = stream.getVideoTracks()[0];
+    video.addEventListener(
+      'loadedmetadata',
+      () => {
+        const settings = track.getSettings();
+        const fps = settings.frameRate ? ` · ${Math.round(settings.frameRate)}fps` : '';
+        info.textContent = `${track.label} — ${video.videoWidth}×${video.videoHeight}${fps}`;
+      },
+      { once: true },
+    );
+    // 권한 승인 후에만 장치 라벨을 얻을 수 있으므로 이 시점에 목록을 갱신
+    await refreshDeviceList();
+  }
+
+  startButton.addEventListener('click', () => start());
+  stopButton.addEventListener('click', stop);
+  deviceSelect.addEventListener('change', () => start(deviceSelect.value));
+  mirrorCheckbox.addEventListener('change', applyMirror);
+  window.addEventListener('pagehide', stop);
+</script>
+
+<style>
+  .wc {
+    display: grid;
+    gap: 0.9rem;
+  }
+
+  .wc-row {
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+    flex-wrap: wrap;
+  }
+
+  .wc-select {
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    font: inherit;
+    font-size: 0.85rem;
+    padding: 0.4rem 0.6rem;
+    border-radius: 0.6rem;
+    max-width: 260px;
+  }
+
+  .wc-mirror {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    color: var(--text-dim);
+    font-size: 0.9rem;
+    cursor: pointer;
+  }
+
+  .wc-stage {
+    display: grid;
+    place-items: center;
+    min-height: 280px;
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    border-radius: 0.9rem;
+    overflow: hidden;
+  }
+
+  .wc-stage video {
+    width: 100%;
+    max-height: 480px;
+    object-fit: contain;
+    background: #000;
+  }
+
+  .wc-placeholder {
+    margin: 0;
+    padding: 1rem;
+    color: var(--text-dim);
+    text-align: center;
+    font-size: 0.9rem;
+  }
+</style>

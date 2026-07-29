@@ -1,0 +1,247 @@
+---
+// 마이크 테스트: 입력 레벨 미터, 파형 표시, 장치 선택, 모니터링(내 목소리 듣기)
+---
+
+<div class="mic">
+  <div class="mic-row">
+    <button id="mic-start" class="btn btn-primary" type="button">마이크 시작</button>
+    <button id="mic-stop" class="btn" type="button" hidden>정지</button>
+    <select id="mic-device" class="mic-select" aria-label="마이크 선택" hidden></select>
+    <label class="mic-monitor" id="mic-monitor-label" hidden>
+      <input type="checkbox" id="mic-monitor" />
+      모니터링 (내 목소리 듣기)
+    </label>
+  </div>
+
+  <div class="mic-meter" aria-label="입력 레벨">
+    <div class="mic-level" id="mic-level"></div>
+    <div class="mic-peak" id="mic-peak"></div>
+  </div>
+
+  <canvas id="mic-wave" class="mic-wave" height="160" aria-label="입력 파형"></canvas>
+
+  <p id="mic-info" class="hint"></p>
+  <p class="hint">
+    모니터링을 켤 때는 하울링(삑 소리) 방지를 위해 이어폰을 사용하세요. 소리는 브라우저
+    밖으로 전송되지 않습니다.
+  </p>
+  <p id="mic-status" class="status" role="status"></p>
+</div>
+
+<script>
+  const startButton = document.getElementById('mic-start') as HTMLButtonElement;
+  const stopButton = document.getElementById('mic-stop') as HTMLButtonElement;
+  const deviceSelect = document.getElementById('mic-device') as HTMLSelectElement;
+  const monitorLabel = document.getElementById('mic-monitor-label') as HTMLLabelElement;
+  const monitorCheckbox = document.getElementById('mic-monitor') as HTMLInputElement;
+  const levelBar = document.getElementById('mic-level') as HTMLDivElement;
+  const peakMark = document.getElementById('mic-peak') as HTMLDivElement;
+  const canvas = document.getElementById('mic-wave') as HTMLCanvasElement;
+  const info = document.getElementById('mic-info') as HTMLParagraphElement;
+  const status = document.getElementById('mic-status') as HTMLParagraphElement;
+
+  let stream: MediaStream | null = null;
+  let audioContext: AudioContext | null = null;
+  let source: MediaStreamAudioSourceNode | null = null;
+  let analyser: AnalyserNode | null = null;
+  let monitorGain: GainNode | null = null;
+  let rafId: number | null = null;
+  let peak = 0;
+
+  function cssColor(name: string): string {
+    return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  }
+
+  function drawLoop() {
+    if (!analyser) return;
+    const data = new Uint8Array(analyser.fftSize);
+    analyser.getByteTimeDomainData(data);
+
+    // RMS 기반 레벨 (0~1). 피크는 서서히 감쇠시켜 최고점을 보여준다
+    let sumSquares = 0;
+    for (const v of data) {
+      const centered = (v - 128) / 128;
+      sumSquares += centered * centered;
+    }
+    const rms = Math.sqrt(sumSquares / data.length);
+    const level = Math.min(1, rms * 2.5);
+    peak = Math.max(peak * 0.995, level);
+    levelBar.style.width = `${level * 100}%`;
+    peakMark.style.left = `${peak * 100}%`;
+
+    // 파형
+    const ctx = canvas.getContext('2d')!;
+    canvas.width = canvas.clientWidth;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.strokeStyle = cssColor('--accent') || '#6c8cff';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    for (let i = 0; i < data.length; i++) {
+      const x = (i / data.length) * canvas.width;
+      const y = (data[i] / 255) * canvas.height;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+
+    rafId = requestAnimationFrame(drawLoop);
+  }
+
+  function stop() {
+    if (rafId !== null) cancelAnimationFrame(rafId);
+    rafId = null;
+    if (stream) {
+      for (const track of stream.getTracks()) track.stop();
+    }
+    stream = null;
+    source?.disconnect();
+    source = null;
+    analyser = null;
+    monitorGain = null;
+    audioContext?.suspend();
+    stopButton.hidden = true;
+    startButton.hidden = false;
+    levelBar.style.width = '0';
+    info.textContent = '';
+  }
+
+  function describeError(e: unknown): string {
+    if (e instanceof DOMException) {
+      if (e.name === 'NotAllowedError') return '마이크 권한이 거부되었습니다. 브라우저 설정에서 허용해주세요.';
+      if (e.name === 'NotFoundError') return '사용할 수 있는 마이크가 없습니다.';
+      if (e.name === 'NotReadableError') return '마이크가 다른 프로그램에서 사용 중입니다.';
+    }
+    return `마이크를 시작하지 못했습니다: ${e instanceof Error ? e.message : String(e)}`;
+  }
+
+  async function refreshDeviceList() {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const mics = devices.filter((d) => d.kind === 'audioinput');
+    if (mics.length < 2) return;
+    const current = stream?.getAudioTracks()[0]?.getSettings().deviceId;
+    deviceSelect.innerHTML = '';
+    for (const [i, mic] of mics.entries()) {
+      const option = document.createElement('option');
+      option.value = mic.deviceId;
+      option.textContent = mic.label || `마이크 ${i + 1}`;
+      option.selected = mic.deviceId === current;
+      deviceSelect.appendChild(option);
+    }
+    deviceSelect.hidden = false;
+  }
+
+  async function start(deviceId?: string) {
+    status.textContent = '';
+    stop();
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: deviceId ? { deviceId: { exact: deviceId } } : true,
+      });
+    } catch (e) {
+      status.textContent = describeError(e);
+      return;
+    }
+    audioContext ??= new AudioContext();
+    if (audioContext.state === 'suspended') await audioContext.resume();
+
+    source = audioContext.createMediaStreamSource(stream);
+    analyser = audioContext.createAnalyser();
+    analyser.fftSize = 2048;
+    source.connect(analyser);
+    // 모니터링 경로: 체크박스로 게인만 0/1 전환
+    monitorGain = audioContext.createGain();
+    monitorGain.gain.value = monitorCheckbox.checked ? 1 : 0;
+    source.connect(monitorGain).connect(audioContext.destination);
+
+    startButton.hidden = true;
+    stopButton.hidden = false;
+    monitorLabel.hidden = false;
+    peak = 0;
+
+    const track = stream.getAudioTracks()[0];
+    info.textContent = `${track.label} — ${audioContext.sampleRate.toLocaleString()}Hz`;
+    // 권한 승인 후에만 장치 라벨을 얻을 수 있으므로 이 시점에 목록을 갱신
+    await refreshDeviceList();
+    drawLoop();
+  }
+
+  monitorCheckbox.addEventListener('change', () => {
+    if (!audioContext || !monitorGain) return;
+    const now = audioContext.currentTime;
+    monitorGain.gain.setValueAtTime(monitorGain.gain.value, now);
+    monitorGain.gain.linearRampToValueAtTime(monitorCheckbox.checked ? 1 : 0, now + 0.05);
+  });
+
+  startButton.addEventListener('click', () => start());
+  stopButton.addEventListener('click', stop);
+  deviceSelect.addEventListener('change', () => start(deviceSelect.value));
+  window.addEventListener('pagehide', stop);
+</script>
+
+<style>
+  .mic {
+    display: grid;
+    gap: 0.9rem;
+  }
+
+  .mic-row {
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+    flex-wrap: wrap;
+  }
+
+  .mic-select {
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    font: inherit;
+    font-size: 0.85rem;
+    padding: 0.4rem 0.6rem;
+    border-radius: 0.6rem;
+    max-width: 260px;
+  }
+
+  .mic-monitor {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    color: var(--text-dim);
+    font-size: 0.9rem;
+    cursor: pointer;
+  }
+
+  .mic-meter {
+    position: relative;
+    height: 14px;
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    overflow: hidden;
+  }
+
+  .mic-level {
+    height: 100%;
+    width: 0;
+    background: linear-gradient(90deg, #2f9e44, #94d82d 70%, #f59f00 90%, #e03131);
+    border-radius: 999px;
+  }
+
+  .mic-peak {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 2px;
+    background: var(--text);
+    opacity: 0.7;
+  }
+
+  .mic-wave {
+    width: 100%;
+    height: 160px;
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    border-radius: 0.9rem;
+  }
+</style>

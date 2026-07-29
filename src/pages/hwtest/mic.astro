@@ -1,0 +1,16 @@
+---
+import ToolPage from '../../components/ToolPage.astro';
+import MicTab from '../../components/hwtest/MicTab.astro';
+import { hwtest } from '../../lib/tool-tabs';
+---
+
+<ToolPage
+  title="마이크 테스트 — Killterm"
+  description="입력 레벨과 파형으로 마이크 동작을 확인합니다."
+  heading={hwtest.heading}
+  intro={hwtest.intro}
+  tabs={hwtest.tabs}
+  active="/hwtest/mic/"
+>
+  <MicTab />
+</ToolPage>

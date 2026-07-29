@@ -46,7 +46,7 @@
 
 - 탭 하나가 곧 정적 페이지 하나다 (해시 대신 고유 URL 경로):
   `/devtools/{timestamp,json,regex}/`,
-  `/hwtest/{keyboard,mouse,monitor,reaction,sound,network}/`.
+  `/hwtest/{keyboard,mouse,monitor,reaction,sound,webcam,mic,geo,network}/`.
 - 공용 셸은 `src/components/ToolPage.astro` — 홈 링크·소개·링크형 탭 바·본문
   슬롯. 공통 컨트롤 스타일(.btn/.chip/.status/.hint/.field-row/textarea)은
   여기의 `<style is:global>`에 `.tool-main` 프리픽스로 선언되어 있다.
@@ -78,7 +78,14 @@
 - 반응속도: pointerdown 계측, 시작 시각은 rAF 안에서 기록. 역대 최고 기록은
   localStorage `killterm-hwtest-reaction-v1` = `{best: number}`.
 - 사운드: AudioContext는 첫 클릭에서 지연 생성(자동재생 정책), 오실레이터는
-  재생마다 새로 생성, 시작/정지에 20ms 게인 램프(팝 방지).
+  재생마다 새로 생성, 시작/정지에 20ms 게인 램프(팝 방지). 출력 장치 선택은
+  `AudioContext.setSinkId`(Chromium 전용, 미지원 브라우저는 disabled)이고,
+  장치 라벨 노출을 위해 임시 오디오 권한을 받았다 즉시 닫는다.
+- 웹캠/마이크: getUserMedia 기반(HTTPS/localhost 필수), 장치 라벨은 권한 승인
+  후에만 얻을 수 있어 시작 후 장치 목록을 갱신한다. "브라우저 밖으로 전송되지
+  않음" 안내 문구를 유지할 것. 마이크 모니터링은 게인 0/1 전환으로 구현.
+- 위치: Geolocation API + permissions.query로 권한 상태 표시. 지도(OSM 임베드)는
+  좌표가 외부로 전달되므로 반드시 명시적 버튼으로만 연다.
 
 ### 만다라트 페이지 (`src/pages/mandalart.astro`)
 

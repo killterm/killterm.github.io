@@ -39,6 +39,15 @@ import GlassSlider from '../GlassSlider.astro';
     <span id="sd-volume-label" class="sd-value">20%</span>
   </div>
 
+  <div class="sd-row">
+    <span class="sd-label">출력</span>
+    <select id="sd-output" class="sd-select" aria-label="출력 장치 선택" disabled>
+      <option value="">시스템 기본 출력</option>
+    </select>
+    <button id="sd-output-load" class="btn btn-small" type="button">장치 불러오기</button>
+    <span id="sd-output-hint" class="hint"></span>
+  </div>
+
   <p class="hint">iOS 무음 모드에서는 소리가 나지 않을 수 있습니다.</p>
 </div>
 
@@ -139,6 +148,71 @@ import GlassSlider from '../GlassSlider.astro';
     if (ctx && gain) gain.gain.setValueAtTime(currentVolume(), ctx.currentTime);
   });
 
+  // ---------- 출력 장치 선택 ----------
+  // AudioContext.setSinkId는 Chromium 전용. 미지원 브라우저는 disabled로 표시한다.
+
+  const outputSelect = document.getElementById('sd-output') as HTMLSelectElement;
+  const outputLoadButton = document.getElementById('sd-output-load') as HTMLButtonElement;
+  const outputHint = document.getElementById('sd-output-hint') as HTMLSpanElement;
+
+  type SinkAudioContext = AudioContext & { setSinkId(id: string): Promise<void> };
+  const supportsSink = 'setSinkId' in AudioContext.prototype;
+  let selectedSink = '';
+
+  if (!supportsSink) {
+    outputLoadButton.disabled = true;
+    outputHint.textContent = '이 브라우저는 출력 장치 변경을 지원하지 않습니다 (시스템 기본 출력 사용)';
+  }
+
+  async function applySink() {
+    if (!ctx || !supportsSink) return;
+    try {
+      await (ctx as SinkAudioContext).setSinkId(selectedSink);
+    } catch (e) {
+      outputHint.textContent = `출력 장치를 바꾸지 못했습니다: ${e instanceof Error ? e.message : String(e)}`;
+    }
+  }
+
+  outputLoadButton.addEventListener('click', async () => {
+    outputHint.textContent = '';
+    // 출력 장치 라벨은 미디어 권한 승인 후에만 노출되므로,
+    // 라벨이 비어 있으면 임시로 오디오 권한을 받고 즉시 닫는다
+    let devices = await navigator.mediaDevices.enumerateDevices();
+    let outputs = devices.filter((d) => d.kind === 'audiooutput');
+    if (outputs.length === 0 || outputs.every((d) => d.label === '')) {
+      try {
+        const temp = await navigator.mediaDevices.getUserMedia({ audio: true });
+        for (const track of temp.getTracks()) track.stop();
+      } catch {
+        outputHint.textContent = '장치 이름을 가져오려면 오디오 권한이 필요합니다.';
+        return;
+      }
+      devices = await navigator.mediaDevices.enumerateDevices();
+      outputs = devices.filter((d) => d.kind === 'audiooutput');
+    }
+    if (outputs.length === 0) {
+      outputHint.textContent = '사용할 수 있는 출력 장치를 찾지 못했습니다.';
+      return;
+    }
+    outputSelect.innerHTML = '<option value="">시스템 기본 출력</option>';
+    for (const [i, output] of outputs.entries()) {
+      if (output.deviceId === 'default') continue;
+      const option = document.createElement('option');
+      option.value = output.deviceId;
+      option.textContent = output.label || `출력 장치 ${i + 1}`;
+      outputSelect.appendChild(option);
+    }
+    outputSelect.disabled = false;
+    outputLoadButton.hidden = true;
+  });
+
+  outputSelect.addEventListener('change', async () => {
+    selectedSink = outputSelect.value;
+    outputHint.textContent = '';
+    ctx ??= new AudioContext();
+    await applySink();
+  });
+
   // 페이지 숨김·이탈 시 반드시 정지
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) {
@@ -190,5 +264,21 @@ import GlassSlider from '../GlassSlider.astro';
     background: var(--accent);
     border-color: var(--accent);
     color: #fff;
+  }
+
+  .sd-select {
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    font: inherit;
+    font-size: 0.85rem;
+    padding: 0.4rem 0.6rem;
+    border-radius: 0.6rem;
+    max-width: 260px;
+  }
+
+  .sd-select:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
   }
 </style>

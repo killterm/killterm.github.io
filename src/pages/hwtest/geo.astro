@@ -1,0 +1,16 @@
+---
+import ToolPage from '../../components/ToolPage.astro';
+import GeoTab from '../../components/hwtest/GeoTab.astro';
+import { hwtest } from '../../lib/tool-tabs';
+---
+
+<ToolPage
+  title="위치 테스트 — Killterm"
+  description="Geolocation API의 좌표·정확도·권한 상태를 확인합니다."
+  heading={hwtest.heading}
+  intro={hwtest.intro}
+  tabs={hwtest.tabs}
+  active="/hwtest/geo/"
+>
+  <GeoTab />
+</ToolPage>

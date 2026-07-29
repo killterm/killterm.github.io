@@ -1,0 +1,16 @@
+---
+import ToolPage from '../../components/ToolPage.astro';
+import WebcamTab from '../../components/hwtest/WebcamTab.astro';
+import { hwtest } from '../../lib/tool-tabs';
+---
+
+<ToolPage
+  title="웹캠 테스트 — Killterm"
+  description="카메라 미리보기로 웹캠 동작과 해상도를 확인합니다."
+  heading={hwtest.heading}
+  intro={hwtest.intro}
+  tabs={hwtest.tabs}
+  active="/hwtest/webcam/"
+>
+  <WebcamTab />
+</ToolPage>

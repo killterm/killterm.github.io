@@ -1,0 +1,296 @@
+---
+// 위치(Geolocation) 테스트: 권한 상태, 좌표·정확도·고도·속도 표시, 실시간 추적,
+// 버튼으로 여는 OpenStreetMap 임베드
+---
+
+<div class="geo">
+  <p class="geo-lead">
+    브라우저 <b>Geolocation API</b> 테스트입니다. 권한 상태와 API가 제공하는 좌표·정확도·고도·속도
+    값을 확인할 수 있습니다.
+  </p>
+
+  <div class="geo-row">
+    <button id="geo-once" class="btn btn-primary" type="button">현재 위치 확인</button>
+    <button id="geo-watch" class="btn" type="button">실시간 추적 시작</button>
+    <label class="geo-accurate">
+      <input type="checkbox" id="geo-high" checked />
+      고정밀(GPS) 사용
+    </label>
+    <span class="hint">권한 상태: <b id="geo-permission">확인 중…</b></span>
+  </div>
+
+  <div class="geo-card" id="geo-results" hidden>
+    <div class="geo-item">
+      <span class="geo-label">위도</span>
+      <output id="geo-lat"></output>
+    </div>
+    <div class="geo-item">
+      <span class="geo-label">경도</span>
+      <output id="geo-lon"></output>
+    </div>
+    <div class="geo-item">
+      <span class="geo-label">정확도</span>
+      <output id="geo-acc"></output>
+    </div>
+    <div class="geo-item">
+      <span class="geo-label">고도</span>
+      <output id="geo-alt"></output>
+    </div>
+    <div class="geo-item">
+      <span class="geo-label">속도</span>
+      <output id="geo-speed"></output>
+    </div>
+    <div class="geo-item">
+      <span class="geo-label">방향</span>
+      <output id="geo-heading"></output>
+    </div>
+    <div class="geo-item">
+      <span class="geo-label">측정 시각</span>
+      <output id="geo-time"></output>
+    </div>
+    <div class="geo-actions">
+      <button class="btn btn-small copy" data-target="geo-coords" type="button">좌표 복사</button>
+      <output id="geo-coords" hidden></output>
+      <button id="geo-map-open" class="btn btn-small" type="button">지도에서 보기</button>
+    </div>
+    <p class="hint geo-note">
+      위치 정보는 이 브라우저 안에서만 표시되며, "지도에서 보기"를 누르기 전에는 어디에도
+      전송되지 않습니다. 지도를 열면 좌표가 OpenStreetMap 서버에 전달됩니다.
+    </p>
+  </div>
+
+  <div id="geo-map-wrap" class="geo-map" hidden>
+    <iframe id="geo-map" title="현재 위치 지도" loading="lazy"></iframe>
+  </div>
+
+  <p id="geo-status" class="status" role="status"></p>
+</div>
+
+<script>
+  import { setupCopyButtons } from '../../lib/copy-buttons';
+
+  setupCopyButtons();
+
+  const onceButton = document.getElementById('geo-once') as HTMLButtonElement;
+  const watchButton = document.getElementById('geo-watch') as HTMLButtonElement;
+  const highAccuracy = document.getElementById('geo-high') as HTMLInputElement;
+  const permissionOut = document.getElementById('geo-permission') as HTMLElement;
+  const results = document.getElementById('geo-results') as HTMLDivElement;
+  const status = document.getElementById('geo-status') as HTMLParagraphElement;
+  const mapWrap = document.getElementById('geo-map-wrap') as HTMLDivElement;
+  const mapFrame = document.getElementById('geo-map') as HTMLIFrameElement;
+  const mapOpenButton = document.getElementById('geo-map-open') as HTMLButtonElement;
+
+  const out = (id: string) => document.getElementById(id) as HTMLOutputElement;
+
+  let watchId: number | null = null;
+  let lastPosition: GeolocationPosition | null = null;
+
+  // ---------- 권한 상태 ----------
+
+  const PERMISSION_LABELS: Record<string, string> = {
+    granted: '허용됨',
+    prompt: '요청 전',
+    denied: '거부됨',
+  };
+
+  async function trackPermission() {
+    if (!navigator.permissions?.query) {
+      permissionOut.textContent = '확인 불가';
+      return;
+    }
+    try {
+      const permission = await navigator.permissions.query({ name: 'geolocation' });
+      const render = () => {
+        permissionOut.textContent = PERMISSION_LABELS[permission.state] ?? permission.state;
+      };
+      permission.addEventListener('change', render);
+      render();
+    } catch {
+      permissionOut.textContent = '확인 불가';
+    }
+  }
+
+  // ---------- 위치 표시 ----------
+
+  function renderPosition(position: GeolocationPosition) {
+    lastPosition = position;
+    const c = position.coords;
+    out('geo-lat').textContent = c.latitude.toFixed(6);
+    out('geo-lon').textContent = c.longitude.toFixed(6);
+    out('geo-acc').textContent = `±${Math.round(c.accuracy)}m`;
+    out('geo-alt').textContent =
+      c.altitude === null
+        ? '제공 안 됨'
+        : `${c.altitude.toFixed(1)}m` +
+          (c.altitudeAccuracy === null ? '' : ` (±${Math.round(c.altitudeAccuracy)}m)`);
+    out('geo-speed').textContent =
+      c.speed === null ? '제공 안 됨' : `${c.speed.toFixed(1)}m/s (${(c.speed * 3.6).toFixed(1)}km/h)`;
+    out('geo-heading').textContent = c.heading === null ? '제공 안 됨' : `${Math.round(c.heading)}°`;
+    out('geo-time').textContent = new Date(position.timestamp).toLocaleTimeString('ko-KR', {
+      hour12: false,
+    });
+    out('geo-coords').textContent = `${c.latitude.toFixed(6)}, ${c.longitude.toFixed(6)}`;
+    results.hidden = false;
+    // 지도가 열려 있으면 새 좌표로 갱신
+    if (!mapWrap.hidden) openMap();
+  }
+
+  function describeError(e: GeolocationPositionError): string {
+    if (e.code === e.PERMISSION_DENIED) return '위치 권한이 거부되었습니다. 브라우저 설정에서 허용해주세요.';
+    if (e.code === e.POSITION_UNAVAILABLE) return '위치를 확인할 수 없습니다 (신호 없음).';
+    if (e.code === e.TIMEOUT) return '위치 확인이 시간 초과되었습니다.';
+    return e.message;
+  }
+
+  const geoOptions = () => ({
+    enableHighAccuracy: highAccuracy.checked,
+    timeout: 15000,
+    maximumAge: 0,
+  });
+
+  onceButton.addEventListener('click', () => {
+    status.textContent = '';
+    if (!('geolocation' in navigator)) {
+      status.textContent = '이 브라우저는 Geolocation API를 지원하지 않습니다.';
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      renderPosition,
+      (e) => {
+        status.textContent = describeError(e);
+      },
+      geoOptions(),
+    );
+  });
+
+  // ---------- 실시간 추적 ----------
+
+  function stopWatch() {
+    if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+    watchId = null;
+    watchButton.textContent = '실시간 추적 시작';
+    watchButton.classList.remove('btn-primary');
+  }
+
+  watchButton.addEventListener('click', () => {
+    status.textContent = '';
+    if (watchId !== null) {
+      stopWatch();
+      return;
+    }
+    watchId = navigator.geolocation.watchPosition(
+      renderPosition,
+      (e) => {
+        status.textContent = describeError(e);
+        stopWatch();
+      },
+      geoOptions(),
+    );
+    watchButton.textContent = '실시간 추적 중지';
+    watchButton.classList.add('btn-primary');
+  });
+
+  window.addEventListener('pagehide', stopWatch);
+
+  // ---------- 지도 (명시적으로 열 때만 좌표가 OSM에 전달됨) ----------
+
+  function openMap() {
+    if (!lastPosition) return;
+    const { latitude, longitude } = lastPosition.coords;
+    const bbox = [longitude - 0.005, latitude - 0.003, longitude + 0.005, latitude + 0.003].join(',');
+    mapFrame.src =
+      `https://www.openstreetmap.org/export/embed.html?bbox=${bbox}` +
+      `&layer=mapnik&marker=${latitude},${longitude}`;
+    mapWrap.hidden = false;
+  }
+
+  mapOpenButton.addEventListener('click', openMap);
+
+  trackPermission();
+</script>
+
+<style>
+  .geo {
+    display: grid;
+    gap: 0.9rem;
+  }
+
+  .geo-lead {
+    margin: 0;
+    color: var(--text-dim);
+    font-size: 0.92rem;
+  }
+
+  .geo-lead b {
+    color: var(--text);
+  }
+
+  .geo-row {
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+    flex-wrap: wrap;
+  }
+
+  .geo-accurate {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    color: var(--text-dim);
+    font-size: 0.9rem;
+    cursor: pointer;
+  }
+
+  .geo-row .hint b {
+    color: var(--text);
+  }
+
+  .geo-card {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 0.7rem;
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    border-radius: 0.9rem;
+    padding: 1rem 1.2rem;
+  }
+
+  .geo-item {
+    display: grid;
+    gap: 0.1rem;
+  }
+
+  .geo-label {
+    color: var(--text-dim);
+    font-size: 0.82rem;
+    font-weight: 600;
+  }
+
+  .geo-item output {
+    font-family: Consolas, 'Courier New', monospace;
+    font-size: 0.95rem;
+  }
+
+  .geo-actions {
+    grid-column: 1 / -1;
+    display: flex;
+    gap: 0.5rem;
+  }
+
+  .geo-note {
+    grid-column: 1 / -1;
+  }
+
+  .geo-map {
+    display: grid;
+    gap: 0.4rem;
+  }
+
+  .geo-map iframe {
+    width: 100%;
+    height: 320px;
+    border: 1px solid var(--border);
+    border-radius: 0.9rem;
+  }
+</style>

@@ -22,6 +22,9 @@ export const hwtest = {
     { label: '모니터', href: '/hwtest/monitor/' },
     { label: '반응속도', href: '/hwtest/reaction/' },
     { label: '사운드', href: '/hwtest/sound/' },
+    { label: '웹캠', href: '/hwtest/webcam/' },
+    { label: '마이크', href: '/hwtest/mic/' },
+    { label: '위치', href: '/hwtest/geo/' },
     { label: '네트워크', href: '/hwtest/network/' },
   ] satisfies ToolTab[],
 };
