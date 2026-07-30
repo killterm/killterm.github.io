@@ -1,0 +1,881 @@
+---
+import Layout from '../layouts/Layout.astro';
+---
+
+<Layout
+  title="이미지 도구 — Killterm"
+  description="EXIF 확인, 리사이즈, WebP/PNG/JPG 변환을 브라우저 안에서 처리합니다."
+>
+  <main>
+    <nav class="top">
+      <a href="/">← 홈으로</a>
+    </nav>
+
+    <header class="intro">
+      <h1>🖼️ 이미지 도구</h1>
+      <p>
+        EXIF 메타데이터 확인, 리사이즈, 형식 변환을 한 곳에서. 이미지는 브라우저 밖으로
+        전송되지 않으며, 변환·리사이즈한 다운로드 파일에는 EXIF가 포함되지 않습니다.
+      </p>
+    </header>
+
+    <div class="drop" id="img-drop">
+      <div class="stage" id="img-stage" hidden>
+        <img id="img-preview" alt="불러온 이미지 미리보기" />
+        <canvas id="img-crop-overlay" hidden></canvas>
+      </div>
+      <p class="drop-guide" id="img-guide">
+        이미지를 여기에 드래그하거나 붙여넣기(Ctrl+V)하세요.
+        <button id="img-select" class="btn btn-small" type="button">이미지 선택</button>
+      </p>
+    </div>
+    <input id="img-file" type="file" accept="image/*" hidden />
+    <p id="img-info" class="hint"></p>
+
+    <section class="section" id="img-exif-section" hidden>
+      <h2>EXIF 메타데이터</h2>
+      <div class="exif-card" id="img-exif"></div>
+    </section>
+
+    <section class="section" id="img-edit-section" hidden>
+      <div class="field-row">
+        <button id="img-reset" class="btn" type="button">원본으로 되돌리기</button>
+        <span class="hint">모든 편집을 취소하고 처음 불러온 이미지로 복원합니다.</span>
+      </div>
+
+      <h2>자르기 (Crop)</h2>
+      <div class="field-row">
+        <button id="img-crop-mode" class="btn" type="button">영역 선택 시작</button>
+        <div class="chip-group" role="radiogroup" aria-label="자르기 비율">
+          <label class="chip">
+            <input type="radio" name="img-crop-ratio" value="free" checked />
+            <span>자유</span>
+          </label>
+          <label class="chip">
+            <input type="radio" name="img-crop-ratio" value="1" />
+            <span>1:1</span>
+          </label>
+          <label class="chip">
+            <input type="radio" name="img-crop-ratio" value={String(4 / 3)} />
+            <span>4:3</span>
+          </label>
+          <label class="chip">
+            <input type="radio" name="img-crop-ratio" value={String(16 / 9)} />
+            <span>16:9</span>
+          </label>
+          <label class="chip">
+            <input type="radio" name="img-crop-ratio" value={String(9 / 16)} />
+            <span>9:16</span>
+          </label>
+        </div>
+        <button id="img-crop-apply" class="btn" type="button" disabled>자르기 적용</button>
+        <span class="hint" id="img-crop-info">영역 선택을 시작한 뒤 이미지 위에서 드래그하세요.</span>
+      </div>
+
+      <h2>리사이즈</h2>
+      <div class="field-row">
+        <label class="num-field">
+          폭
+          <input id="img-width" type="number" min="1" max="20000" step="1" />
+        </label>
+        <span aria-hidden="true">×</span>
+        <label class="num-field">
+          높이
+          <input id="img-height" type="number" min="1" max="20000" step="1" />
+        </label>
+        <label class="ratio-lock">
+          <input type="checkbox" id="img-ratio" checked />
+          비율 유지
+        </label>
+        <button id="img-resize" class="btn" type="button">리사이즈 적용</button>
+      </div>
+
+      <h2>변환 · 다운로드</h2>
+      <div class="field-row">
+        <div class="chip-group" role="radiogroup" aria-label="출력 형식">
+          <label class="chip">
+            <input type="radio" name="img-format" value="image/png" checked />
+            <span>PNG</span>
+          </label>
+          <label class="chip">
+            <input type="radio" name="img-format" value="image/jpeg" />
+            <span>JPG</span>
+          </label>
+          <label class="chip">
+            <input type="radio" name="img-format" value="image/webp" />
+            <span>WebP</span>
+          </label>
+        </div>
+        <label class="num-field" id="img-quality-field">
+          품질
+          <input id="img-quality" type="number" min="1" max="100" step="1" value="90" disabled />
+        </label>
+        <button id="img-download" class="btn btn-primary" type="button">변환 후 다운로드</button>
+      </div>
+    </section>
+
+    <p id="img-status" class="status" role="status"></p>
+  </main>
+</Layout>
+
+<script>
+  import { parseExif } from '../lib/exif';
+
+  const dropZone = document.getElementById('img-drop') as HTMLDivElement;
+  const stage = document.getElementById('img-stage') as HTMLDivElement;
+  const preview = document.getElementById('img-preview') as HTMLImageElement;
+  const guide = document.getElementById('img-guide') as HTMLParagraphElement;
+  const fileInput = document.getElementById('img-file') as HTMLInputElement;
+  const info = document.getElementById('img-info') as HTMLParagraphElement;
+  const exifSection = document.getElementById('img-exif-section') as HTMLElement;
+  const exifCard = document.getElementById('img-exif') as HTMLDivElement;
+  const editSection = document.getElementById('img-edit-section') as HTMLElement;
+  const widthInput = document.getElementById('img-width') as HTMLInputElement;
+  const heightInput = document.getElementById('img-height') as HTMLInputElement;
+  const ratioLock = document.getElementById('img-ratio') as HTMLInputElement;
+  const qualityInput = document.getElementById('img-quality') as HTMLInputElement;
+  const status = document.getElementById('img-status') as HTMLParagraphElement;
+
+  // 작업 중인 이미지는 캔버스에 보관한다 (리사이즈 결과가 다음 작업의 입력이 됨)
+  const workCanvas = document.createElement('canvas');
+  const workContext = workCanvas.getContext('2d')!;
+  let originalBitmap: ImageBitmap | null = null;
+  let fileName = 'image';
+  let fileSize = 0;
+  let fileType = '';
+
+  function baseName(name: string): string {
+    return name.replace(/\.[^.]+$/, '') || 'image';
+  }
+
+  function renderInfo() {
+    const sizeMb = (fileSize / 1024 / 1024).toFixed(2);
+    info.textContent =
+      `${fileName} (${fileType || '알 수 없는 형식'}, ${sizeMb}MB) — ` +
+      `현재 ${workCanvas.width}×${workCanvas.height}px`;
+  }
+
+  function renderPreview() {
+    // 크기가 바뀌면 선택 영역 좌표가 어긋나므로 자르기 모드를 닫는다
+    if (cropMode) setCropMode(false);
+    preview.src = workCanvas.toDataURL();
+    stage.hidden = false;
+    guide.hidden = true;
+    widthInput.value = String(workCanvas.width);
+    heightInput.value = String(workCanvas.height);
+    renderInfo();
+  }
+
+  function renderExif(buffer: ArrayBuffer) {
+    exifCard.innerHTML = '';
+    const entries = fileType === 'image/jpeg' ? parseExif(buffer) : null;
+    if (fileType !== 'image/jpeg') {
+      exifCard.textContent = 'EXIF는 주로 JPEG에 저장됩니다. 이 형식은 확인을 지원하지 않습니다.';
+    } else if (entries === null || entries.length === 0) {
+      exifCard.textContent = 'EXIF 메타데이터가 없습니다.';
+    } else {
+      for (const entry of entries) {
+        const row = document.createElement('div');
+        row.className = `exif-row${entry.sensitive ? ' exif-sensitive' : ''}`;
+        const label = document.createElement('span');
+        label.className = 'exif-label';
+        label.textContent = entry.sensitive ? `⚠ ${entry.label}` : entry.label;
+        const value = document.createElement('span');
+        value.textContent = entry.value;
+        row.append(label, value);
+        exifCard.appendChild(row);
+      }
+      if (entries.some((e) => e.sensitive)) {
+        const note = document.createElement('p');
+        note.className = 'exif-note';
+        note.textContent =
+          '⚠ 위치 정보가 포함되어 있습니다. 아래에서 변환해 받으면 EXIF가 제거됩니다.';
+        exifCard.appendChild(note);
+      }
+    }
+    exifSection.hidden = false;
+  }
+
+  async function loadImage(file: File) {
+    status.textContent = '';
+    if (!file.type.startsWith('image/')) {
+      status.textContent = '이미지 파일이 아닙니다.';
+      return;
+    }
+    let bitmap: ImageBitmap;
+    try {
+      bitmap = await createImageBitmap(file);
+    } catch {
+      status.textContent = '이미지를 불러오지 못했습니다.';
+      return;
+    }
+    originalBitmap?.close();
+    originalBitmap = bitmap;
+    fileName = file.name;
+    fileSize = file.size;
+    fileType = file.type;
+
+    workCanvas.width = bitmap.width;
+    workCanvas.height = bitmap.height;
+    workContext.drawImage(bitmap, 0, 0);
+    renderPreview();
+    renderExif(await file.arrayBuffer());
+    editSection.hidden = false;
+  }
+
+  // ---------- 로드 경로: 선택 / 드래그&드롭 / 붙여넣기 ----------
+
+  document.getElementById('img-select')!.addEventListener('click', () => fileInput.click());
+
+  fileInput.addEventListener('change', () => {
+    const file = fileInput.files?.[0];
+    if (file) loadImage(file);
+    fileInput.value = '';
+  });
+
+  dropZone.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    dropZone.classList.add('drag-over');
+  });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+  dropZone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dropZone.classList.remove('drag-over');
+    const file = e.dataTransfer?.files?.[0];
+    if (file) loadImage(file);
+  });
+
+  document.addEventListener('paste', (e) => {
+    const item = Array.from(e.clipboardData?.items ?? []).find((i) =>
+      i.type.startsWith('image/'),
+    );
+    const file = item?.getAsFile();
+    if (file) loadImage(file);
+  });
+
+  // ---------- 리사이즈 ----------
+
+  const aspectRatio = () => workCanvas.width / workCanvas.height;
+
+  widthInput.addEventListener('input', () => {
+    if (!ratioLock.checked) return;
+    const width = Number(widthInput.value);
+    if (width > 0) heightInput.value = String(Math.max(1, Math.round(width / aspectRatio())));
+  });
+
+  heightInput.addEventListener('input', () => {
+    if (!ratioLock.checked) return;
+    const height = Number(heightInput.value);
+    if (height > 0) widthInput.value = String(Math.max(1, Math.round(height * aspectRatio())));
+  });
+
+  document.getElementById('img-resize')!.addEventListener('click', () => {
+    status.textContent = '';
+    const width = Math.floor(Number(widthInput.value));
+    const height = Math.floor(Number(heightInput.value));
+    if (!(width >= 1 && height >= 1 && width <= 20000 && height <= 20000)) {
+      status.textContent = '폭과 높이는 1~20000 사이여야 합니다.';
+      return;
+    }
+    const resized = document.createElement('canvas');
+    resized.width = width;
+    resized.height = height;
+    const ctx = resized.getContext('2d')!;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(workCanvas, 0, 0, width, height);
+    workCanvas.width = width;
+    workCanvas.height = height;
+    workContext.drawImage(resized, 0, 0);
+    renderPreview();
+  });
+
+  document.getElementById('img-reset')!.addEventListener('click', () => {
+    if (!originalBitmap) return;
+    workCanvas.width = originalBitmap.width;
+    workCanvas.height = originalBitmap.height;
+    workContext.drawImage(originalBitmap, 0, 0);
+    renderPreview();
+  });
+
+  // ---------- 자르기 ----------
+
+  const overlay = document.getElementById('img-crop-overlay') as HTMLCanvasElement;
+  const overlayContext = overlay.getContext('2d')!;
+  const cropModeButton = document.getElementById('img-crop-mode') as HTMLButtonElement;
+  const cropApplyButton = document.getElementById('img-crop-apply') as HTMLButtonElement;
+  const cropInfo = document.getElementById('img-crop-info') as HTMLSpanElement;
+
+  let cropMode = false;
+  let dragStart: { x: number; y: number } | null = null;
+  let selection: { x: number; y: number; w: number; h: number } | null = null;
+  // 드래그 동작: 빈 곳 = 새 영역 생성, 영역 안 = 이동,
+  // 모서리 = 반대 모서리를 고정점 삼아 다시 그리기, 변 = 그 변만 조정
+  type DragMode = 'create' | 'move' | 'edge' | null;
+  let dragMode: DragMode = null;
+  let grabOffset = { x: 0, y: 0 };
+  let activeEdge: 'n' | 's' | 'e' | 'w' | null = null;
+
+  const HANDLE_RADIUS = 12;
+
+  // 선택된 비율 (w/h). 자유 선택이면 null
+  const cropRatio = (): number | null => {
+    const value = (
+      document.querySelector('input[name="img-crop-ratio"]:checked') as HTMLInputElement
+    ).value;
+    return value === 'free' ? null : Number(value);
+  };
+
+  function setCropMode(on: boolean) {
+    cropMode = on;
+    overlay.hidden = !on;
+    cropModeButton.textContent = on ? '영역 선택 종료' : '영역 선택 시작';
+    selection = null;
+    dragStart = null;
+    cropApplyButton.disabled = true;
+    if (on) {
+      // 오버레이 해상도를 현재 표시 크기에 맞춘다
+      overlay.width = preview.clientWidth;
+      overlay.height = preview.clientHeight;
+      drawSelection();
+      cropInfo.textContent = '이미지 위에서 드래그해 영역을 선택하세요.';
+    } else {
+      cropInfo.textContent = '영역 선택을 시작한 뒤 이미지 위에서 드래그하세요.';
+    }
+  }
+
+  // GIMP 스타일 핸들: 선택 영역 "안쪽"에 붙는 ㄱ자 브래킷(모서리)과 바(변).
+  // 영역 밖으로 삐져나가지 않아 이미지 테두리 근처에서도 화면을 가리지 않는다.
+  const handleLength = () =>
+    selection ? Math.max(10, Math.min(18, selection.w / 3, selection.h / 3)) : 18;
+
+  function drawSelection() {
+    overlayContext.clearRect(0, 0, overlay.width, overlay.height);
+    overlayContext.fillStyle = 'rgba(0, 0, 0, 0.5)';
+    overlayContext.fillRect(0, 0, overlay.width, overlay.height);
+    if (!selection) return;
+    const { x, y, w, h } = selection;
+    overlayContext.clearRect(x, y, w, h);
+    overlayContext.strokeStyle = '#6c8cff';
+    overlayContext.lineWidth = 2;
+    overlayContext.strokeRect(x + 1, y + 1, w - 2, h - 2);
+
+    const L = handleLength();
+    const T = 4;
+    overlayContext.fillStyle = '#ffffff';
+    // 모서리 ㄱ자 브래킷
+    overlayContext.fillRect(x, y, L, T);
+    overlayContext.fillRect(x, y, T, L);
+    overlayContext.fillRect(x + w - L, y, L, T);
+    overlayContext.fillRect(x + w - T, y, T, L);
+    overlayContext.fillRect(x, y + h - T, L, T);
+    overlayContext.fillRect(x, y + h - L, T, L);
+    overlayContext.fillRect(x + w - L, y + h - T, L, T);
+    overlayContext.fillRect(x + w - T, y + h - L, T, L);
+    // 변 중앙 바 (자유 비율일 때만)
+    if (cropRatio() === null) {
+      const bar = Math.max(12, Math.min(24, w / 3, h / 3));
+      overlayContext.fillRect(x + w / 2 - bar / 2, y, bar, T);
+      overlayContext.fillRect(x + w / 2 - bar / 2, y + h - T, bar, T);
+      overlayContext.fillRect(x, y + h / 2 - bar / 2, T, bar);
+      overlayContext.fillRect(x + w - T, y + h / 2 - bar / 2, T, bar);
+    }
+  }
+
+  // 표시 좌표 → 원본 픽셀 사각형
+  function sourceRect() {
+    if (!selection || selection.w < 2 || selection.h < 2) return null;
+    const scaleX = workCanvas.width / overlay.width;
+    const scaleY = workCanvas.height / overlay.height;
+    const sx = Math.min(workCanvas.width - 1, Math.round(selection.x * scaleX));
+    const sy = Math.min(workCanvas.height - 1, Math.round(selection.y * scaleY));
+    return {
+      sx,
+      sy,
+      sw: Math.max(1, Math.min(Math.round(selection.w * scaleX), workCanvas.width - sx)),
+      sh: Math.max(1, Math.min(Math.round(selection.h * scaleY), workCanvas.height - sy)),
+    };
+  }
+
+  const overlayPoint = (e: PointerEvent) => {
+    const rect = overlay.getBoundingClientRect();
+    return {
+      x: Math.min(overlay.width, Math.max(0, e.clientX - rect.left)),
+      y: Math.min(overlay.height, Math.max(0, e.clientY - rect.top)),
+    };
+  };
+
+  // 포인터 위치가 어떤 동작 영역인지 판정 (GIMP 방식):
+  // 영역 안쪽의 모서리 구역 = 크기 조정, 변 가장자리 구역 = 그 변 조정, 중앙 = 이동
+  function hitZone(point: { x: number; y: number }): string {
+    if (!selection) return 'create';
+    const { x, y, w, h } = selection;
+    const outsideTolerance = 4;
+    if (
+      point.x < x - outsideTolerance ||
+      point.x > x + w + outsideTolerance ||
+      point.y < y - outsideTolerance ||
+      point.y > y + h + outsideTolerance
+    ) {
+      return 'create';
+    }
+    const cornerZone = handleLength() + HANDLE_RADIUS / 2;
+    const nearLeft = point.x <= x + cornerZone;
+    const nearRight = point.x >= x + w - cornerZone;
+    const nearTop = point.y <= y + cornerZone;
+    const nearBottom = point.y >= y + h - cornerZone;
+    if (nearTop && nearLeft) return 'nw';
+    if (nearTop && nearRight) return 'ne';
+    if (nearBottom && nearLeft) return 'sw';
+    if (nearBottom && nearRight) return 'se';
+    if (cropRatio() === null) {
+      const edgeZone = HANDLE_RADIUS;
+      if (point.y <= y + edgeZone) return 'n';
+      if (point.y >= y + h - edgeZone) return 's';
+      if (point.x <= x + edgeZone) return 'w';
+      if (point.x >= x + w - edgeZone) return 'e';
+    }
+    return 'move';
+  }
+
+  const ZONE_CURSORS: Record<string, string> = {
+    nw: 'nwse-resize',
+    se: 'nwse-resize',
+    ne: 'nesw-resize',
+    sw: 'nesw-resize',
+    n: 'ns-resize',
+    s: 'ns-resize',
+    e: 'ew-resize',
+    w: 'ew-resize',
+    move: 'move',
+    create: 'crosshair',
+  };
+
+  // 모서리 핸들을 잡으면 반대 모서리를 고정점으로 새로 그리는 동작과 동일하다
+  function oppositeCorner(zone: string): { x: number; y: number } {
+    const { x, y, w, h } = selection!;
+    if (zone === 'nw') return { x: x + w, y: y + h };
+    if (zone === 'ne') return { x, y: y + h };
+    if (zone === 'sw') return { x: x + w, y };
+    return { x, y };
+  }
+
+  function updateCropInfo() {
+    const rect = sourceRect();
+    if (rect) {
+      cropInfo.textContent = `선택 영역: ${rect.sw}×${rect.sh}px (드래그: 이동 · 핸들: 크기 조정)`;
+    }
+  }
+
+  overlay.addEventListener('pointerdown', (e) => {
+    if (!cropMode) return;
+    e.preventDefault();
+    overlay.setPointerCapture(e.pointerId);
+    const point = overlayPoint(e);
+    const zone = hitZone(point);
+    if (zone === 'move' && selection) {
+      dragMode = 'move';
+      grabOffset = { x: point.x - selection.x, y: point.y - selection.y };
+    } else if (['nw', 'ne', 'sw', 'se'].includes(zone) && selection) {
+      dragMode = 'create';
+      dragStart = oppositeCorner(zone);
+    } else if (['n', 's', 'e', 'w'].includes(zone) && selection) {
+      dragMode = 'edge';
+      activeEdge = zone as typeof activeEdge;
+    } else {
+      dragMode = 'create';
+      dragStart = point;
+      selection = null;
+      cropApplyButton.disabled = true;
+      drawSelection();
+    }
+  });
+
+  overlay.addEventListener('pointermove', (e) => {
+    if (!cropMode) return;
+    const point = overlayPoint(e);
+
+    // 드래그 중이 아니면 커서만 갱신
+    if (dragMode === null) {
+      overlay.style.cursor = ZONE_CURSORS[hitZone(point)];
+      return;
+    }
+
+    if (dragMode === 'move' && selection) {
+      selection.x = Math.min(overlay.width - selection.w, Math.max(0, point.x - grabOffset.x));
+      selection.y = Math.min(overlay.height - selection.h, Math.max(0, point.y - grabOffset.y));
+      drawSelection();
+      updateCropInfo();
+      return;
+    }
+
+    if (dragMode === 'edge' && selection && activeEdge) {
+      const right = selection.x + selection.w;
+      const bottom = selection.y + selection.h;
+      if (activeEdge === 'e') {
+        selection.w = Math.min(overlay.width - selection.x, Math.max(2, point.x - selection.x));
+      } else if (activeEdge === 'w') {
+        selection.x = Math.min(right - 2, Math.max(0, point.x));
+        selection.w = right - selection.x;
+      } else if (activeEdge === 's') {
+        selection.h = Math.min(overlay.height - selection.y, Math.max(2, point.y - selection.y));
+      } else {
+        selection.y = Math.min(bottom - 2, Math.max(0, point.y));
+        selection.h = bottom - selection.y;
+      }
+      drawSelection();
+      updateCropInfo();
+      return;
+    }
+
+    if (!dragStart) return;
+    let dx = point.x - dragStart.x;
+    let dy = point.y - dragStart.y;
+    const ratio = cropRatio();
+    if (ratio !== null) {
+      // 드래그 폭을 기준으로 비율을 강제하되, 경계를 넘지 않게 폭을 줄인다
+      const signX = dx >= 0 ? 1 : -1;
+      const signY = dy >= 0 ? 1 : -1;
+      const maxW = signX > 0 ? overlay.width - dragStart.x : dragStart.x;
+      const maxH = signY > 0 ? overlay.height - dragStart.y : dragStart.y;
+      const width = Math.min(Math.abs(dx), maxW, maxH * ratio);
+      dx = signX * width;
+      dy = signY * (width / ratio);
+    }
+    selection = {
+      x: Math.min(dragStart.x, dragStart.x + dx),
+      y: Math.min(dragStart.y, dragStart.y + dy),
+      w: Math.abs(dx),
+      h: Math.abs(dy),
+    };
+    drawSelection();
+    updateCropInfo();
+  });
+
+  overlay.addEventListener('pointerup', () => {
+    dragMode = null;
+    dragStart = null;
+    activeEdge = null;
+    cropApplyButton.disabled = sourceRect() === null;
+  });
+
+  cropModeButton.addEventListener('click', () => setCropMode(!cropMode));
+
+  cropApplyButton.addEventListener('click', () => {
+    const rect = sourceRect();
+    if (!rect) return;
+    const cropped = document.createElement('canvas');
+    cropped.width = rect.sw;
+    cropped.height = rect.sh;
+    cropped
+      .getContext('2d')!
+      .drawImage(workCanvas, rect.sx, rect.sy, rect.sw, rect.sh, 0, 0, rect.sw, rect.sh);
+    workCanvas.width = rect.sw;
+    workCanvas.height = rect.sh;
+    workContext.drawImage(cropped, 0, 0);
+    setCropMode(false);
+    renderPreview();
+  });
+
+  // ---------- 변환 · 다운로드 ----------
+
+  const EXTENSIONS: Record<string, string> = {
+    'image/png': 'png',
+    'image/jpeg': 'jpg',
+    'image/webp': 'webp',
+  };
+
+  const selectedFormat = () =>
+    (document.querySelector('input[name="img-format"]:checked') as HTMLInputElement).value;
+
+  // 품질은 JPG/WebP에만 적용된다
+  for (const radio of document.querySelectorAll<HTMLInputElement>('input[name="img-format"]')) {
+    radio.addEventListener('change', () => {
+      qualityInput.disabled = selectedFormat() === 'image/png';
+    });
+  }
+
+  document.getElementById('img-download')!.addEventListener('click', () => {
+    status.textContent = '';
+    if (!originalBitmap) return;
+    const format = selectedFormat();
+    const quality = Math.min(100, Math.max(1, Number(qualityInput.value) || 90)) / 100;
+    workCanvas.toBlob(
+      (blob) => {
+        if (!blob) {
+          status.textContent = '변환에 실패했습니다. (이 브라우저가 해당 형식을 지원하지 않을 수 있음)';
+          return;
+        }
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement('a');
+        anchor.href = url;
+        anchor.download = `${baseName(fileName)}.${EXTENSIONS[format]}`;
+        anchor.click();
+        URL.revokeObjectURL(url);
+        const sizeMb = (blob.size / 1024 / 1024).toFixed(2);
+        status.textContent = '';
+        info.textContent = `${anchor.download} (${sizeMb}MB) 다운로드 — EXIF 제거됨`;
+      },
+      format,
+      quality,
+    );
+  });
+</script>
+
+<style>
+  main {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 2.5rem 1.5rem 4rem;
+  }
+
+  .top a {
+    color: var(--text-dim);
+    text-decoration: none;
+    font-size: 0.9rem;
+  }
+
+  .top a:hover {
+    color: var(--accent);
+  }
+
+  .intro h1 {
+    margin: 1rem 0 0.5rem;
+    font-size: clamp(1.6rem, 4vw, 2.2rem);
+    letter-spacing: -0.02em;
+  }
+
+  .intro p {
+    color: var(--text-dim);
+    margin: 0 0 1.5rem;
+  }
+
+  .drop {
+    display: grid;
+    place-items: center;
+    min-height: 160px;
+    border: 1px dashed var(--border);
+    border-radius: 0.9rem;
+    background: var(--bg-soft);
+    overflow: hidden;
+  }
+
+  .drop.drag-over {
+    border-color: var(--accent);
+    border-style: solid;
+  }
+
+  .stage {
+    position: relative;
+  }
+
+  .stage[hidden] {
+    display: none;
+  }
+
+  .stage img {
+    display: block;
+    max-width: 100%;
+    max-height: 440px;
+  }
+
+  /* 자르기 오버레이: 미리보기 위에 겹쳐 드래그 선택을 받는다 */
+  .stage canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    cursor: crosshair;
+    touch-action: none;
+  }
+
+  .drop-guide {
+    margin: 0;
+    padding: 1rem;
+    color: var(--text-dim);
+    font-size: 0.9rem;
+    text-align: center;
+  }
+
+  .section {
+    margin-top: 1.5rem;
+    display: grid;
+    gap: 0.9rem;
+  }
+
+  .section[hidden] {
+    display: none;
+  }
+
+  .section h2 {
+    margin: 0;
+    font-size: 1rem;
+    color: var(--text-dim);
+  }
+
+  .exif-card {
+    display: grid;
+    gap: 0.35rem;
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    border-radius: 0.8rem;
+    padding: 0.9rem 1rem;
+    font-size: 0.9rem;
+  }
+
+  /* EXIF 행은 JS로 생성되므로 :global로 선언 */
+  .exif-card :global(.exif-row) {
+    display: grid;
+    grid-template-columns: 11rem 1fr;
+    gap: 0.7rem;
+  }
+
+  .exif-card :global(.exif-label) {
+    color: var(--text-dim);
+    font-weight: 600;
+  }
+
+  .exif-card :global(.exif-sensitive) {
+    color: var(--danger);
+  }
+
+  .exif-card :global(.exif-sensitive .exif-label) {
+    color: var(--danger);
+  }
+
+  .exif-card :global(.exif-note) {
+    margin: 0.4rem 0 0;
+    color: var(--danger);
+    font-size: 0.85rem;
+  }
+
+  .field-row {
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+    flex-wrap: wrap;
+  }
+
+  .num-field {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    color: var(--text-dim);
+    font-size: 0.9rem;
+    font-weight: 600;
+  }
+
+  .num-field input {
+    width: 6rem;
+    border: 1px solid var(--border);
+    background: var(--bg-soft);
+    color: var(--text);
+    font: inherit;
+    font-size: 0.9rem;
+    padding: 0.35rem 0.5rem;
+    border-radius: 0.6rem;
+  }
+
+  .num-field input:focus {
+    outline: 2px solid var(--accent);
+    border-color: var(--accent);
+  }
+
+  .num-field input:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
+  .ratio-lock {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    color: var(--text-dim);
+    font-size: 0.9rem;
+    cursor: pointer;
+  }
+
+  .chip-group {
+    display: inline-flex;
+    gap: 4px;
+    padding: 3px;
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    border-radius: 0.7rem;
+  }
+
+  .chip input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .chip span {
+    display: block;
+    padding: 0.3rem 0.7rem;
+    border-radius: 0.5rem;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--text-dim);
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .chip input:checked + span {
+    background: var(--accent);
+    color: #fff;
+  }
+
+  .chip input:focus-visible + span {
+    outline: 2px solid var(--accent);
+  }
+
+  .btn {
+    appearance: none;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    font: inherit;
+    font-weight: 600;
+    padding: 0.55rem 1.2rem;
+    border-radius: 0.7rem;
+    cursor: pointer;
+  }
+
+  .btn:hover {
+    border-color: var(--accent);
+  }
+
+  .btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
+  .btn-primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+  }
+
+  .btn-primary:hover {
+    filter: brightness(1.1);
+  }
+
+  .btn-small {
+    padding: 0.25rem 0.7rem;
+    font-size: 0.8rem;
+  }
+
+  .hint {
+    color: var(--text-dim);
+    font-size: 0.82rem;
+    margin: 0.6rem 0 0;
+  }
+
+  .status {
+    min-height: 1.2em;
+    margin: 0.4rem 0 0;
+    font-size: 0.88rem;
+    color: var(--danger);
+    overflow-wrap: anywhere;
+  }
+</style>
