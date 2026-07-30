@@ -18,6 +18,7 @@ import Layout from '../layouts/Layout.astro';
       <nav class="toolbar" aria-label="도구">
         <button id="tool-move" class="tool active" type="button" title="이동 (V)">✥</button>
         <button id="tool-crop" class="tool" type="button" title="자르기 (C)">⬚</button>
+        <button id="tool-text" class="tool" type="button" title="텍스트 (T)">T</button>
         <span class="toolbar-divider" aria-hidden="true"></span>
         <button id="history-undo" class="tool" type="button" title="실행 취소 (Ctrl+Z)" disabled>↶</button>
         <button id="history-redo" class="tool" type="button" title="다시 실행 (Ctrl+Shift+Z)" disabled>↷</button>
@@ -55,6 +56,17 @@ import Layout from '../layouts/Layout.astro';
             </button>
             <button id="crop-cancel" class="btn btn-small" type="button" disabled>
               선택 해제 (Esc)
+            </button>
+          </div>
+          <div class="text-options" id="text-options" hidden>
+            <input id="text-content" type="text" placeholder="삽입할 텍스트" />
+            <label class="num-field">
+              크기
+              <input id="text-size" type="number" min="8" max="512" step="1" value="48" />
+            </label>
+            <input id="text-color" type="color" value="#ffffff" aria-label="글자색" />
+            <button id="text-update" class="btn btn-small" type="button" disabled>
+              선택한 텍스트 수정
             </button>
           </div>
         </div>
@@ -168,6 +180,8 @@ import Layout from '../layouts/Layout.astro';
     exif: ExifEntry[] | null;
     isJpeg: boolean;
     thumb: string;
+    /** 텍스트 레이어의 원본 속성 (수정 시 재베이크에 사용) */
+    text?: { content: string; size: number; color: string };
   };
 
   let layers: Layer[] = []; // index 0 = 맨 아래
@@ -175,7 +189,7 @@ import Layout from '../layouts/Layout.astro';
   let layerCounter = 0;
   let docWidth = 0;
   let docHeight = 0;
-  let tool: 'move' | 'crop' = 'move';
+  let tool: 'move' | 'crop' | 'text' = 'move';
 
   const activeLayer = () => layers.find((l) => l.id === activeLayerId) ?? null;
 
@@ -325,6 +339,7 @@ import Layout from '../layouts/Layout.astro';
         renderLayerList();
         renderExifPanel();
         renderDocument();
+        syncTextOptions();
       });
 
       const eye = document.createElement('button');
@@ -359,6 +374,10 @@ import Layout from '../layouts/Layout.astro';
     exifCard.innerHTML = '';
     if (!layer) {
       exifCard.textContent = '레이어를 선택하세요.';
+      return;
+    }
+    if (layer.text) {
+      exifCard.textContent = '텍스트 레이어입니다.';
       return;
     }
     if (!layer.isJpeg) {
@@ -498,25 +517,37 @@ import Layout from '../layouts/Layout.astro';
 
   // ---------- 도구 전환 ----------
 
-  const toolButtons = { move: el<HTMLButtonElement>('tool-move'), crop: el<HTMLButtonElement>('tool-crop') };
+  const toolButtons = {
+    move: el<HTMLButtonElement>('tool-move'),
+    crop: el<HTMLButtonElement>('tool-crop'),
+    text: el<HTMLButtonElement>('tool-text'),
+  };
+  const textOptions = el<HTMLDivElement>('text-options');
 
-  function setTool(next: 'move' | 'crop') {
+  const TOOL_HINTS: Record<typeof tool, string> = {
+    move: '이동 도구: 드래그로 활성 레이어 이동 · 모서리 핸들로 크기 조정',
+    crop: '자르기 도구: 드래그로 영역 선택 · 안쪽 드래그 이동 · 핸들로 조정',
+    text: '텍스트 도구: 내용을 입력한 뒤 캔버스를 클릭하면 그 위치에 텍스트 레이어가 추가됩니다.',
+  };
+
+  function setTool(next: typeof tool) {
     tool = next;
-    toolButtons.move.classList.toggle('active', next === 'move');
-    toolButtons.crop.classList.toggle('active', next === 'crop');
+    for (const [name, button] of Object.entries(toolButtons)) {
+      button.classList.toggle('active', name === next);
+    }
     cropOptions.hidden = next !== 'crop';
-    contextHint.textContent =
-      next === 'move'
-        ? '이동 도구: 캔버스를 드래그하면 활성 레이어가 이동합니다.'
-        : '자르기 도구: 드래그로 영역 선택 · 안쪽 드래그 이동 · 핸들로 조정';
+    textOptions.hidden = next !== 'text';
+    contextHint.textContent = TOOL_HINTS[next];
     if (next !== 'crop') {
       clearCropSelection();
     }
+    if (next === 'text') syncTextOptions();
     drawSelection();
   }
 
   toolButtons.move.addEventListener('click', () => setTool('move'));
   toolButtons.crop.addEventListener('click', () => setTool('crop'));
+  toolButtons.text.addEventListener('click', () => setTool('text'));
 
   document.addEventListener('keydown', (e) => {
     if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
@@ -537,6 +568,115 @@ import Layout from '../layouts/Layout.astro';
     }
     if (e.key === 'v' || e.key === 'V') setTool('move');
     if (e.key === 'c' || e.key === 'C') setTool('crop');
+    if (e.key === 't' || e.key === 'T') setTool('text');
+  });
+
+  // ---------- 텍스트 레이어 ----------
+
+  const textContent = el<HTMLInputElement>('text-content');
+  const textSize = el<HTMLInputElement>('text-size');
+  const textColor = el<HTMLInputElement>('text-color');
+  const textUpdateButton = el<HTMLButtonElement>('text-update');
+
+  const TEXT_FONT_STACK = "'Pretendard Variable', Pretendard, 'Malgun Gothic', sans-serif";
+
+  // 텍스트를 투명 배경 캔버스에 렌더링한다 (레이어의 원본 픽셀이 됨)
+  function bakeTextCanvas(content: string, size: number, color: string): HTMLCanvasElement {
+    const lines = content.split('\n');
+    const font = `700 ${size}px ${TEXT_FONT_STACK}`;
+    const measure = document.createElement('canvas').getContext('2d')!;
+    measure.font = font;
+    const pad = Math.ceil(size * 0.15);
+    const lineHeight = Math.round(size * 1.3);
+    const width = Math.ceil(Math.max(...lines.map((line) => measure.measureText(line).width)));
+
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, width + pad * 2);
+    canvas.height = Math.max(1, lineHeight * lines.length + pad * 2);
+    const ctx = canvas.getContext('2d')!;
+    ctx.font = font;
+    ctx.fillStyle = color;
+    ctx.textBaseline = 'top';
+    lines.forEach((line, i) => ctx.fillText(line, pad, pad + i * lineHeight));
+    return canvas;
+  }
+
+  const textLayerName = (content: string) =>
+    `텍스트: ${content.length > 12 ? `${content.slice(0, 12)}…` : content}`;
+
+  function currentTextValues() {
+    return {
+      content: textContent.value,
+      size: Math.min(512, Math.max(8, Math.floor(Number(textSize.value) || 48))),
+      color: textColor.value,
+    };
+  }
+
+  function addTextLayer(point: { x: number; y: number }) {
+    const values = currentTextValues();
+    if (values.content.trim() === '') {
+      setStatus('삽입할 텍스트를 먼저 입력하세요.');
+      textContent.focus();
+      return;
+    }
+    pushHistory();
+    const canvas = bakeTextCanvas(values.content, values.size, values.color);
+    const layer: Layer = {
+      id: layerCounter++,
+      name: textLayerName(values.content),
+      canvas,
+      x: Math.round(point.x - canvas.width / 2),
+      y: Math.round(point.y - canvas.height / 2),
+      w: canvas.width,
+      h: canvas.height,
+      visible: true,
+      exif: null,
+      isJpeg: false,
+      thumb: makeThumb(canvas),
+      text: values,
+    };
+    layers.push(layer);
+    activeLayerId = layer.id;
+    renderLayerList();
+    renderExifPanel();
+    renderDocument();
+    syncTextOptions();
+    setStatus('텍스트 레이어를 추가했습니다. 이동 도구(V)로 위치·크기를 조정할 수 있습니다.');
+  }
+
+  // 활성 레이어가 텍스트 레이어면 옵션 값을 채우고 수정 버튼을 활성화한다
+  function syncTextOptions() {
+    const layer = activeLayer();
+    const isText = Boolean(layer?.text);
+    textUpdateButton.disabled = !isText;
+    if (layer?.text) {
+      textContent.value = layer.text.content;
+      textSize.value = String(layer.text.size);
+      textColor.value = layer.text.color;
+    }
+  }
+
+  textUpdateButton.addEventListener('click', () => {
+    const layer = activeLayer();
+    if (!layer?.text) return;
+    const values = currentTextValues();
+    if (values.content.trim() === '') {
+      setStatus('텍스트 내용이 비어 있습니다.');
+      return;
+    }
+    pushHistory();
+    const canvas = bakeTextCanvas(values.content, values.size, values.color);
+    // 기존 표시 스케일 비율을 유지한 채 내용만 교체
+    const scaleFactor = layer.w / layer.canvas.width;
+    layer.canvas = canvas;
+    layer.w = canvas.width * scaleFactor;
+    layer.h = canvas.height * scaleFactor;
+    layer.text = values;
+    layer.name = textLayerName(values.content);
+    layer.thumb = makeThumb(canvas);
+    renderLayerList();
+    renderDocument();
+    setStatus('텍스트 레이어를 수정했습니다.');
   });
 
   // ---------- 캔버스 좌표 (문서 픽셀 기준) ----------
@@ -738,6 +878,11 @@ import Layout from '../layouts/Layout.astro';
     overlay.setPointerCapture(e.pointerId);
     const point = docPoint(e);
 
+    if (tool === 'text') {
+      addTextLayer(point);
+      return;
+    }
+
     if (tool === 'move') {
       const layer = activeLayer();
       if (!layer) return;
@@ -783,6 +928,8 @@ import Layout from '../layouts/Layout.astro';
         const layer = activeLayer();
         const corner = layer ? layerCornerAt(point, layer) : null;
         overlay.style.cursor = corner ? ZONE_CURSORS[corner] : 'grab';
+      } else if (tool === 'text') {
+        overlay.style.cursor = 'text';
       } else {
         overlay.style.cursor = ZONE_CURSORS[hitZone(point)];
       }
@@ -1119,6 +1266,43 @@ import Layout from '../layouts/Layout.astro';
 
   .crop-options[hidden] {
     display: none;
+  }
+
+  .text-options {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+  }
+
+  .text-options[hidden] {
+    display: none;
+  }
+
+  .text-options input[type='text'] {
+    width: 240px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    font: inherit;
+    font-size: 0.85rem;
+    padding: 0.35rem 0.6rem;
+    border-radius: 0.5rem;
+  }
+
+  .text-options input[type='text']:focus {
+    outline: 2px solid var(--accent);
+    border-color: var(--accent);
+  }
+
+  .text-options input[type='color'] {
+    width: 38px;
+    height: 30px;
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+    background: var(--surface);
+    padding: 2px;
+    cursor: pointer;
   }
 
   .canvas-area {
