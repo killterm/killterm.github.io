@@ -67,7 +67,7 @@ const apps = [
   },
   {
     name: '공동 메모장',
-    description: '서버 없는 P2P 실시간 협업 편집기 (Collaborative Real-time Editor, CRDT)',
+    description: '서버 없는 P2P 실시간 협업 편집기 (CRDT)',
     icon: '📝',
     href: '/note/',
     ready: true,
@@ -325,5 +325,56 @@ const apps = [
     text-align: center;
     color: var(--text-dim);
     font-size: 0.85rem;
+  }
+
+  /* ---------- 모바일: 앱 홈 화면처럼 아이콘 + 타이틀만 4열 ---------- */
+
+  @media (max-width: 640px) {
+    .launchpad {
+      grid-template-columns: repeat(4, 1fr);
+      gap: 0.4rem;
+    }
+
+    .tile {
+      aspect-ratio: auto;
+      padding: 0.4rem 0.15rem;
+      gap: 0.3rem;
+      /* 유리 박스는 걷어내고 아이콘 퍽만 남긴다 */
+      background: none;
+      border: none;
+      box-shadow: none;
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
+    }
+
+    .tile::after {
+      display: none;
+    }
+
+    a.tile:hover,
+    a.tile:focus-visible {
+      transform: none;
+      box-shadow: none;
+      border: none;
+    }
+
+    .tile-icon {
+      width: 3.4rem;
+      height: 3.4rem;
+      font-size: 1.7rem;
+      margin-bottom: 0;
+      border-radius: 1.05rem;
+    }
+
+    .tile-name {
+      font-size: 0.7rem;
+      font-weight: 600;
+      line-height: 1.2;
+      word-break: keep-all;
+    }
+
+    .tile-desc {
+      display: none;
+    }
   }
 </style>
