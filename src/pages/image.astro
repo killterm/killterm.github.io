@@ -1,5 +1,14 @@
 ---
 import Layout from '../layouts/Layout.astro';
+
+// 텍스트 도구 폰트 선택지. 웹 폰트를 내려받지 않고 시스템 서체 + 폴백으로 구성
+const textFonts = [
+  { label: '고딕 (기본)', stack: "'Pretendard Variable', Pretendard, 'Malgun Gothic', sans-serif" },
+  { label: '명조', stack: "'Noto Serif KR', 'Nanum Myeongjo', Batang, 'AppleMyungjo', serif" },
+  { label: '고정폭', stack: "Consolas, 'Courier New', monospace" },
+  { label: '궁서', stack: "Gungsuh, GungSeo, '궁서', serif" },
+  { label: 'Impact', stack: "Impact, 'Arial Black', sans-serif" },
+];
 ---
 
 <Layout
@@ -17,7 +26,22 @@ import Layout from '../layouts/Layout.astro';
       <!-- 좌측 툴바 -->
       <nav class="toolbar" aria-label="도구">
         <button id="tool-move" class="tool active" type="button" title="이동 (V)">✥</button>
-        <button id="tool-crop" class="tool" type="button" title="자르기 (C)">⬚</button>
+        <button id="tool-crop" class="tool" type="button" title="자르기 (C)">
+          <svg
+            width="19"
+            height="19"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M6 2v14a2 2 0 0 0 2 2h14"></path>
+            <path d="M18 22V8a2 2 0 0 0-2-2H2"></path>
+          </svg>
+        </button>
         <button id="tool-text" class="tool" type="button" title="텍스트 (T)">T</button>
         <span class="toolbar-divider" aria-hidden="true"></span>
         <button id="history-undo" class="tool" type="button" title="실행 취소 (Ctrl+Z)" disabled>↶</button>
@@ -52,7 +76,7 @@ import Layout from '../layouts/Layout.astro';
               </label>
             </div>
             <button id="crop-apply" class="btn btn-small btn-primary" type="button" disabled>
-              자르기 적용
+              자르기 적용 (Enter)
             </button>
             <button id="crop-cancel" class="btn btn-small" type="button" disabled>
               선택 해제 (Esc)
@@ -60,11 +84,22 @@ import Layout from '../layouts/Layout.astro';
           </div>
           <div class="text-options" id="text-options" hidden>
             <input id="text-content" type="text" placeholder="삽입할 텍스트" />
+            <select id="text-font" aria-label="폰트 선택">
+              {
+                textFonts.map((f) => (
+                  <option value={f.stack} style={`font-family: ${f.stack}`}>
+                    {f.label}
+                  </option>
+                ))
+              }
+            </select>
             <label class="num-field">
               크기
               <input id="text-size" type="number" min="8" max="512" step="1" value="48" />
             </label>
             <input id="text-color" type="color" value="#ffffff" aria-label="글자색" />
+            <button id="text-font-add" class="btn btn-small" type="button">폰트 첨부</button>
+            <input id="text-font-file" type="file" accept=".ttf,.otf,.woff,.woff2" hidden />
             <button id="text-update" class="btn btn-small" type="button" disabled>
               선택한 텍스트 수정
             </button>
@@ -181,7 +216,7 @@ import Layout from '../layouts/Layout.astro';
     isJpeg: boolean;
     thumb: string;
     /** 텍스트 레이어의 원본 속성 (수정 시 재베이크에 사용) */
-    text?: { content: string; size: number; color: string };
+    text?: { content: string; size: number; color: string; font: string };
   };
 
   let layers: Layer[] = []; // index 0 = 맨 아래
@@ -306,7 +341,10 @@ import Layout from '../layouts/Layout.astro';
     docContext.clearRect(0, 0, docWidth, docHeight);
     docContext.imageSmoothingQuality = 'high';
     for (const layer of layers) {
-      if (layer.visible) docContext.drawImage(layer.canvas, layer.x, layer.y, layer.w, layer.h);
+      // 인플레이스 편집 중인 레이어는 입력 박스가 대신 보이므로 그리지 않는다
+      if (layer.visible && layer.id !== editingLayerId) {
+        docContext.drawImage(layer.canvas, layer.x, layer.y, layer.w, layer.h);
+      }
     }
     docStack.hidden = false;
     dropGuide.hidden = true;
@@ -527,10 +565,11 @@ import Layout from '../layouts/Layout.astro';
   const TOOL_HINTS: Record<typeof tool, string> = {
     move: '이동 도구: 드래그로 활성 레이어 이동 · 모서리 핸들로 크기 조정',
     crop: '자르기 도구: 드래그로 영역 선택 · 안쪽 드래그 이동 · 핸들로 조정',
-    text: '텍스트 도구: 내용을 입력한 뒤 캔버스를 클릭하면 그 위치에 텍스트 레이어가 추가됩니다.',
+    text: '텍스트 도구: 캔버스를 클릭해 그 자리에서 입력 (Enter 확정 · Shift+Enter 줄바꿈 · Esc 취소). 기존 텍스트를 클릭하면 수정합니다.',
   };
 
   function setTool(next: typeof tool) {
+    commitTextEditor();
     tool = next;
     for (const [name, button] of Object.entries(toolButtons)) {
       button.classList.toggle('active', name === next);
@@ -566,6 +605,11 @@ import Layout from '../layouts/Layout.astro';
       clearCropSelection();
       return;
     }
+    if (e.key === 'Enter' && tool === 'crop' && !cropApplyButton.disabled) {
+      e.preventDefault();
+      cropApplyButton.click();
+      return;
+    }
     if (e.key === 'v' || e.key === 'V') setTool('move');
     if (e.key === 'c' || e.key === 'C') setTool('crop');
     if (e.key === 't' || e.key === 'T') setTool('text');
@@ -574,16 +618,20 @@ import Layout from '../layouts/Layout.astro';
   // ---------- 텍스트 레이어 ----------
 
   const textContent = el<HTMLInputElement>('text-content');
+  const textFont = el<HTMLSelectElement>('text-font');
   const textSize = el<HTMLInputElement>('text-size');
   const textColor = el<HTMLInputElement>('text-color');
   const textUpdateButton = el<HTMLButtonElement>('text-update');
 
-  const TEXT_FONT_STACK = "'Pretendard Variable', Pretendard, 'Malgun Gothic', sans-serif";
-
   // 텍스트를 투명 배경 캔버스에 렌더링한다 (레이어의 원본 픽셀이 됨)
-  function bakeTextCanvas(content: string, size: number, color: string): HTMLCanvasElement {
+  function bakeTextCanvas(
+    content: string,
+    size: number,
+    color: string,
+    fontStack: string,
+  ): HTMLCanvasElement {
     const lines = content.split('\n');
-    const font = `700 ${size}px ${TEXT_FONT_STACK}`;
+    const font = `700 ${size}px ${fontStack}`;
     const measure = document.createElement('canvas').getContext('2d')!;
     measure.font = font;
     const pad = Math.ceil(size * 0.15);
@@ -609,24 +657,19 @@ import Layout from '../layouts/Layout.astro';
       content: textContent.value,
       size: Math.min(512, Math.max(8, Math.floor(Number(textSize.value) || 48))),
       color: textColor.value,
+      font: textFont.value,
     };
   }
 
-  function addTextLayer(point: { x: number; y: number }) {
-    const values = currentTextValues();
-    if (values.content.trim() === '') {
-      setStatus('삽입할 텍스트를 먼저 입력하세요.');
-      textContent.focus();
-      return;
-    }
+  function addTextLayer(point: { x: number; y: number }, values: { content: string; size: number; color: string }) {
     pushHistory();
-    const canvas = bakeTextCanvas(values.content, values.size, values.color);
+    const canvas = bakeTextCanvas(values.content, values.size, values.color, values.font);
     const layer: Layer = {
       id: layerCounter++,
       name: textLayerName(values.content),
       canvas,
-      x: Math.round(point.x - canvas.width / 2),
-      y: Math.round(point.y - canvas.height / 2),
+      x: Math.round(point.x),
+      y: Math.round(point.y),
       w: canvas.width,
       h: canvas.height,
       visible: true,
@@ -641,7 +684,143 @@ import Layout from '../layouts/Layout.astro';
     renderExifPanel();
     renderDocument();
     syncTextOptions();
-    setStatus('텍스트 레이어를 추가했습니다. 이동 도구(V)로 위치·크기를 조정할 수 있습니다.');
+  }
+
+  // ---------- 인플레이스 텍스트 편집 ----------
+  // 클릭 위치에 실제 렌더링과 같은 스타일의 textarea를 띄워 그 자리에서 입력한다.
+
+  let textEditor: HTMLTextAreaElement | null = null;
+  let editingLayerId: number | null = null;
+  let editorDocPoint = { x: 0, y: 0 };
+
+  // 편집 중인 기존 레이어의 표시 배율 (레이어 스케일 유지용)
+  const layerScaleFactor = (layer: Layer) => layer.w / layer.canvas.width;
+
+  function styleTextEditor() {
+    if (!textEditor) return;
+    const layer = layers.find((l) => l.id === editingLayerId);
+    const scale = displayScale();
+    const values = currentTextValues();
+    const factor = layer ? layerScaleFactor(layer) : 1;
+    const fontPx = values.size * factor * scale;
+    const pad = Math.ceil(values.size * 0.15) * factor * scale;
+    textEditor.style.left = `${editorDocPoint.x * scale}px`;
+    textEditor.style.top = `${editorDocPoint.y * scale}px`;
+    textEditor.style.fontSize = `${fontPx}px`;
+    textEditor.style.padding = `${pad}px`;
+    textEditor.style.color = values.color;
+    textEditor.style.fontFamily = values.font;
+    // 내용에 맞춰 자동 크기 조절
+    textEditor.style.width = '0';
+    textEditor.style.height = '0';
+    textEditor.style.width = `${textEditor.scrollWidth + fontPx * 0.3}px`;
+    textEditor.style.height = `${textEditor.scrollHeight}px`;
+  }
+
+  function openTextEditor(point: { x: number; y: number }, layer: Layer | null) {
+    commitTextEditor();
+    editingLayerId = layer?.id ?? null;
+    editorDocPoint = layer ? { x: layer.x, y: layer.y } : point;
+    if (layer?.text) {
+      // 옵션 값을 편집 대상 레이어 값으로 동기화
+      textContent.value = layer.text.content;
+      textSize.value = String(layer.text.size);
+      textColor.value = layer.text.color;
+      textFont.value = layer.text.font;
+      activeLayerId = layer.id;
+      renderLayerList();
+    }
+
+    const editor = document.createElement('textarea');
+    editor.className = 'text-editor';
+    editor.rows = 1;
+    editor.value = layer?.text?.content ?? '';
+    editor.spellcheck = false;
+    textEditor = editor;
+    docStack.appendChild(editor);
+    styleTextEditor();
+    renderDocument();
+    editor.focus();
+
+    editor.addEventListener('input', styleTextEditor);
+    editor.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        commitTextEditor();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        cancelTextEditor();
+      }
+    });
+    editor.addEventListener('blur', (e) => {
+      // 크기/색 옵션 조작으로 포커스가 이동한 경우에는 편집을 유지
+      const next = e.relatedTarget as HTMLElement | null;
+      if (next && next.closest('.text-options')) return;
+      commitTextEditor();
+    });
+  }
+
+  function removeTextEditor() {
+    textEditor?.remove();
+    textEditor = null;
+    editingLayerId = null;
+  }
+
+  function cancelTextEditor() {
+    if (!textEditor) return;
+    removeTextEditor();
+    renderDocument();
+    setStatus('텍스트 입력을 취소했습니다.');
+  }
+
+  function commitTextEditor() {
+    if (!textEditor) return;
+    const content = textEditor.value;
+    const values = { ...currentTextValues(), content };
+    const layer = layers.find((l) => l.id === editingLayerId);
+    const point = editorDocPoint;
+    removeTextEditor();
+
+    if (content.trim() === '') {
+      // 빈 입력은 아무것도 만들지 않는다 (기존 레이어 수정도 취소)
+      renderDocument();
+      return;
+    }
+
+    if (layer?.text) {
+      pushHistory();
+      const factor = layerScaleFactor(layer);
+      const canvas = bakeTextCanvas(values.content, values.size, values.color, values.font);
+      layer.canvas = canvas;
+      layer.w = canvas.width * factor;
+      layer.h = canvas.height * factor;
+      layer.text = values;
+      layer.name = textLayerName(values.content);
+      layer.thumb = makeThumb(canvas);
+      renderLayerList();
+      renderDocument();
+      setStatus('텍스트 레이어를 수정했습니다.');
+    } else {
+      addTextLayer(point, values);
+      setStatus('텍스트 레이어를 추가했습니다. 이동 도구(V)로 위치·크기를 조정할 수 있습니다.');
+    }
+  }
+
+  // 텍스트 도구로 기존 텍스트 레이어를 클릭했는지 (위쪽 레이어 우선)
+  function textLayerAt(point: { x: number; y: number }): Layer | null {
+    for (const layer of [...layers].reverse()) {
+      if (
+        layer.text &&
+        layer.visible &&
+        point.x >= layer.x &&
+        point.x <= layer.x + layer.w &&
+        point.y >= layer.y &&
+        point.y <= layer.y + layer.h
+      ) {
+        return layer;
+      }
+    }
+    return null;
   }
 
   // 활성 레이어가 텍스트 레이어면 옵션 값을 채우고 수정 버튼을 활성화한다
@@ -653,8 +832,46 @@ import Layout from '../layouts/Layout.astro';
       textContent.value = layer.text.content;
       textSize.value = String(layer.text.size);
       textColor.value = layer.text.color;
+      textFont.value = layer.text.font;
     }
   }
+
+  // 편집 박스가 열려 있으면 크기·색·폰트 변경이 실시간 반영된다
+  textSize.addEventListener('input', styleTextEditor);
+  textColor.addEventListener('input', styleTextEditor);
+  textFont.addEventListener('change', styleTextEditor);
+
+  // ---------- 사용자 폰트 첨부 (FontFace API, 세션 한정) ----------
+
+  const fontFileInput = el<HTMLInputElement>('text-font-file');
+  let customFontCounter = 0;
+
+  el<HTMLButtonElement>('text-font-add').addEventListener('click', () => fontFileInput.click());
+
+  fontFileInput.addEventListener('change', async () => {
+    const file = fontFileInput.files?.[0];
+    fontFileInput.value = '';
+    if (!file) return;
+    const family = `custom-font-${customFontCounter++}`;
+    try {
+      const face = new FontFace(family, await file.arrayBuffer());
+      await face.load();
+      document.fonts.add(face);
+    } catch {
+      setStatus(`${file.name}: 폰트를 불러오지 못했습니다. (TTF/OTF/WOFF 지원)`);
+      return;
+    }
+    const label = file.name.replace(/\.[^.]+$/, '');
+    const stack = `'${family}', sans-serif`;
+    const option = document.createElement('option');
+    option.value = stack;
+    option.textContent = `${label} (첨부)`;
+    option.style.fontFamily = stack;
+    textFont.appendChild(option);
+    textFont.value = stack;
+    styleTextEditor();
+    setStatus(`폰트 "${label}"를 첨부했습니다. (이 세션에서만 유지됩니다)`);
+  });
 
   textUpdateButton.addEventListener('click', () => {
     const layer = activeLayer();
@@ -665,7 +882,7 @@ import Layout from '../layouts/Layout.astro';
       return;
     }
     pushHistory();
-    const canvas = bakeTextCanvas(values.content, values.size, values.color);
+    const canvas = bakeTextCanvas(values.content, values.size, values.color, values.font);
     // 기존 표시 스케일 비율을 유지한 채 내용만 교체
     const scaleFactor = layer.w / layer.canvas.width;
     layer.canvas = canvas;
@@ -879,7 +1096,12 @@ import Layout from '../layouts/Layout.astro';
     const point = docPoint(e);
 
     if (tool === 'text') {
-      addTextLayer(point);
+      if (textEditor) {
+        // 편집 중 캔버스 클릭 = 현재 입력 확정
+        commitTextEditor();
+        return;
+      }
+      openTextEditor(point, textLayerAt(point));
       return;
     }
 
@@ -1295,6 +1517,17 @@ import Layout from '../layouts/Layout.astro';
     border-color: var(--accent);
   }
 
+  .text-options select {
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    font: inherit;
+    font-size: 0.85rem;
+    padding: 0.35rem 0.5rem;
+    border-radius: 0.5rem;
+    max-width: 150px;
+  }
+
   .text-options input[type='color'] {
     width: 38px;
     height: 30px;
@@ -1353,6 +1586,22 @@ import Layout from '../layouts/Layout.astro';
     height: 100%;
     touch-action: none;
     cursor: grab;
+  }
+
+  /* 인플레이스 텍스트 입력 박스 (JS로 생성되므로 :global) */
+  .doc-stack :global(.text-editor) {
+    position: absolute;
+    z-index: 5;
+    margin: 0;
+    background: transparent;
+    border: none;
+    outline: 1.5px dashed var(--accent);
+    resize: none;
+    overflow: hidden;
+    white-space: pre;
+    font-weight: 700;
+    line-height: 1.3;
+    min-width: 1ch;
   }
 
   .drop-guide {
