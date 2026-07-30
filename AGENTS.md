@@ -266,6 +266,35 @@
   생성 스크립트에서 `BUILTIN_INSTRUMENTS`를 임베드해 만들었다(재생성 시
   스크립트로). 버튼은 현재 곡을 덮어쓰므로 confirm 후 곡 모드로 자동 재생.
 
+### 루프 스테이션 (`src/pages/looper.astro`)
+
+- 마이크 오디오 루퍼(RC-505류): 첫 녹음 길이가 마스터 루프가 되고,
+  이후 트랙 녹음은 루프 위치에 접어 넣는 오버더브. 트랙 4개.
+- **캡처는 AudioWorklet** (MediaRecorder 아님) — MediaRecorder는 압축·
+  디코딩 지연 때문에 샘플 정확도가 없어 루프 경계가 어긋난다. 워클릿
+  코드는 Blob URL로 `addModule`해 페이지에 자체 포함(빌드 설정 불필요).
+  입력 mono를 `{frame: currentFrame, samples}`로 상시 전송하고 메인
+  스레드가 녹음 중일 때만 소비한다. 워클릿 출력은 무음이지만 게인 0을
+  거쳐 destination까지 이어야 process가 돈다(그래프 풀링).
+- **샘플 정렬**(`src/lib/looper-engine.ts`, 순수 로직·Node 검증):
+  `position = (chunkFrame − loopStartFrame − latencyFrames) mod loopLength`.
+  latencyFrames = 자동 추정(baseLatency+outputLatency) + 수동 슬라이더 —
+  마이크 경로 지연은 브라우저가 알려주지 않아 완전 자동 보정이 불가능하므로
+  수동 보정(-200~+200ms)을 둔다(박수 테스트 안내 포함). 이게 방식의 한계.
+- **오버더브 = 복제 후 합산, 버퍼는 교체만**(이미지 편집기의 스냅숏
+  불변 규칙과 동일) — previousBuffer 스냅숏으로 1단계 실행취소.
+  재생 중 교체는 다음 루프 경계 시각에 old.stop(t)/new.start(t).
+- 트랙 재생은 `AudioBufferSourceNode(loop=true)`를 공통 기준 시각에
+  시작해 동기 유지. **음소거는 소스를 멈추지 않고 게인만 0** (동기 보존).
+- getUserMedia에서 echoCancellation/noiseSuppression/autoGainControl을
+  전부 끈다 — 통화용 음성 처리는 음악 녹음을 왜곡한다. 그래서 스피커
+  청취 시 재유입이 그대로 들어오므로 **이어폰 권장 안내 + 입력 모니터링
+  기본 꺼짐**이 필수다. autoGainControl이 꺼져 녹음이 작을 수 있어
+  **입력 게인**(GainNode, 0~300%)을 워클릿 앞에 둔다 — 녹음·모니터링·
+  레벨 미터 모두에 반영된다. 마이크 중지 버튼은 스트림만 놓아주고
+  루프/재생은 유지한다.
+- 내보내기는 mixTracks() 오프라인 믹스다운(루프 1회) → encodeWav 재사용.
+
 ### P2P 화상 통화 (`src/pages/call.astro`)
 
 - **수동 시그널링** WebRTC: SDP를 사람이 메신저로 복사/붙여넣기 교환.

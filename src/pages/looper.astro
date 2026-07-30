@@ -1,0 +1,827 @@
+---
+import Layout from '../layouts/Layout.astro';
+import GlassSlider from '../components/GlassSlider.astro';
+
+const TRACKS = [0, 1, 2, 3];
+---
+
+<Layout
+  title="루프 스테이션 — Killterm"
+  description="마이크 녹음을 루프로 반복하며 레이어를 겹겹이 쌓는 루퍼입니다."
+>
+  <main>
+    <nav class="top">
+      <a href="/">← 홈으로</a>
+    </nav>
+
+    <header class="intro">
+      <h1>🔁 루프 스테이션</h1>
+      <p>
+        첫 녹음의 길이가 루프가 되고, 그 위에 트랙별로 소리를 겹겹이 쌓습니다
+        (오버더브). 소리는 브라우저 안에서만 처리되며 밖으로 전송되지 않습니다.
+      </p>
+      <p class="hint">
+        🎧 <b>이어폰을 권장합니다</b> — 스피커로 들으면서 녹음하면 재생음이 마이크로
+        다시 들어가 하울링이나 소리 겹침이 생깁니다. 입력 지연이 느껴지면 아래
+        레이턴시 보정을 조절해보세요 (박수를 짧게 녹음해 두 루프가 겹치도록 맞추면
+        쉽습니다).
+      </p>
+    </header>
+
+    <section class="mic-row">
+      <div class="field-row">
+        <button id="mic-start" class="btn btn-primary" type="button">🎙️ 마이크 시작</button>
+        <button id="mic-stop" class="btn" type="button" disabled>⏹ 마이크 중지</button>
+        <select id="device-select" aria-label="마이크 선택" disabled></select>
+        <label class="check-field">
+          <input type="checkbox" id="monitor-toggle" />
+          입력 모니터링 (이어폰 전용)
+        </label>
+      </div>
+      <div class="field-row">
+        <span class="row-label">입력 게인</span>
+        <GlassSlider id="input-gain" min="0" max="300" step="5" value="100" aria-label="입력 게인" />
+        <span class="mono-value" id="input-gain-value">100%</span>
+        <span class="hint">녹음이 작으면 올려보세요 — 녹음 결과에 그대로 반영됩니다.</span>
+      </div>
+      <div class="level-track" aria-hidden="true">
+        <div class="level-bar" id="level-bar"></div>
+      </div>
+    </section>
+
+    <section class="master" id="master-section" hidden>
+      <div class="progress-track">
+        <div class="progress-bar" id="progress-bar"></div>
+      </div>
+      <div class="field-row">
+        <button id="play-all" class="btn btn-primary" type="button">▶ 재생</button>
+        <span class="mono-value" id="loop-info">루프 없음</span>
+        <span class="row-label">마스터</span>
+        <GlassSlider id="master-volume" min="0" max="100" step="1" value="90" aria-label="마스터 볼륨" />
+        <span class="mono-value" id="master-value">90%</span>
+        <label class="num-field">
+          레이턴시 보정(ms)
+          <input id="latency-input" type="number" min="-200" max="200" step="5" value="0" />
+        </label>
+        <span class="hint" id="latency-auto"></span>
+        <button id="export-wav" class="btn btn-small" type="button">💾 루프 WAV</button>
+      </div>
+    </section>
+
+    <section class="tracks">
+      {
+        TRACKS.map((trackIndex) => (
+          <div class="track-card" data-track={trackIndex}>
+            <div class="track-head">
+              <span class="track-name">트랙 {trackIndex + 1}</span>
+              <span class="track-state" data-state-for={trackIndex}>
+                비어 있음
+              </span>
+            </div>
+            <div class="field-row">
+              <button class="btn record" data-record={trackIndex} type="button" disabled>
+                ● 녹음
+              </button>
+              <button class="btn btn-small undo" data-undo={trackIndex} type="button" disabled>
+                ↩ 실행취소
+              </button>
+              <button class="btn btn-small clear" data-clear={trackIndex} type="button" disabled>
+                지우기
+              </button>
+            </div>
+            <div class="field-row">
+              <label class="check-field">
+                <input type="checkbox" class="mute" data-mute={trackIndex} />
+                음소거
+              </label>
+              <GlassSlider
+                id={`track-volume-${trackIndex}`}
+                min="0"
+                max="100"
+                step="1"
+                value="90"
+                aria-label={`트랙 ${trackIndex + 1} 볼륨`}
+              />
+              <span class="mono-value" data-volume-value={trackIndex}>
+                90%
+              </span>
+            </div>
+          </div>
+        ))
+      }
+    </section>
+
+    <p id="status" class="status" role="status"></p>
+  </main>
+</Layout>
+
+<script>
+  import {
+    MAX_LOOP_SECONDS,
+    MIN_LOOP_SECONDS,
+    TRACK_COUNT,
+    addChunkIntoLoop,
+    beginOverdubBuffer,
+    clearTrack,
+    commitOverdub,
+    concatChunks,
+    emptyTrack,
+    loopPositionForFrame,
+    mixTracks,
+    undoOverdub,
+    type LoopTrack,
+  } from '../lib/looper-engine';
+  import { encodeWav } from '../lib/wav-encode';
+
+  const el = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+  const micStartButton = el<HTMLButtonElement>('mic-start');
+  const micStopButton = el<HTMLButtonElement>('mic-stop');
+  const inputGainSlider = el<HTMLInputElement>('input-gain');
+  const inputGainValue = el<HTMLSpanElement>('input-gain-value');
+  const deviceSelect = el<HTMLSelectElement>('device-select');
+  const monitorToggle = el<HTMLInputElement>('monitor-toggle');
+  const levelBar = el<HTMLDivElement>('level-bar');
+  const masterSection = el<HTMLElement>('master-section');
+  const progressBar = el<HTMLDivElement>('progress-bar');
+  const playAllButton = el<HTMLButtonElement>('play-all');
+  const loopInfo = el<HTMLSpanElement>('loop-info');
+  const masterVolumeSlider = el<HTMLInputElement>('master-volume');
+  const masterValue = el<HTMLSpanElement>('master-value');
+  const latencyInput = el<HTMLInputElement>('latency-input');
+  const latencyAuto = el<HTMLSpanElement>('latency-auto');
+  const status = el<HTMLParagraphElement>('status');
+
+  const setStatus = (message: string) => {
+    status.textContent = message;
+  };
+
+  // ---------- 상태 ----------
+
+  const tracks: LoopTrack[] = Array.from({ length: TRACK_COUNT }, () => emptyTrack());
+  let loopLength = 0; // 샘플 단위. 0이면 아직 루프 없음
+  let loopStartFrame = 0; // 루프 위치 0에 해당하는 오디오 클록 프레임
+  let playing = false;
+
+  let audioContext: AudioContext | null = null;
+  let stream: MediaStream | null = null;
+  let micSource: MediaStreamAudioSourceNode | null = null;
+  let inputGain: GainNode | null = null;
+  let workletNode: AudioWorkletNode | null = null;
+  let monitorGain: GainNode | null = null;
+  let analyser: AnalyserNode | null = null;
+  let autoLatencySeconds = 0;
+
+  // 녹음 상태: master = 루프 길이를 정하는 첫 녹음, overdub = 기존 루프에 겹쳐 쌓기
+  let recordingTrack = -1;
+  let recordingMode: 'master' | 'overdub' | null = null;
+  let masterChunks: Float32Array[] = [];
+  let masterRecordedSamples = 0;
+  let overdubBuffer: Float32Array | null = null;
+
+  // 트랙별 재생 노드 (음소거는 소스를 멈추지 않고 게인만 0 — 동기 유지)
+  const playbackNodes: ({ source: AudioBufferSourceNode; gain: GainNode } | null)[] =
+    Array.from({ length: TRACK_COUNT }, () => null);
+
+  const sampleRate = () => audioContext?.sampleRate ?? 48000;
+
+  const latencyFrames = () =>
+    Math.round((autoLatencySeconds + Number(latencyInput.value) / 1000) * sampleRate());
+
+  const masterVolume = () => Number(masterVolumeSlider.value) / 100;
+
+  // ---------- 마이크 · 워클릿 ----------
+
+  function describeError(e: unknown): string {
+    if (e instanceof DOMException) {
+      if (e.name === 'NotAllowedError')
+        return '마이크 권한이 거부되었습니다. 브라우저 설정에서 허용해주세요.';
+      if (e.name === 'NotFoundError') return '사용할 수 있는 마이크가 없습니다.';
+      if (e.name === 'NotReadableError') return '마이크가 다른 프로그램에서 사용 중입니다.';
+    }
+    return `마이크를 시작하지 못했습니다: ${e instanceof Error ? e.message : String(e)}`;
+  }
+
+  // 워클릿 코드는 Blob URL로 로드한다 — 별도 파일/빌드 설정 없이 페이지에 자체 포함.
+  // 입력 mono 채널을 오디오 클록 프레임과 함께 상시 전송하고,
+  // 메인 스레드가 녹음 중일 때만 소비한다.
+  const WORKLET_CODE = `
+    class LooperRecorder extends AudioWorkletProcessor {
+      process(inputs) {
+        const channel = inputs[0] && inputs[0][0];
+        if (channel) {
+          this.port.postMessage({ frame: currentFrame, samples: channel.slice(0) });
+        }
+        return true;
+      }
+    }
+    registerProcessor('looper-recorder', LooperRecorder);
+  `;
+
+  async function refreshDeviceList() {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const mics = devices.filter((device) => device.kind === 'audioinput');
+    if (mics.length === 0) return;
+    const current = stream?.getAudioTracks()[0]?.getSettings().deviceId;
+    deviceSelect.innerHTML = '';
+    for (const [index, mic] of mics.entries()) {
+      const option = document.createElement('option');
+      option.value = mic.deviceId;
+      option.textContent = mic.label || `마이크 ${index + 1}`;
+      option.selected = mic.deviceId === current;
+      deviceSelect.appendChild(option);
+    }
+    deviceSelect.disabled = mics.length < 2;
+  }
+
+  async function startMic(deviceId?: string) {
+    setStatus('');
+    try {
+      const newStream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
+          // 음악 녹음이므로 통화용 음성 처리는 전부 끈다 (원음 유지)
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false,
+        },
+      });
+      stream?.getTracks().forEach((track) => track.stop());
+      stream = newStream;
+
+      audioContext ??= new AudioContext();
+      if (audioContext.state === 'suspended') await audioContext.resume();
+      if (!workletNode) {
+        const workletUrl = URL.createObjectURL(
+          new Blob([WORKLET_CODE], { type: 'application/javascript' }),
+        );
+        await audioContext.audioWorklet.addModule(workletUrl);
+        URL.revokeObjectURL(workletUrl);
+        workletNode = new AudioWorkletNode(audioContext, 'looper-recorder', {
+          numberOfInputs: 1,
+          numberOfOutputs: 1,
+          channelCount: 1,
+        });
+        workletNode.port.onmessage = onRecorderChunk;
+        // 출력은 무음이지만, 그래프가 당겨져야 process가 돌므로 destination까지 잇는다
+        const keepAlive = audioContext.createGain();
+        keepAlive.gain.value = 0;
+        workletNode.connect(keepAlive).connect(audioContext.destination);
+        // 입력 게인은 워클릿 앞에 있어 녹음·모니터링·레벨 미터 모두에 반영된다
+        inputGain = audioContext.createGain();
+        inputGain.gain.value = Number(inputGainSlider.value) / 100;
+        monitorGain = audioContext.createGain();
+        monitorGain.gain.value = monitorToggle.checked ? 1 : 0;
+        monitorGain.connect(audioContext.destination);
+        analyser = audioContext.createAnalyser();
+        analyser.fftSize = 1024;
+        inputGain.connect(workletNode);
+        inputGain.connect(monitorGain);
+        inputGain.connect(analyser);
+        requestAnimationFrame(drawLevel);
+      }
+      // 장치 변경으로 다시 시작하면 이전 소스를 그래프에서 떼어낸다
+      micSource?.disconnect();
+      micSource = audioContext.createMediaStreamSource(stream);
+      micSource.connect(inputGain!);
+
+      autoLatencySeconds =
+        (audioContext.baseLatency || 0) +
+        ('outputLatency' in audioContext ? audioContext.outputLatency || 0 : 0);
+      latencyAuto.textContent = `자동 추정 +${Math.round(autoLatencySeconds * 1000)}ms 포함`;
+
+      micStartButton.textContent = '🎙️ 마이크 사용 중';
+      micStartButton.disabled = true;
+      micStopButton.disabled = false;
+      renderTracks();
+      await refreshDeviceList();
+    } catch (e) {
+      setStatus(describeError(e));
+    }
+  }
+
+  /** 마이크만 놓아준다 — 만들어 둔 루프와 재생은 그대로 유지 */
+  function stopMic() {
+    if (recordingMode !== null) stopRecording();
+    stream?.getTracks().forEach((track) => track.stop());
+    stream = null;
+    micSource?.disconnect();
+    micSource = null;
+    micStartButton.textContent = '🎙️ 마이크 시작';
+    micStartButton.disabled = false;
+    micStopButton.disabled = true;
+    deviceSelect.disabled = true;
+    levelBar.style.width = '0';
+    renderTracks();
+  }
+
+  micStartButton.addEventListener('click', () => void startMic());
+  micStopButton.addEventListener('click', stopMic);
+  deviceSelect.addEventListener('change', () => void startMic(deviceSelect.value));
+  monitorToggle.addEventListener('change', () => {
+    if (monitorGain) monitorGain.gain.value = monitorToggle.checked ? 1 : 0;
+  });
+  inputGainSlider.addEventListener('input', () => {
+    inputGainValue.textContent = `${inputGainSlider.value}%`;
+    if (inputGain) inputGain.gain.value = Number(inputGainSlider.value) / 100;
+  });
+
+  function drawLevel() {
+    if (analyser) {
+      const data = new Uint8Array(analyser.fftSize);
+      analyser.getByteTimeDomainData(data);
+      let peak = 0;
+      for (const v of data) peak = Math.max(peak, Math.abs(v - 128) / 128);
+      levelBar.style.width = `${Math.min(100, peak * 130)}%`;
+    }
+    requestAnimationFrame(drawLevel);
+  }
+
+  // ---------- 녹음 ----------
+
+  function onRecorderChunk(event: MessageEvent<{ frame: number; samples: Float32Array }>) {
+    if (recordingMode === null) return;
+    const { frame, samples } = event.data;
+    if (recordingMode === 'master') {
+      masterChunks.push(samples);
+      masterRecordedSamples += samples.length;
+      // 최대 길이를 넘으면 자동 종료
+      if (masterRecordedSamples > MAX_LOOP_SECONDS * sampleRate()) {
+        stopRecording();
+      }
+      return;
+    }
+    if (overdubBuffer) {
+      addChunkIntoLoop(
+        overdubBuffer,
+        samples,
+        loopPositionForFrame(frame, loopStartFrame, latencyFrames(), loopLength),
+      );
+    }
+  }
+
+  function startRecording(trackIndex: number) {
+    if (!audioContext) return;
+    recordingTrack = trackIndex;
+    if (loopLength === 0) {
+      recordingMode = 'master';
+      masterChunks = [];
+      masterRecordedSamples = 0;
+    } else {
+      recordingMode = 'overdub';
+      overdubBuffer = beginOverdubBuffer(tracks[trackIndex], loopLength);
+    }
+    renderTracks();
+  }
+
+  function stopRecording() {
+    if (recordingMode === null || !audioContext) return;
+    const trackIndex = recordingTrack;
+    const mode = recordingMode;
+    recordingMode = null;
+    recordingTrack = -1;
+
+    if (mode === 'master') {
+      const recorded = concatChunks(masterChunks);
+      masterChunks = [];
+      if (recorded.length < MIN_LOOP_SECONDS * sampleRate()) {
+        setStatus(`루프가 너무 짧습니다 (최소 ${MIN_LOOP_SECONDS}초).`);
+        renderTracks();
+        return;
+      }
+      loopLength = recorded.length;
+      tracks[trackIndex].buffer = recorded;
+      masterSection.hidden = false;
+      startAllPlayback();
+    } else if (overdubBuffer) {
+      commitOverdub(tracks[trackIndex], overdubBuffer);
+      overdubBuffer = null;
+      if (playing) {
+        swapTrackAtNextBoundary(trackIndex);
+      }
+    }
+    renderTracks();
+  }
+
+  // ---------- 재생 ----------
+
+  function trackGainValue(track: LoopTrack) {
+    return track.muted ? 0 : track.volume * masterVolume() * 0.5;
+  }
+
+  function startTrackSource(trackIndex: number, when: number, offsetSeconds: number) {
+    const context = audioContext!;
+    const track = tracks[trackIndex];
+    if (!track.buffer) return;
+    const buffer = context.createBuffer(1, loopLength, context.sampleRate);
+    buffer.copyToChannel(track.buffer.subarray(0, loopLength), 0);
+    const source = context.createBufferSource();
+    source.buffer = buffer;
+    source.loop = true;
+    const gain = context.createGain();
+    gain.gain.value = trackGainValue(track);
+    source.connect(gain).connect(context.destination);
+    source.start(when, offsetSeconds);
+    playbackNodes[trackIndex] = { source, gain };
+  }
+
+  function stopTrackSource(trackIndex: number, when = 0) {
+    const nodes = playbackNodes[trackIndex];
+    if (!nodes) return;
+    try {
+      nodes.source.stop(when);
+    } catch {
+      // 이미 멈춘 소스는 무시
+    }
+    playbackNodes[trackIndex] = null;
+  }
+
+  function startAllPlayback() {
+    const context = audioContext!;
+    const when = context.currentTime + 0.06;
+    loopStartFrame = Math.round(when * context.sampleRate);
+    for (let trackIndex = 0; trackIndex < TRACK_COUNT; trackIndex++) {
+      stopTrackSource(trackIndex);
+      startTrackSource(trackIndex, when, 0);
+    }
+    playing = true;
+    playAllButton.textContent = '⏹ 정지';
+    loopInfo.textContent = `루프 ${(loopLength / context.sampleRate).toFixed(2)}초`;
+    requestAnimationFrame(drawProgress);
+  }
+
+  function stopAllPlayback() {
+    for (let trackIndex = 0; trackIndex < TRACK_COUNT; trackIndex++) stopTrackSource(trackIndex);
+    playing = false;
+    playAllButton.textContent = '▶ 재생';
+    progressBar.style.width = '0';
+  }
+
+  /** 오버더브 완료된 트랙을 다음 루프 경계에서 새 버퍼로 교체 (동기 유지) */
+  function swapTrackAtNextBoundary(trackIndex: number) {
+    const context = audioContext!;
+    const loopSeconds = loopLength / context.sampleRate;
+    const loopStartSeconds = loopStartFrame / context.sampleRate;
+    const elapsed = context.currentTime - loopStartSeconds;
+    const boundary = loopStartSeconds + Math.ceil(elapsed / loopSeconds) * loopSeconds;
+    stopTrackSource(trackIndex, boundary);
+    startTrackSource(trackIndex, boundary, 0);
+  }
+
+  function drawProgress() {
+    if (!playing || !audioContext) return;
+    const loopSeconds = loopLength / audioContext.sampleRate;
+    const elapsed = audioContext.currentTime - loopStartFrame / audioContext.sampleRate;
+    const position = ((elapsed % loopSeconds) + loopSeconds) % loopSeconds;
+    progressBar.style.width = `${(position / loopSeconds) * 100}%`;
+    requestAnimationFrame(drawProgress);
+  }
+
+  playAllButton.addEventListener('click', () => {
+    if (playing) stopAllPlayback();
+    else if (loopLength > 0) startAllPlayback();
+  });
+
+  function refreshGains() {
+    for (let trackIndex = 0; trackIndex < TRACK_COUNT; trackIndex++) {
+      const nodes = playbackNodes[trackIndex];
+      if (nodes) nodes.gain.gain.value = trackGainValue(tracks[trackIndex]);
+    }
+  }
+
+  masterVolumeSlider.addEventListener('input', () => {
+    masterValue.textContent = `${masterVolumeSlider.value}%`;
+    refreshGains();
+  });
+
+  // ---------- 트랙 UI ----------
+
+  const recordButtons = [...document.querySelectorAll<HTMLButtonElement>('.record')];
+  const undoButtons = [...document.querySelectorAll<HTMLButtonElement>('.undo')];
+  const clearButtons = [...document.querySelectorAll<HTMLButtonElement>('.clear')];
+
+  function renderTracks() {
+    for (let trackIndex = 0; trackIndex < TRACK_COUNT; trackIndex++) {
+      const track = tracks[trackIndex];
+      const stateLabel = document.querySelector<HTMLSpanElement>(
+        `[data-state-for="${trackIndex}"]`,
+      )!;
+      const isRecording = recordingTrack === trackIndex;
+      if (isRecording) {
+        stateLabel.textContent = recordingMode === 'master' ? '● 녹음 중 (루프 길이 결정)' : '● 오버더브 중';
+      } else if (track.buffer) {
+        stateLabel.textContent = playing && !track.muted ? '▶ 재생 중' : '녹음됨';
+      } else {
+        stateLabel.textContent = '비어 있음';
+      }
+      stateLabel.classList.toggle('recording', isRecording);
+      recordButtons[trackIndex].textContent = isRecording ? '■ 녹음 종료' : '● 녹음';
+      recordButtons[trackIndex].classList.toggle('armed', isRecording);
+      // 마이크가 켜져 있어야 녹음 가능, 녹음 중에는 다른 트랙의 녹음을 막는다
+      recordButtons[trackIndex].disabled =
+        !stream || (recordingMode !== null && !isRecording);
+      undoButtons[trackIndex].disabled = !track.hasSnapshot || recordingMode !== null;
+      clearButtons[trackIndex].disabled = !track.buffer || recordingMode !== null;
+    }
+  }
+
+  for (const button of recordButtons) {
+    button.addEventListener('click', () => {
+      const trackIndex = Number(button.dataset.record);
+      if (recordingTrack === trackIndex) stopRecording();
+      else startRecording(trackIndex);
+    });
+  }
+
+  for (const button of undoButtons) {
+    button.addEventListener('click', () => {
+      const trackIndex = Number(button.dataset.undo);
+      if (!undoOverdub(tracks[trackIndex])) return;
+      if (playing) {
+        if (tracks[trackIndex].buffer) swapTrackAtNextBoundary(trackIndex);
+        else stopTrackSource(trackIndex);
+      }
+      renderTracks();
+    });
+  }
+
+  for (const button of clearButtons) {
+    button.addEventListener('click', () => {
+      const trackIndex = Number(button.dataset.clear);
+      clearTrack(tracks[trackIndex]);
+      stopTrackSource(trackIndex);
+      // 모든 트랙이 비면 루프 자체를 리셋한다
+      if (tracks.every((track) => track.buffer === null)) {
+        stopAllPlayback();
+        loopLength = 0;
+        masterSection.hidden = true;
+      }
+      renderTracks();
+    });
+  }
+
+  for (const input of document.querySelectorAll<HTMLInputElement>('.mute')) {
+    input.addEventListener('change', () => {
+      tracks[Number(input.dataset.mute)].muted = input.checked;
+      refreshGains();
+      renderTracks();
+    });
+  }
+
+  for (let trackIndex = 0; trackIndex < TRACK_COUNT; trackIndex++) {
+    const input = el<HTMLInputElement>(`track-volume-${trackIndex}`);
+    input.addEventListener('input', () => {
+      tracks[trackIndex].volume = Number(input.value) / 100;
+      document.querySelector(`[data-volume-value="${trackIndex}"]`)!.textContent =
+        `${input.value}%`;
+      refreshGains();
+    });
+  }
+
+  // ---------- 내보내기 ----------
+
+  el<HTMLButtonElement>('export-wav').addEventListener('click', () => {
+    if (loopLength === 0) return;
+    const mixed = mixTracks(tracks, loopLength, masterVolume());
+    const blob = new Blob([encodeWav(mixed, sampleRate())], { type: 'audio/wav' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = 'loop.wav';
+    anchor.click();
+    URL.revokeObjectURL(url);
+  });
+
+  // ---------- 정리 ----------
+
+  window.addEventListener('pagehide', () => {
+    stopAllPlayback();
+    stream?.getTracks().forEach((track) => track.stop());
+    void audioContext?.close();
+  });
+
+  renderTracks();
+</script>
+
+<style>
+  main {
+    max-width: 860px;
+    margin: 0 auto;
+    padding: 2.5rem 1.5rem 4rem;
+  }
+
+  .top a {
+    color: var(--text-dim);
+    text-decoration: none;
+  }
+
+  .top a:hover {
+    color: var(--accent);
+  }
+
+  .intro h1 {
+    margin: 1rem 0 0.6rem;
+  }
+
+  .intro p {
+    color: var(--text-dim);
+    line-height: 1.6;
+    margin: 0 0 0.6rem;
+  }
+
+  .mic-row,
+  .master {
+    display: grid;
+    gap: 0.7rem;
+    margin-top: 1rem;
+  }
+
+  /* 명시한 display가 hidden 속성을 이기므로 별도로 눌러준다 (AGENTS.md 함정) */
+  .master[hidden] {
+    display: none;
+  }
+
+  .field-row {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+  }
+
+  .row-label {
+    color: var(--text-dim);
+    font-size: 0.85rem;
+    font-weight: 600;
+  }
+
+  .mono-value {
+    font-family: Consolas, 'Courier New', monospace;
+    font-size: 0.84rem;
+    color: var(--text-dim);
+  }
+
+  #device-select {
+    border: 1px solid var(--border);
+    background: var(--bg-soft);
+    color: var(--text);
+    font: inherit;
+    font-size: 0.85rem;
+    padding: 0.3rem 0.5rem;
+    border-radius: 0.5rem;
+  }
+
+  #device-select:disabled {
+    opacity: 0.45;
+  }
+
+  .num-field {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    color: var(--text-dim);
+    font-size: 0.85rem;
+    font-weight: 600;
+  }
+
+  .num-field input {
+    width: 4.6rem;
+    border: 1px solid var(--border);
+    background: var(--bg-soft);
+    color: var(--text);
+    font: inherit;
+    font-size: 0.85rem;
+    padding: 0.3rem 0.5rem;
+    border-radius: 0.5rem;
+  }
+
+  .check-field {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    color: var(--text-dim);
+    font-size: 0.85rem;
+    cursor: pointer;
+  }
+
+  /* 입력 레벨 · 루프 진행 바 */
+
+  .level-track,
+  .progress-track {
+    height: 8px;
+    border-radius: 999px;
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    overflow: hidden;
+  }
+
+  .level-bar {
+    height: 100%;
+    width: 0;
+    background: var(--accent);
+    border-radius: inherit;
+  }
+
+  .progress-track {
+    height: 12px;
+  }
+
+  .progress-bar {
+    height: 100%;
+    width: 0;
+    background: linear-gradient(90deg, var(--accent), #d6336c);
+    border-radius: inherit;
+  }
+
+  /* 트랙 카드 */
+
+  .tracks {
+    margin-top: 1.2rem;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+    gap: 0.9rem;
+  }
+
+  .track-card {
+    border: 1px solid var(--border);
+    border-radius: 0.9rem;
+    padding: 0.9rem 1rem;
+    display: grid;
+    gap: 0.6rem;
+  }
+
+  .track-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+  }
+
+  .track-name {
+    font-weight: 700;
+  }
+
+  .track-state {
+    font-size: 0.82rem;
+    color: var(--text-dim);
+  }
+
+  .track-state.recording {
+    color: var(--danger);
+    font-weight: 700;
+  }
+
+  .record.armed {
+    background: var(--danger);
+    border-color: var(--danger);
+    color: #fff;
+  }
+
+  .hint {
+    color: var(--text-dim);
+    font-size: 0.82rem;
+    margin: 0;
+    line-height: 1.55;
+  }
+
+  .btn {
+    appearance: none;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    font: inherit;
+    font-weight: 600;
+    padding: 0.5rem 1rem;
+    border-radius: 0.7rem;
+    cursor: pointer;
+  }
+
+  .btn:hover {
+    border-color: var(--accent);
+  }
+
+  .btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
+  .btn-primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+  }
+
+  .btn-primary:hover {
+    filter: brightness(1.1);
+  }
+
+  .btn-small {
+    padding: 0.3rem 0.7rem;
+    font-size: 0.82rem;
+  }
+
+  .status {
+    min-height: 1.2em;
+    margin: 0.8rem 0 0;
+    font-size: 0.88rem;
+    color: var(--danger);
+    overflow-wrap: anywhere;
+  }
+</style>
