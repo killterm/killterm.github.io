@@ -1,0 +1,841 @@
+---
+import Layout from '../layouts/Layout.astro';
+
+import { DB_META } from '../lib/polyglot-combos';
+
+const carriers = [
+  'JPEG',
+  'PNG',
+  'GIF',
+  'BMP',
+  'WebP',
+  'TIFF',
+  'WAV',
+  'MP3',
+  'MP4',
+  'AVI',
+  'WebM',
+  'Ogg',
+  'FLAC',
+  'PDF',
+];
+const payloads = ['ZIP', 'RAR', '7z', 'PDF'];
+---
+
+<Layout
+  title="폴리글랏 파일 — Killterm"
+  description="이미지·오디오 뒤에 ZIP·RAR·7z을 이어 붙인 폴리글랏 파일을 만들고 분석합니다. 모든 처리는 브라우저 안에서만 이루어집니다."
+>
+  <main>
+    <nav class="top">
+      <a href="/">← 홈으로</a>
+    </nav>
+
+    <header class="intro">
+      <h1>🧬 폴리글랏 파일</h1>
+      <p>
+        이미지나 오디오 뒤에 압축 파일을 이어 붙여 <strong
+          >하나의 파일이 사진으로도, 압축 파일로도</strong
+        > 열리게 만듭니다. 앞쪽 형식은 헤더에 적힌 길이까지만 읽고, 압축 형식은 파일 끝이나 시그니처
+        위치를 기준으로 읽기 때문에 가능한 방식입니다. 모든 처리는 브라우저 안에서만 이루어집니다.
+      </p>
+    </header>
+
+    <div class="cards">
+      <section class="card" aria-labelledby="make-title">
+        <h2 id="make-title">만들기</h2>
+        <p class="desc">앞에 놓을 파일과 뒤에 붙일 압축 파일을 고르세요.</p>
+
+        <label class="file-row">
+          <span>캐리어 (앞에 놓일 파일)</span>
+          <input id="carrier-file" type="file" />
+        </label>
+        <p class="detect" id="carrier-info">{carriers.join(' · ')} 형식을 지원합니다.</p>
+
+        <label class="file-row">
+          <span>페이로드 (뒤에 붙일 파일)</span>
+          <input id="payload-file" type="file" />
+        </label>
+        <p class="detect" id="payload-info">
+          {payloads.join(' · ')}과 ZIP 계열(JAR · APK · DOCX · EPUB …)을 지원합니다.
+        </p>
+
+        <section id="combo-guide" class="combo" aria-live="polite" hidden>
+          <p id="combo-title" class="combo-title"></p>
+          <div id="combo-chips" class="combo-chips"></div>
+          <p id="combo-detail" class="combo-detail"></p>
+          <p id="combo-extra" class="combo-extra"></p>
+        </section>
+
+        <label class="file-row">
+          <span>저장할 파일명</span>
+          <input id="out-name" type="text" placeholder="polyglot.jpg" />
+        </label>
+
+        <button id="make" class="btn btn-primary" type="button">폴리글랏 생성</button>
+        <p id="make-status" class="status" role="status"></p>
+      </section>
+
+      <section class="card" aria-labelledby="check-title">
+        <h2 id="check-title">분석</h2>
+        <p class="desc">파일 안에 어떤 형식이 들어 있는지 확인하고 뒤에 붙은 파일을 떼어냅니다.</p>
+
+        <label class="file-row">
+          <span>검사할 파일</span>
+          <input id="check-file" type="file" />
+        </label>
+
+        <dl id="check-result" class="result" hidden></dl>
+
+        <div id="entries-wrap" class="entries" hidden>
+          <table>
+            <thead>
+              <tr>
+                <th>이름</th>
+                <th>압축 방식</th>
+                <th>원본 크기</th>
+              </tr>
+            </thead>
+            <tbody id="entries"></tbody>
+          </table>
+        </div>
+
+        <button id="extract" class="btn" type="button" disabled>뒤에 붙은 파일만 추출</button>
+        <p id="check-status" class="status" role="status"></p>
+      </section>
+    </div>
+
+    <section class="notes">
+      <h2>참고</h2>
+      <ul>
+        <li>
+          <strong>ZIP</strong>은 위치 값을 파일 처음 기준으로 기록하므로, 그냥 이어 붙이면 압축
+          프로그램이 경고를 냅니다. 이 도구는 위치 값을 다시 계산해 경고 없이 열리는 정상 ZIP을
+          만듭니다.
+        </li>
+        <li>
+          <strong>RAR·7z</strong>은 프로그램이 파일 안에서 시그니처를 찾아 읽습니다(자동 압축 해제
+          파일이 동작하는 원리). 그래서 보정 없이 그대로 붙여도 열립니다.
+        </li>
+        <li>
+          <strong>PDF를 앞에 둘 때</strong> — 뒤에 데이터가 붙으면 <code>startxref</code>가 파일 끝
+          1KB를 벗어나 리더가 복구 모드로 열게 되므로, 트레일러를 파일 끝에 다시 선언합니다(ZIP일
+          때는 ZIP 주석 안에 넣어 양쪽 다 유효하게 유지합니다).
+        </li>
+        <li>
+          <strong>PDF를 뒤에 붙일 때</strong> — 리더는 <code>%PDF-</code> 헤더를 앞 1KB에서 찾습니다.
+          캐리어가 1KB보다 작으면 리더가 스스로 기준 위치를 잡으므로 그대로 붙이고, 1KB를 넘으면
+          xref 위치를 보정해 붙입니다. 후자는 "PDF가 아닐 수 있다"는 안내가 함께 뜨며&nbsp;
+          <strong>리더에 따라 결과가 다릅니다</strong> — poppler·Evince·Firefox는 열리지만 엄격한
+          리더는 거부할 수 있습니다.
+        </li>
+        <li>gzip·TAR은 파일 앞에서부터 순서대로 읽는 형식이라 뒤에 붙일 수 없습니다.</li>
+        <li>
+          <strong>여는 방법</strong> — ZIP을 붙였다면 <code>.zip</code>으로 바꿔도, 캐리어 확장자
+          그대로도 열립니다(7-Zip이 "open with offset" 안내를 띄우는 건 정상입니다).
+          &nbsp;<strong>7z를 붙였다면 확장자를 <code>.7z</code>로 바꾸지 마세요</strong> — 7-Zip이 파일
+          맨 앞만 확인해 열지 못합니다. 캐리어 확장자를 그대로 두거나&nbsp;
+          <code>7z l -t7z 파일명</code>처럼 형식을 직접 지정하면 됩니다.
+        </li>
+        <li>
+          업로드하는 서비스가 이미지를 다시 인코딩하거나 뒤쪽 데이터를 잘라내면 압축 파일 부분은
+          사라집니다. 보관·전송 수단으로는 신뢰할 수 없습니다.
+        </li>
+        <li>
+          파일 형식 실험이나 CTF 문제용 도구입니다. 뒤에 붙은 압축 데이터는 검사 도구가 쉽게
+          찾아내므로 내용을 숨기는 수단이 되지 못합니다.
+        </li>
+        <li>ZIP64(4GB 이상) 형식의 위치 보정은 지원하지 않습니다.</li>
+        <li>
+          가능한 조합 안내는 <a
+            href="https://github.com/Polydet/polyglot-database"
+            target="_blank"
+            rel="noopener noreferrer">Polydet 폴리글랏 데이터베이스</a
+          >(샘플 {DB_META.sampleCount}개, {DB_META.license}) 와 이 도구로 직접 검증한 결과를 함께
+          근거로 씁니다. DB는 수집된 표본 모음이라 <strong>목록에 없다고 불가능한 것은 아닙니다</strong> —
+          그런 조합은 "가능할 것으로 예상"으로 표시합니다.
+        </li>
+      </ul>
+    </section>
+  </main>
+</Layout>
+
+<script>
+  import {
+    analyze,
+    detectCarrier,
+    detectPayload,
+    extractPayload,
+    makePolyglot,
+    methodLabel,
+  } from '../lib/polyglot';
+  import {
+    carrierAccept,
+    carrierOptions,
+    comboInfo,
+    dbOnlyPartners,
+    FORMAT_LABELS,
+    isSupported,
+    payloadAccept,
+    payloadOptions,
+    type ComboOption,
+  } from '../lib/polyglot-combos';
+
+  const el = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+
+  const carrierInput = el<HTMLInputElement>('carrier-file');
+  const payloadInput = el<HTMLInputElement>('payload-file');
+  const outName = el<HTMLInputElement>('out-name');
+  const checkInput = el<HTMLInputElement>('check-file');
+  const extractBtn = el<HTMLButtonElement>('extract');
+
+  let carrierBytes: Uint8Array | null = null;
+  let payloadBytes: Uint8Array | null = null;
+  let checkBytes: Uint8Array | null = null;
+  let checkName = '';
+
+  const readBytes = async (file: File) => new Uint8Array(await file.arrayBuffer());
+
+  function formatSize(n: number): string {
+    if (n >= 1048576) return `${(n / 1048576).toFixed(2)}MB`;
+    if (n >= 1024) return `${(n / 1024).toFixed(1)}KB`;
+    return `${n}B`;
+  }
+
+  function download(bytes: Uint8Array, filename: string) {
+    const url = URL.createObjectURL(new Blob([bytes as BlobPart]));
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = filename;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function setStatus(id: string, message: string, isError = false) {
+    const node = el<HTMLParagraphElement>(id);
+    node.textContent = message;
+    node.classList.toggle('status-ok', !isError && message !== '');
+  }
+
+  const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
+  // ---------- 가능한 조합 안내 ----------
+
+  const kindOf = {
+    carrier: () => (carrierBytes ? detectCarrier(carrierBytes).kind : null),
+    payload: () => (payloadBytes ? detectPayload(payloadBytes).kind : null),
+  };
+
+  const formatLabel = (kind: string) => FORMAT_LABELS[kind] ?? kind.toUpperCase();
+
+  function chip(option: ComboOption): HTMLElement {
+    const tone = isSupported(option.info.status) ? 'tone-ok' : 'tone-bad';
+    const node = document.createElement('span');
+    node.className = `combo-chip ${tone} st-${option.info.status}`;
+    node.title = option.info.detail;
+    // 미지원 형식은 이름 자체가 상태를 말해주므로 상태를 겹쳐 쓰지 않는다
+    node.textContent =
+      option.info.status === 'unsupported'
+        ? option.label
+        : `${option.label} · ${option.info.label}`;
+    return node;
+  }
+
+  /** 한쪽을 고르면 반대쪽 파일 선택창에 조합이 되는 형식만 뜨게 한다 */
+  function syncAccepts() {
+    const carrier = kindOf.carrier();
+    const payload = kindOf.payload();
+    payloadInput.accept = payloadAccept(carrier);
+    carrierInput.accept = carrierAccept(payload);
+  }
+
+  function renderCombos() {
+    syncAccepts();
+    const guide = el('combo-guide');
+    const title = el('combo-title');
+    const chips = el('combo-chips');
+    const detail = el('combo-detail');
+    const extra = el('combo-extra');
+    const carrier = kindOf.carrier();
+    const payload = kindOf.payload();
+
+    chips.replaceChildren();
+    detail.textContent = '';
+    detail.className = 'combo-detail';
+    extra.textContent = '';
+
+    if (!carrier && !payload) {
+      guide.hidden = true;
+      return;
+    }
+    guide.hidden = false;
+
+    if (carrier && payload) {
+      const info = comboInfo(carrier, payload);
+      title.textContent = `${formatLabel(carrier)} + ${formatLabel(payload)}`;
+      // 지원하지 않는 쪽을 칩으로 보여준다 (캐리어가 문제인데 페이로드가 빨개지지 않도록)
+      const shown = carrier === 'unknown' ? carrier : payload;
+      chips.append(chip({ kind: shown, label: formatLabel(shown), info }));
+      // 붙일 수 없는 형식은 형식별로 준비된 구체적인 이유를 쓴다
+      const reason = info.status === 'no' || info.status === 'unsupported'
+        ? detectPayload(payloadBytes!).note
+        : null;
+      detail.textContent = reason ?? info.detail;
+      detail.className = `combo-detail ${isSupported(info.status) ? 'tone-ok' : 'tone-bad'}`;
+      if (info.samples.length > 0) {
+        const shown = info.samples.slice(0, 3).join(', ');
+        const rest = info.samples.length > 3 ? ` 외 ${info.samples.length - 3}개` : '';
+        extra.textContent = `DB 샘플: ${shown}${rest}`;
+      }
+      return;
+    }
+
+    if (carrier) {
+      title.textContent = `${formatLabel(carrier)} 뒤에 붙일 수 있는 형식`;
+      for (const option of payloadOptions(carrier)) chips.append(chip(option));
+      const others = dbOnlyPartners(carrier);
+      if (others.length > 0) {
+        const shown = others.slice(0, 8).join(' · ');
+        const rest = others.length > 8 ? ` 외 ${others.length - 8}개` : '';
+        extra.textContent = `DB 샘플에는 ${shown}${rest}도 함께 들어 있지만, 이 도구가 다루는 형식은 아닙니다.`;
+      }
+      return;
+    }
+
+    title.textContent = `${formatLabel(payload!)} 페이로드를 붙일 수 있는 캐리어`;
+    for (const option of carrierOptions(payload!)) chips.append(chip(option));
+  }
+
+  // ---------- 만들기 ----------
+
+  carrierInput.addEventListener('change', async () => {
+    const file = carrierInput.files?.[0];
+    setStatus('make-status', '');
+    if (!file) {
+      carrierBytes = null;
+      el('carrier-info').textContent = '';
+      renderCombos();
+      return;
+    }
+    carrierBytes = await readBytes(file);
+    const carrier = detectCarrier(carrierBytes);
+    const trailing = carrier.dataEnd === null ? 0 : carrierBytes.length - carrier.dataEnd;
+    const notes = [`${carrier.label} · ${formatSize(carrierBytes.length)}`];
+    if (!carrier.appendable) {
+      notes.push('캐리어로 지원하는 형식이 아니라 폴리글랏을 만들 수 없어요');
+    }
+    if (trailing > 0) {
+      notes.push(`이미 뒤에 ${formatSize(trailing)}가 붙어 있어요`);
+    }
+    el('carrier-info').textContent = notes.join(' — ');
+
+    // 캐리어와 같은 이름·확장자를 기본값으로 (원래 파일처럼 보이게)
+    const base = file.name.replace(/\.[^.]+$/, '') || 'polyglot';
+    outName.value = `${base}.${carrier.ext}`;
+    renderCombos();
+  });
+
+  payloadInput.addEventListener('change', async () => {
+    const file = payloadInput.files?.[0];
+    setStatus('make-status', '');
+    if (!file) {
+      payloadBytes = null;
+      el('payload-info').textContent = '';
+      renderCombos();
+      return;
+    }
+    payloadBytes = await readBytes(file);
+    const payload = detectPayload(payloadBytes);
+    const notes = [`${payload.label} · ${formatSize(payloadBytes.length)}`];
+    if (payload.entries) notes.push(`항목 ${payload.entries.length}개`);
+    if (payload.note) notes.push(payload.note);
+    el('payload-info').textContent = notes.join(' — ');
+    renderCombos();
+  });
+
+  el<HTMLButtonElement>('make').addEventListener('click', () => {
+    if (!carrierBytes || !payloadBytes) {
+      setStatus('make-status', '캐리어와 페이로드 파일을 모두 선택해주세요.', true);
+      return;
+    }
+    const payload = detectPayload(payloadBytes);
+    const carrier = detectCarrier(carrierBytes);
+    // 만들 수 없는 조합이면 이유를 알려주고 멈춘다
+    const combo = comboInfo(carrier.kind, payload.kind);
+    if (!isSupported(combo.status)) {
+      const reason =
+        combo.status === 'special'
+          ? combo.detail
+          : carrier.kind === 'unknown'
+            ? '캐리어로 지원하지 않는 형식입니다. 지원 형식은 아래 참고 항목에 있습니다.'
+            : (payload.note ?? combo.detail);
+      setStatus('make-status', reason, true);
+      return;
+    }
+    try {
+      const { bytes, note } = makePolyglot(carrierBytes, payloadBytes);
+      const name = outName.value.trim() || 'polyglot.jpg';
+      download(bytes, name);
+      setStatus(
+        'make-status',
+        `완료! ${name} (${formatSize(bytes.length)}) 다운로드${note ? ` — ${note}` : ''}`,
+      );
+    } catch (e) {
+      setStatus('make-status', `생성 실패: ${errorText(e)}`, true);
+    }
+  });
+
+  // ---------- 분석 ----------
+
+  function row(term: string, value: string): HTMLElement[] {
+    const dt = document.createElement('dt');
+    dt.textContent = term;
+    const dd = document.createElement('dd');
+    dd.textContent = value;
+    return [dt, dd];
+  }
+
+  checkInput.addEventListener('change', async () => {
+    const file = checkInput.files?.[0];
+    const result = el<HTMLDListElement>('check-result');
+    const entriesWrap = el('entries-wrap');
+    const entriesBody = el<HTMLTableSectionElement>('entries');
+    setStatus('check-status', '');
+    result.replaceChildren();
+    entriesBody.replaceChildren();
+    extractBtn.disabled = true;
+    checkBytes = null;
+
+    if (!file) {
+      result.hidden = true;
+      entriesWrap.hidden = true;
+      return;
+    }
+
+    checkBytes = await readBytes(file);
+    checkName = file.name;
+    const info = analyze(checkBytes);
+    const payload = info.payload;
+
+    result.append(...row('전체 크기', formatSize(info.size)));
+    result.append(...row('앞쪽 형식', info.carrier.label));
+    if (info.trailing !== null && info.carrier.kind !== 'unknown') {
+      result.append(
+        ...row(
+          `${info.carrier.label} 데이터`,
+          info.trailing > 0
+            ? `0 ~ ${info.carrier.dataEnd} · 뒤에 ${formatSize(info.trailing)} 더 있음`
+            : '파일 전체 (뒤에 붙은 데이터 없음)',
+        ),
+      );
+    }
+    if (payload) {
+      const detail = [`${payload.start}번째 바이트부터`];
+      detail.push(
+        payload.entries ? `항목 ${payload.entries.length}개` : '목록은 ZIP 계열만 읽을 수 있어요',
+      );
+      result.append(...row('뒤쪽 형식', `${payload.label} — ${detail.join(' · ')}`));
+    } else {
+      result.append(...row('뒤쪽 형식', '없음'));
+    }
+    if (info.pdfTrailerOk !== null) {
+      result.append(
+        ...row(
+          'PDF 트레일러',
+          info.pdfTrailerOk
+            ? '파일 끝 1KB 안에 있음 (경고 없이 열림)'
+            : '파일 끝 1KB를 벗어남 (리더가 복구 모드로 열게 됨)',
+        ),
+      );
+    }
+    result.hidden = false;
+
+    if (payload?.entries && payload.entries.length > 0) {
+      for (const entry of payload.entries) {
+        const tr = document.createElement('tr');
+        for (const text of [
+          entry.name,
+          entry.directory ? '폴더' : methodLabel(entry.method),
+          entry.directory ? '' : formatSize(entry.uncompressedSize),
+        ]) {
+          const td = document.createElement('td');
+          td.textContent = text;
+          tr.append(td);
+        }
+        entriesBody.append(tr);
+      }
+      entriesWrap.hidden = false;
+    } else {
+      entriesWrap.hidden = true;
+    }
+
+    extractBtn.disabled = !payload;
+    if (payload && info.carrier.kind !== 'unknown' && payload.start > 0) {
+      setStatus(
+        'check-status',
+        `폴리글랏 파일입니다. ${info.carrier.label}와 ${payload.label}이 함께 들어 있어요.`,
+      );
+    }
+  });
+
+  // 첫 로드에도 지원 형식만 뜨도록 맞춰둔다
+  syncAccepts();
+
+  extractBtn.addEventListener('click', () => {
+    if (!checkBytes) return;
+    try {
+      const { bytes, ext } = extractPayload(checkBytes);
+      const base = checkName.replace(/\.[^.]+$/, '') || 'extracted';
+      download(bytes, `${base}.${ext}`);
+      setStatus('check-status', `완료! ${base}.${ext} (${formatSize(bytes.length)}) 다운로드`);
+    } catch (e) {
+      setStatus('check-status', `추출 실패: ${errorText(e)}`, true);
+    }
+  });
+</script>
+
+<style>
+  /* 지원 = 초록 계열, 미지원 = 빨강 계열(레이아웃의 --danger를 그대로 쓴다) */
+  main {
+    --ok: #51cf66;
+    --ok-soft: rgba(81, 207, 102, 0.16);
+    --bad-soft: rgba(255, 143, 143, 0.14);
+
+    max-width: 940px;
+    margin: 0 auto;
+    padding: 2.5rem 1.5rem 4rem;
+  }
+
+  :root[data-theme='light'] main {
+    --ok: #2f9e44;
+    --ok-soft: rgba(47, 158, 68, 0.12);
+    --bad-soft: rgba(201, 42, 42, 0.1);
+  }
+
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme]) main {
+      --ok: #2f9e44;
+      --ok-soft: rgba(47, 158, 68, 0.12);
+      --bad-soft: rgba(201, 42, 42, 0.1);
+    }
+  }
+
+  .top a {
+    color: var(--text-dim);
+    text-decoration: none;
+    font-size: 0.9rem;
+  }
+
+  .top a:hover {
+    color: var(--accent);
+  }
+
+  .intro h1 {
+    margin: 1rem 0 0.5rem;
+    font-size: clamp(1.6rem, 4vw, 2.2rem);
+    letter-spacing: -0.02em;
+  }
+
+  .intro p {
+    color: var(--text-dim);
+    margin: 0 0 2rem;
+  }
+
+  .intro strong {
+    color: var(--text);
+  }
+
+  .cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 1.25rem;
+    align-items: start;
+  }
+
+  .card {
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    border-radius: 1rem;
+    padding: 1.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.85rem;
+  }
+
+  .card h2 {
+    margin: 0;
+    font-size: 1.15rem;
+  }
+
+  .desc {
+    margin: 0;
+    color: var(--text-dim);
+    font-size: 0.9rem;
+  }
+
+  .file-row {
+    display: grid;
+    gap: 0.35rem;
+  }
+
+  .file-row > span {
+    color: var(--text-dim);
+    font-size: 0.85rem;
+    font-weight: 600;
+  }
+
+  .file-row input[type='file'] {
+    font-size: 0.85rem;
+    color: var(--text-dim);
+  }
+
+  .file-row input[type='file']::file-selector-button {
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    font: inherit;
+    font-size: 0.85rem;
+    padding: 0.4rem 0.9rem;
+    border-radius: 0.6rem;
+    cursor: pointer;
+    margin-right: 0.6rem;
+  }
+
+  .file-row input[type='text'] {
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    font: inherit;
+    font-size: 0.9rem;
+    padding: 0.5rem 0.8rem;
+    border-radius: 0.6rem;
+  }
+
+  .file-row input:focus {
+    outline: 2px solid var(--accent);
+    border-color: var(--accent);
+  }
+
+  .detect {
+    margin: -0.4rem 0 0;
+    font-size: 0.82rem;
+    color: var(--text-dim);
+    overflow-wrap: anywhere;
+  }
+
+  .combo {
+    display: grid;
+    gap: 0.5rem;
+    padding: 0.85rem 1rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 0.7rem;
+  }
+
+
+  .combo-title {
+    margin: 0;
+    font-size: 0.85rem;
+    font-weight: 700;
+  }
+
+  .combo-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+  }
+
+  .combo-chip {
+    font-size: 0.78rem;
+    font-weight: 600;
+    padding: 0.2rem 0.55rem;
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+    cursor: help;
+  }
+
+  /* 만들 수 있는 조합 — 초록 계열 (확실한 순서대로 진하게) */
+  .combo-chip.tone-ok {
+    border-color: var(--ok);
+    color: var(--ok);
+  }
+
+  .combo-chip.st-verified {
+    background: var(--ok-soft);
+    font-weight: 700;
+  }
+
+  .combo-chip.st-expected {
+    border-style: dashed;
+    opacity: 0.85;
+  }
+
+  /* 만들 수 없는 조합 — 빨강 계열 */
+  .combo-chip.tone-bad {
+    border-color: var(--danger);
+    color: var(--danger);
+  }
+
+  .combo-chip.st-special {
+    border-style: dashed;
+  }
+
+  .combo-chip.st-no,
+  .combo-chip.st-unsupported {
+    background: var(--bad-soft);
+  }
+
+  .combo-detail,
+  .combo-extra {
+    margin: 0;
+    font-size: 0.8rem;
+    color: var(--text-dim);
+    overflow-wrap: anywhere;
+  }
+
+  .combo-detail.tone-ok {
+    color: var(--ok);
+  }
+
+  .combo-detail.tone-bad {
+    color: var(--danger);
+  }
+
+  .combo-detail:empty,
+  .combo-extra:empty {
+    display: none;
+  }
+
+  .btn {
+    appearance: none;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    font: inherit;
+    font-weight: 600;
+    padding: 0.6rem 1.25rem;
+    border-radius: 0.7rem;
+    cursor: pointer;
+    align-self: start;
+  }
+
+  .btn:hover:not(:disabled) {
+    border-color: var(--accent);
+  }
+
+  .btn-primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+  }
+
+  .btn-primary:hover:not(:disabled) {
+    filter: brightness(1.1);
+  }
+
+  .btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .status {
+    margin: 0;
+    min-height: 1.2em;
+    font-size: 0.88rem;
+    color: var(--danger);
+    overflow-wrap: anywhere;
+  }
+
+  .status.status-ok {
+    color: var(--ok);
+  }
+
+  .result {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 0.3rem 0.9rem;
+    margin: 0;
+    padding: 0.9rem 1rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 0.7rem;
+    font-size: 0.85rem;
+  }
+
+  .result dt {
+    color: var(--text-dim);
+    font-weight: 600;
+  }
+
+  .result dd {
+    margin: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .entries {
+    overflow: auto;
+    border: 1px solid var(--border);
+    border-radius: 0.7rem;
+    max-height: 260px;
+  }
+
+  .entries table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.82rem;
+  }
+
+  .entries th,
+  .entries td {
+    text-align: left;
+    padding: 0.45rem 0.7rem;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+
+  .entries th {
+    position: sticky;
+    top: 0;
+    background: var(--surface);
+    color: var(--text-dim);
+    font-size: 0.78rem;
+  }
+
+  .entries tr:last-child td {
+    border-bottom: 0;
+  }
+
+  .notes {
+    margin-top: 2.5rem;
+    padding: 1.25rem 1.5rem;
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    border-radius: 1rem;
+  }
+
+  .notes h2 {
+    margin: 0 0 0.6rem;
+    font-size: 1rem;
+  }
+
+  .notes ul {
+    margin: 0;
+    padding-left: 1.2rem;
+    color: var(--text-dim);
+    font-size: 0.9rem;
+    display: grid;
+    gap: 0.4rem;
+  }
+
+  .notes strong {
+    color: var(--text);
+  }
+
+  code {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 0.3rem;
+    padding: 0.05rem 0.35rem;
+    font-size: 0.85em;
+  }
+</style>

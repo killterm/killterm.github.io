@@ -1,0 +1,840 @@
+{
+  "source": "https://github.com/Polydet/polyglot-database",
+  "license": "MIT — Copyright (c) 2025 J. Campion & H. Laloge",
+  "retrieved": "2026-07-24",
+  "note": "list.csv에서 형식 조합 정보만 옮긴 것. DOCX·JAR·ODT·APK는 ZIP 계열이다.",
+  "samples": [
+    {
+      "file": "7ZIP+JAR.7z",
+      "types": [
+        "7z",
+        "jar",
+        "zip"
+      ]
+    },
+    {
+      "file": "7ZIP+RAR-1.7z",
+      "types": [
+        "7z",
+        "rar"
+      ]
+    },
+    {
+      "file": "7ZIP+RAR-2.7z",
+      "types": [
+        "7z",
+        "rar"
+      ],
+      "misc": "The rar is embed in the 7Z without compression"
+    },
+    {
+      "file": "7ZIP+ZIP.7z",
+      "types": [
+        "7z",
+        "zip"
+      ]
+    },
+    {
+      "file": "AVI+HTML.avi",
+      "types": [
+        "avi",
+        "html"
+      ]
+    },
+    {
+      "file": "AVI+ZIP.avi",
+      "types": [
+        "avi",
+        "zip"
+      ]
+    },
+    {
+      "file": "BMP+HTML+JAR.bmp",
+      "types": [
+        "bmp",
+        "html",
+        "jar",
+        "zip"
+      ]
+    },
+    {
+      "file": "BMP+JAR.bmp",
+      "types": [
+        "bmp",
+        "jar",
+        "zip"
+      ]
+    },
+    {
+      "file": "DOCX+ELF+JAR+PDF+RAR-1.zip",
+      "types": [
+        "docx",
+        "elf",
+        "jar",
+        "pdf",
+        "rar",
+        "zip"
+      ],
+      "misc": "RAR after ZIP. Only work with Microsoft Word, asks to repair the file"
+    },
+    {
+      "file": "DOCX+ELF+JAR+PDF+RAR-2.zip",
+      "types": [
+        "docx",
+        "elf",
+        "jar",
+        "pdf",
+        "rar",
+        "zip"
+      ],
+      "misc": "ZIP after RAR. Only work with Microsoft Word, asks to repair the file"
+    },
+    {
+      "file": "DOCX+ELF+JAR+PDF.zip",
+      "types": [
+        "docx",
+        "elf",
+        "jar",
+        "pdf",
+        "zip"
+      ],
+      "misc": "Only work with Microsoft Word, asks to repair the file"
+    },
+    {
+      "file": "DOCX+JAR+PDF.pdf",
+      "types": [
+        "docx",
+        "jar",
+        "pdf",
+        "zip"
+      ]
+    },
+    {
+      "file": "DOCX+JAR.docx",
+      "types": [
+        "docx",
+        "jar",
+        "zip"
+      ]
+    },
+    {
+      "file": "ELF+JAR+ODT+PDF.zip",
+      "types": [
+        "elf",
+        "jar",
+        "odt",
+        "pdf",
+        "zip"
+      ],
+      "misc": "Only work with Microsoft Word, asks to repair the file"
+    },
+    {
+      "file": "ELF+RAR.rar",
+      "types": [
+        "elf",
+        "rar"
+      ]
+    },
+    {
+      "file": "ELF+RAR5.rar",
+      "types": [
+        "elf",
+        "rar"
+      ]
+    },
+    {
+      "file": "ELF+JAR+RAR.rar",
+      "types": [
+        "elf",
+        "jar",
+        "rar",
+        "zip"
+      ]
+    },
+    {
+      "file": "EXE+HTML+PDF-1.pdf",
+      "types": [
+        "exe",
+        "html",
+        "pdf"
+      ],
+      "misc": "Minimal, 1 byte aligned PE"
+    },
+    {
+      "file": "EXE+HTML+PDF-2.pdf",
+      "types": [
+        "exe",
+        "html",
+        "pdf"
+      ]
+    },
+    {
+      "file": "FLAC+PDF.flac",
+      "types": [
+        "flac",
+        "pdf"
+      ]
+    },
+    {
+      "file": "GIF+JAR+PDF.gif",
+      "types": [
+        "gif",
+        "jar",
+        "pdf",
+        "zip"
+      ]
+    },
+    {
+      "file": "GIF+JAR.gif",
+      "types": [
+        "gif",
+        "jar",
+        "zip"
+      ]
+    },
+    {
+      "file": "GIF+JS-1.gif",
+      "types": [
+        "gif",
+        "js"
+      ]
+    },
+    {
+      "file": "GIF+JS-2.gif",
+      "types": [
+        "gif",
+        "js"
+      ]
+    },
+    {
+      "file": "GIF+PDF.gif",
+      "types": [
+        "gif",
+        "pdf"
+      ]
+    },
+    {
+      "file": "GIF+TAR.gif",
+      "types": [
+        "gif",
+        "tar"
+      ]
+    },
+    {
+      "file": "HTML+MP3-1.mp3",
+      "types": [
+        "html",
+        "mp3"
+      ]
+    },
+    {
+      "file": "HTML+PDF-1.html",
+      "types": [
+        "html",
+        "pdf"
+      ]
+    },
+    {
+      "file": "HTML+PDF-2.html",
+      "types": [
+        "html",
+        "pdf"
+      ],
+      "misc": "Only a <script> tag"
+    },
+    {
+      "file": "HTML+PDF-3.html",
+      "types": [
+        "html",
+        "pdf"
+      ],
+      "misc": "An image with a script running on mouse over"
+    },
+    {
+      "file": "HTML+TIFF.tiff",
+      "types": [
+        "html",
+        "tiff"
+      ]
+    },
+    {
+      "file": "HTML+WEBM.html",
+      "types": [
+        "html",
+        "webm"
+      ]
+    },
+    {
+      "file": "JAR+JPG+PDF.jpg",
+      "types": [
+        "jar",
+        "jpg",
+        "pdf",
+        "zip"
+      ]
+    },
+    {
+      "file": "JAR+ODT+PDF.pdf",
+      "types": [
+        "jar",
+        "odt",
+        "pdf",
+        "zip"
+      ],
+      "misc": "PDF doesn't work with evince nor google chrome, works with firefox"
+    },
+    {
+      "file": "JAR+TAR+TIFF.tiff",
+      "types": [
+        "jar",
+        "tar",
+        "tiff",
+        "zip"
+      ]
+    },
+    {
+      "file": "JAR+TIFF.tiff",
+      "types": [
+        "jar",
+        "tiff",
+        "zip"
+      ]
+    },
+    {
+      "file": "JPG+JAR.jpg",
+      "types": [
+        "jpg",
+        "jar",
+        "zip"
+      ]
+    },
+    {
+      "file": "JPG+PDF.jpg",
+      "types": [
+        "jpg",
+        "pdf"
+      ]
+    },
+    {
+      "file": "MP3+OGG+PNG.mp3",
+      "types": [
+        "mp3",
+        "ogg",
+        "png"
+      ]
+    },
+    {
+      "file": "MP3+OGG+PNG+WAV.mp3",
+      "types": [
+        "mp3",
+        "ogg",
+        "png",
+        "wav"
+      ]
+    },
+    {
+      "file": "MP3+PDF.pdf",
+      "types": [
+        "mp3",
+        "pdf"
+      ]
+    },
+    {
+      "file": "MP3+PNG.mp3",
+      "types": [
+        "mp3",
+        "png"
+      ]
+    },
+    {
+      "file": "MP3+TIFF.tiff",
+      "types": [
+        "mp3",
+        "tiff"
+      ]
+    },
+    {
+      "file": "MP3+ZIP.zip",
+      "types": [
+        "mp3",
+        "zip"
+      ]
+    },
+    {
+      "file": "MP4+JAR.mp4",
+      "types": [
+        "mp4",
+        "jar",
+        "zip"
+      ]
+    },
+    {
+      "file": "neszip-example.nes",
+      "types": [
+        "zip",
+        "nes"
+      ],
+      "source": "https://vigrey.com/blog/this-nes-rom-also-zip-file"
+    },
+    {
+      "file": "no-magic-nor-end.pdf",
+      "types": [
+        "pdf"
+      ],
+      "misc": "Works on Evince 3.28.2, Atril 1.20.1 and Firefox 61.0.1"
+    },
+    {
+      "file": "no-magic.pdf",
+      "types": [
+        "pdf"
+      ],
+      "misc": "Works on Evince 3.28.2, Atril 1.20.1 and Firefox 61.0.1"
+    },
+    {
+      "file": "ODT+JAR.odt",
+      "types": [
+        "jar",
+        "odt",
+        "zip"
+      ],
+      "misc": "The reader may ask to repair the file"
+    },
+    {
+      "file": "OGG+PDF.ogg",
+      "types": [
+        "ogg",
+        "pdf"
+      ]
+    },
+    {
+      "file": "OGG+ZIP.ogg",
+      "types": [
+        "ogg",
+        "zip"
+      ]
+    },
+    {
+      "file": "PDF+ELF-1.pdf",
+      "types": [
+        "pdf",
+        "elf"
+      ],
+      "misc": "x86-64 Linux ELF64"
+    },
+    {
+      "file": "PDF+ELF-2.pdf",
+      "types": [
+        "pdf",
+        "elf"
+      ],
+      "misc": "x86-64 Linux ELF64"
+    },
+    {
+      "file": "PDF+ELF-3.pdf",
+      "types": [
+        "pdf",
+        "elf"
+      ],
+      "misc": "x86-64 Linux ELF64"
+    },
+    {
+      "file": "PDF+ELF-4.pdf",
+      "types": [
+        "pdf",
+        "elf"
+      ],
+      "misc": "x86-64 Linux ELF64"
+    },
+    {
+      "file": "PDF+PHP.pdf",
+      "types": [
+        "pdf",
+        "php"
+      ]
+    },
+    {
+      "file": "PDF+TAR.pdf",
+      "types": [
+        "pdf",
+        "tar"
+      ]
+    },
+    {
+      "file": "PDF+TAR-2.pdf",
+      "types": [
+        "pdf",
+        "tar"
+      ],
+      "misc": "Works on Evince 3.28.2, Atril 1.20.1 and Firefox 61.0.1"
+    },
+    {
+      "file": "PDF+WAV.pdf",
+      "types": [
+        "pdf",
+        "wav"
+      ]
+    },
+    {
+      "file": "PDF+WAV-2.pdf",
+      "types": [
+        "pdf",
+        "wav"
+      ],
+      "misc": "Works on Evince 3.28.2, Atril 1.20.1. Blank on Firefox 61.0.1"
+    },
+    {
+      "file": "PDFGitPolyglot.pdf",
+      "types": [
+        "pdf",
+        "gitbundle"
+      ],
+      "source": "pocorgtfo15.pdf"
+    },
+    {
+      "file": "PNG+JAR.png",
+      "types": [
+        "png",
+        "jar",
+        "zip"
+      ]
+    },
+    {
+      "file": "pocorgtfo01.pdf",
+      "types": [
+        "pdf",
+        "zip"
+      ],
+      "source": "https://www.alchemistowl.org/pocorgtfo/"
+    },
+    {
+      "file": "pocorgtfo02.pdf",
+      "types": [
+        "pdf",
+        "zip",
+        "mbr"
+      ],
+      "source": "https://www.alchemistowl.org/pocorgtfo/"
+    },
+    {
+      "file": "pocorgtfo03.pdf",
+      "types": [
+        "pdf",
+        "zip",
+        "jpg",
+        "afsk"
+      ],
+      "source": "https://www.alchemistowl.org/pocorgtfo/"
+    },
+    {
+      "file": "pocorgtfo04.pdf",
+      "types": [
+        "pdf",
+        "zip",
+        "tc"
+      ],
+      "source": "https://www.alchemistowl.org/pocorgtfo/"
+    },
+    {
+      "file": "pocorgtfo05.pdf",
+      "types": [
+        "pdf",
+        "swf",
+        "zip",
+        "iso"
+      ],
+      "source": "https://www.alchemistowl.org/pocorgtfo/"
+    },
+    {
+      "file": "pocorgtfo06.pdf",
+      "types": [
+        "pdf",
+        "zip",
+        "tar"
+      ],
+      "source": "https://www.alchemistowl.org/pocorgtfo/"
+    },
+    {
+      "file": "pocorgtfo07.pdf",
+      "types": [
+        "pdf",
+        "zip",
+        "bpg",
+        "html"
+      ],
+      "source": "https://www.alchemistowl.org/pocorgtfo/"
+    },
+    {
+      "file": "pocorgtfo08.pdf",
+      "types": [
+        "pdf",
+        "zip",
+        "sh"
+      ],
+      "source": "https://www.alchemistowl.org/pocorgtfo/"
+    },
+    {
+      "file": "pocorgtfo09.pdf",
+      "types": [
+        "pdf",
+        "zip",
+        "wv"
+      ],
+      "source": "https://www.alchemistowl.org/pocorgtfo/"
+    },
+    {
+      "file": "pocorgtfo10.pdf",
+      "types": [
+        "pdf",
+        "zip",
+        "lsmv"
+      ],
+      "source": "https://www.alchemistowl.org/pocorgtfo/"
+    },
+    {
+      "file": "pocorgtfo11.pdf",
+      "types": [
+        "pdf",
+        "zip",
+        "html",
+        "rb"
+      ],
+      "source": "https://www.alchemistowl.org/pocorgtfo/"
+    },
+    {
+      "file": "pocorgtfo12.pdf",
+      "types": [
+        "pdf",
+        "zip",
+        "apk"
+      ],
+      "source": "https://www.alchemistowl.org/pocorgtfo/"
+    },
+    {
+      "file": "pocorgtfo13.pdf",
+      "types": [
+        "pdf",
+        "zip",
+        "ps"
+      ],
+      "source": "https://www.alchemistowl.org/pocorgtfo/"
+    },
+    {
+      "file": "pocorgtfo14.pdf",
+      "types": [
+        "pdf",
+        "zip",
+        "nes"
+      ],
+      "source": "https://www.alchemistowl.org/pocorgtfo/"
+    },
+    {
+      "file": "pocorgtfo15.pdf",
+      "types": [
+        "pdf",
+        "zip",
+        "ild"
+      ],
+      "source": "https://www.alchemistowl.org/pocorgtfo/"
+    },
+    {
+      "file": "pocorgtfo16.pdf",
+      "types": [
+        "pdf",
+        "zip",
+        "sh"
+      ],
+      "source": "https://www.alchemistowl.org/pocorgtfo/"
+    },
+    {
+      "file": "pocorgtfo17.pdf",
+      "types": [
+        "pdf",
+        "zip",
+        "agc"
+      ],
+      "source": "https://www.alchemistowl.org/pocorgtfo/"
+    },
+    {
+      "file": "pocorgtfo18.pdf",
+      "types": [
+        "pdf",
+        "zip",
+        "html"
+      ],
+      "source": "https://www.alchemistowl.org/pocorgtfo/"
+    },
+    {
+      "file": "RAR+ZIP-1.rar",
+      "types": [
+        "rar",
+        "zip"
+      ]
+    },
+    {
+      "file": "RAR+ZIP-2.rar",
+      "types": [
+        "rar",
+        "zip"
+      ]
+    },
+    {
+      "file": "RAR+ZIP-3.rar",
+      "types": [
+        "rar",
+        "zip"
+      ],
+      "misc": "No ENDARC for the RAR, may crash in some software. For instance, works with Linux unrar"
+    },
+    {
+      "file": "RAR5+ZIP-1.rar5",
+      "types": [
+        "rar",
+        "zip"
+      ]
+    },
+    {
+      "file": "RAR5+ZIP-2.rar5",
+      "types": [
+        "rar",
+        "zip"
+      ]
+    },
+    {
+      "file": "RAR5+ZIP-3.rar5",
+      "types": [
+        "rar",
+        "zip"
+      ],
+      "misc": "No ENDARC for the RAR, may crash in some software. For instance, works with Linux unrar"
+    },
+    {
+      "file": "resume_iso.pdf",
+      "types": [
+        "pdf",
+        "mbr"
+      ],
+      "source": "https://r.dakko.us/"
+    },
+    {
+      "file": "reverseme.bin",
+      "types": [
+        "jpg",
+        "pdf",
+        "zip"
+      ],
+      "source": "https://www.alchemistowl.org/pocorgtfo/pocorgtfo04.pdf"
+    },
+    {
+      "file": "security_logo_string.jpg",
+      "types": [
+        "html",
+        "png"
+      ],
+      "source": "http://thomasjaehnel.com/blog/2009/11/attacks-based-on-content-sniffing.html"
+    },
+    {
+      "file": "stegosploit_tool.png",
+      "types": [
+        "png",
+        "html"
+      ],
+      "source": "http://stegosploit.info/"
+    },
+    {
+      "file": "SWF+ZIP-1.swf",
+      "types": [
+        "swf",
+        "zip"
+      ],
+      "misc": "CWS format"
+    },
+    {
+      "file": "SWF+ZIP-2.swf",
+      "types": [
+        "swf",
+        "zip"
+      ],
+      "misc": "ZWS format"
+    },
+    {
+      "file": "TAR+TIFF.tiff",
+      "types": [
+        "tiff",
+        "tar"
+      ]
+    },
+    {
+      "file": "TIFF+JAR+RAR-1.tiff",
+      "types": [
+        "tiff",
+        "jar",
+        "rar",
+        "zip"
+      ],
+      "misc": "Payload in a valid TIFF tag"
+    },
+    {
+      "file": "TIFF+JAR-1.tiff",
+      "types": [
+        "tiff",
+        "jar",
+        "zip"
+      ],
+      "misc": "Payload in a valid TIFF tag"
+    },
+    {
+      "file": "TIFF+PDF-1.tiff",
+      "types": [
+        "tiff",
+        "pdf"
+      ]
+    },
+    {
+      "file": "TIFF+PDF-2.tiff",
+      "types": [
+        "tiff",
+        "pdf"
+      ],
+      "misc": "Do not work with Google chrome."
+    },
+    {
+      "file": "TIFF+RAR+ZIP.tiff",
+      "types": [
+        "tiff",
+        "rar",
+        "zip"
+      ],
+      "misc": "Payload in a valid TIFF tag"
+    },
+    {
+      "file": "TIFF+RAR-1.tiff",
+      "types": [
+        "tiff",
+        "rar"
+      ],
+      "misc": "Payload in a valid TIFF tag"
+    },
+    {
+      "file": "TIFF+ZIP-1.tiff",
+      "types": [
+        "tiff",
+        "zip"
+      ],
+      "misc": "Payload in a valid TIFF tag"
+    },
+    {
+      "file": "WAV+ZIP.zip",
+      "types": [
+        "wav",
+        "zip"
+      ]
+    },
+    {
+      "file": "WEBM+ZIP.webm",
+      "types": [
+        "webm",
+        "zip"
+      ]
+    }
+  ]
+}
