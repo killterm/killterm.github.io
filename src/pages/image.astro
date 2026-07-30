@@ -169,6 +169,10 @@ const textFonts = [
               <input type="radio" name="export-format" value="image/webp" />
               <span>WebP</span>
             </label>
+            <label class="chip">
+              <input type="radio" name="export-format" value="image/avif" />
+              <span>AVIF</span>
+            </label>
           </div>
           <div class="panel-row">
             <label class="num-field">
@@ -177,6 +181,7 @@ const textFonts = [
             </label>
             <button id="export-download" class="btn btn-small btn-primary" type="button">다운로드</button>
           </div>
+          <p class="export-error" id="export-error" hidden></p>
           <p class="hint">보이는 레이어를 합성해 내보냅니다 (EXIF 제거됨).</p>
         </section>
 
@@ -1326,19 +1331,28 @@ const textFonts = [
     'image/png': 'png',
     'image/jpeg': 'jpg',
     'image/webp': 'webp',
+    'image/avif': 'avif',
   };
 
   const exportFormat = () =>
     (document.querySelector('input[name="export-format"]:checked') as HTMLInputElement).value;
+  const exportError = el<HTMLParagraphElement>('export-error');
+
+  const setExportError = (message: string) => {
+    exportError.textContent = message;
+    exportError.hidden = message === '';
+  };
 
   for (const radio of document.querySelectorAll<HTMLInputElement>('input[name="export-format"]')) {
     radio.addEventListener('change', () => {
       exportQuality.disabled = exportFormat() === 'image/png';
+      setExportError('');
     });
   }
 
   el<HTMLButtonElement>('export-download').addEventListener('click', () => {
     if (layers.length === 0) return;
+    setExportError('');
     const format = exportFormat();
     const quality = Math.min(100, Math.max(1, Number(exportQuality.value) || 90)) / 100;
     // docCanvas가 이미 문서 해상도의 합성 결과다
@@ -1346,7 +1360,13 @@ const textFonts = [
     docCanvas.toBlob(
       (blob) => {
         if (!blob) {
-          setStatus('변환에 실패했습니다. (이 브라우저가 해당 형식을 지원하지 않을 수 있음)');
+          setExportError('변환에 실패했습니다. (이 브라우저가 해당 형식을 지원하지 않을 수 있음)');
+          return;
+        }
+        // toBlob은 미지원 형식을 조용히 PNG로 대체하므로 실제 형식을 검증한다
+        if (blob.type !== format) {
+          const wanted = EXTENSIONS[format].toUpperCase();
+          setExportError(`이 브라우저는 ${wanted} 인코딩을 지원하지 않습니다. 다른 형식을 선택해주세요.`);
           return;
         }
         const url = URL.createObjectURL(blob);
@@ -1641,6 +1661,17 @@ const textFonts = [
     align-items: center;
     gap: 0.45rem;
     flex-wrap: wrap;
+  }
+
+  .export-error {
+    margin: 0;
+    padding: 0.5rem 0.7rem;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--danger);
+    border: 1px solid var(--danger);
+    border-radius: 0.5rem;
+    background: light-dark(rgba(201, 42, 42, 0.06), rgba(255, 143, 143, 0.08));
   }
 
   .layer-list {
