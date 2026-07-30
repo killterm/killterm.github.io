@@ -179,6 +179,18 @@
 - EXIF 파서는 `src/lib/exif.ts` — JPEG APP1의 TIFF IFD를 직접 파싱(의존성 없음),
   레이어별로 저장하고 GPS 좌표는 sensitive로 경고 표시.
 
+### P2P 화상 통화 (`src/pages/call.astro`)
+
+- **수동 시그널링** WebRTC: SDP를 사람이 메신저로 복사/붙여넣기 교환.
+  trickle ICE를 쓸 수 없으므로 `icegatheringstatechange === 'complete'`(+4초
+  안전 타임아웃)까지 기다린 완성 SDP를 교환한다.
+- 교환 코드 포맷은 `src/lib/sdp-code.ts` — deflate-raw 압축 + base64url,
+  프리픽스 `kc1:` (CompressionStream 미지원 폴백 `kc0:`). QR은 npm `qrcode`로
+  생성하고 용량 초과 시 QR만 생략한다.
+- 구글 공개 STUN만 사용, TURN 없음 — 대칭 NAT 등에서 연결 불가를 페이지에
+  명시할 것. DataChannel 'chat'은 offer 쪽이 생성한다.
+- 통화 종료는 상태가 많아 location.reload()로 초기화한다.
+
 ### 만다라트 페이지 (`src/pages/mandalart.astro`)
 
 - **범용 도구로 유지한다.** 특정 용도(목표, 게임 장르 등)를 암시하는 문구·예시·
