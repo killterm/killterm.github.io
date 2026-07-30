@@ -1,0 +1,226 @@
+---
+// 터치 테스트: 멀티터치 포인트 시각화, 궤적(데드존 확인), 동시 터치 기록
+---
+
+<div class="tc">
+  <div class="tc-row">
+    <span class="tc-stat">
+      현재 터치 <b id="tc-count">0</b>개 (최대 <b id="tc-max">0</b>개)
+    </span>
+    <button id="tc-clear" class="btn btn-small" type="button">궤적 지우기</button>
+    <button id="tc-fullscreen" class="btn btn-small" type="button">전체화면</button>
+  </div>
+
+  <div class="tc-area" id="tc-area">
+    <canvas id="tc-trail"></canvas>
+    <canvas id="tc-live"></canvas>
+    <p class="tc-guide" id="tc-guide">
+      이 영역을 터치하거나 드래그해 보세요. 궤적이 남아 터치가 안 되는 영역(데드존)을
+      확인할 수 있습니다. 전체화면으로 화면 전체를 테스트하세요. (Esc: 전체화면 종료)
+    </p>
+  </div>
+
+  <p class="hint">
+    멀티터치를 지원하는 화면에서는 여러 손가락을 동시에 올려 동시 인식 개수를 확인할 수
+    있습니다. 마우스·펜 입력도 함께 표시됩니다.
+  </p>
+</div>
+
+<script>
+  const area = document.getElementById('tc-area') as HTMLDivElement;
+  const trailCanvas = document.getElementById('tc-trail') as HTMLCanvasElement;
+  const liveCanvas = document.getElementById('tc-live') as HTMLCanvasElement;
+  const guide = document.getElementById('tc-guide') as HTMLParagraphElement;
+  const countOut = document.getElementById('tc-count') as HTMLElement;
+  const maxOut = document.getElementById('tc-max') as HTMLElement;
+
+  const trailCtx = trailCanvas.getContext('2d')!;
+  const liveCtx = liveCanvas.getContext('2d')!;
+
+  const COLORS = ['#6c8cff', '#37b24d', '#f59f00', '#e64980', '#22b8cf', '#9775fa', '#ff922b'];
+
+  type ActivePointer = {
+    x: number;
+    y: number;
+    lastX: number;
+    lastY: number;
+    color: string;
+    type: string;
+    pressure: number;
+  };
+
+  const pointers = new Map<number, ActivePointer>();
+  let maxPointers = 0;
+  let colorIndex = 0;
+
+  function resize() {
+    // 크기가 바뀌면 캔버스 버퍼가 초기화되므로 궤적도 함께 리셋된다
+    for (const canvas of [trailCanvas, liveCanvas]) {
+      canvas.width = area.clientWidth;
+      canvas.height = area.clientHeight;
+    }
+  }
+  new ResizeObserver(resize).observe(area);
+  resize();
+
+  function localPoint(e: PointerEvent) {
+    const rect = area.getBoundingClientRect();
+    return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+  }
+
+  function renderStats() {
+    countOut.textContent = String(pointers.size);
+    maxOut.textContent = String(maxPointers);
+  }
+
+  function renderLive() {
+    liveCtx.clearRect(0, 0, liveCanvas.width, liveCanvas.height);
+    for (const [id, p] of pointers) {
+      liveCtx.strokeStyle = p.color;
+      liveCtx.fillStyle = `${p.color}33`;
+      liveCtx.lineWidth = 2;
+      const radius = 28 + p.pressure * 24;
+      liveCtx.beginPath();
+      liveCtx.arc(p.x, p.y, radius, 0, Math.PI * 2);
+      liveCtx.fill();
+      liveCtx.stroke();
+      liveCtx.fillStyle = p.color;
+      liveCtx.font = '12px Consolas, monospace';
+      liveCtx.textAlign = 'center';
+      const pressureText = p.pressure > 0 ? ` · ${p.pressure.toFixed(2)}` : '';
+      liveCtx.fillText(
+        `#${id} ${p.type}${pressureText}`,
+        p.x,
+        p.y - radius - 8,
+      );
+      liveCtx.fillText(`${Math.round(p.x)}, ${Math.round(p.y)}`, p.x, p.y + radius + 16);
+    }
+  }
+
+  area.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    guide.hidden = true;
+    const { x, y } = localPoint(e);
+    pointers.set(e.pointerId, {
+      x,
+      y,
+      lastX: x,
+      lastY: y,
+      color: COLORS[colorIndex++ % COLORS.length],
+      type: e.pointerType,
+      pressure: e.pressure,
+    });
+    maxPointers = Math.max(maxPointers, pointers.size);
+    renderStats();
+    renderLive();
+  });
+
+  area.addEventListener('pointermove', (e) => {
+    const pointer = pointers.get(e.pointerId);
+    if (!pointer) return;
+    const { x, y } = localPoint(e);
+    pointer.lastX = pointer.x;
+    pointer.lastY = pointer.y;
+    pointer.x = x;
+    pointer.y = y;
+    pointer.pressure = e.pressure;
+    // 궤적은 누적 캔버스에 남긴다 (데드존 확인용)
+    trailCtx.strokeStyle = pointer.color;
+    trailCtx.lineWidth = 4;
+    trailCtx.lineCap = 'round';
+    trailCtx.beginPath();
+    trailCtx.moveTo(pointer.lastX, pointer.lastY);
+    trailCtx.lineTo(pointer.x, pointer.y);
+    trailCtx.stroke();
+    renderLive();
+  });
+
+  function releasePointer(e: PointerEvent) {
+    pointers.delete(e.pointerId);
+    renderStats();
+    renderLive();
+  }
+  area.addEventListener('pointerup', releasePointer);
+  area.addEventListener('pointercancel', releasePointer);
+  area.addEventListener('pointerleave', releasePointer);
+
+  document.getElementById('tc-clear')!.addEventListener('click', () => {
+    trailCtx.clearRect(0, 0, trailCanvas.width, trailCanvas.height);
+    maxPointers = pointers.size;
+    renderStats();
+  });
+
+  document.getElementById('tc-fullscreen')!.addEventListener('click', async () => {
+    try {
+      await area.requestFullscreen();
+    } catch {
+      /* iOS Safari 등 미지원 환경에서는 그대로 사용 */
+    }
+  });
+</script>
+
+<style>
+  .tc {
+    display: grid;
+    gap: 0.9rem;
+  }
+
+  .tc-row {
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+    flex-wrap: wrap;
+  }
+
+  .tc-stat {
+    color: var(--text-dim);
+    font-size: 0.9rem;
+    font-weight: 600;
+  }
+
+  .tc-stat b {
+    color: var(--text);
+  }
+
+  .tc-area {
+    position: relative;
+    height: min(60vh, 520px);
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    border-radius: 0.9rem;
+    overflow: hidden;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    cursor: crosshair;
+  }
+
+  .tc-area:fullscreen {
+    border-radius: 0;
+    border: none;
+  }
+
+  .tc-area canvas {
+    position: absolute;
+    inset: 0;
+  }
+
+  .tc-guide {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-content: center;
+    margin: 0;
+    padding: 1.5rem;
+    text-align: center;
+    color: var(--text-dim);
+    font-size: 0.9rem;
+    pointer-events: none;
+  }
+
+  /* display: grid가 hidden 속성의 기본 display: none을 덮어쓰지 않도록 */
+  .tc-guide[hidden] {
+    display: none;
+  }
+</style>

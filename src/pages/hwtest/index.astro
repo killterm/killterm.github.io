@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <title>하드웨어 테스트 — Killterm</title>
     <script is:inline>
-      const valid = ['keyboard', 'mouse', 'monitor', 'reaction', 'sound', 'webcam', 'mic', 'geo', 'network'];
+      const valid = ['keyboard', 'mouse', 'touch', 'monitor', 'reaction', 'sound', 'webcam', 'mic', 'geo', 'network'];
       const hash = location.hash.slice(1);
       location.replace(`/hwtest/${valid.includes(hash) ? hash : 'keyboard'}/`);
     </script>

@@ -19,6 +19,7 @@ export const hwtest = {
   tabs: [
     { label: '키보드', href: '/hwtest/keyboard/' },
     { label: '마우스', href: '/hwtest/mouse/' },
+    { label: '터치', href: '/hwtest/touch/' },
     { label: '모니터', href: '/hwtest/monitor/' },
     { label: '반응속도', href: '/hwtest/reaction/' },
     { label: '사운드', href: '/hwtest/sound/' },

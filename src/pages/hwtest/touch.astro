@@ -1,0 +1,16 @@
+---
+import ToolPage from '../../components/ToolPage.astro';
+import TouchTab from '../../components/hwtest/TouchTab.astro';
+import { hwtest } from '../../lib/tool-tabs';
+---
+
+<ToolPage
+  title="터치 테스트 — Killterm"
+  description="멀티터치 인식과 터치 데드존을 확인합니다."
+  heading={hwtest.heading}
+  intro={hwtest.intro}
+  tabs={hwtest.tabs}
+  active="/hwtest/touch/"
+>
+  <TouchTab />
+</ToolPage>

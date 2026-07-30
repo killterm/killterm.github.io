@@ -46,7 +46,7 @@
 
 - 탭 하나가 곧 정적 페이지 하나다 (해시 대신 고유 URL 경로):
   `/devtools/{timestamp,json,regex}/`,
-  `/hwtest/{keyboard,mouse,monitor,reaction,sound,webcam,mic,geo,network}/`.
+  `/hwtest/{keyboard,mouse,touch,monitor,reaction,sound,webcam,mic,geo,network}/`.
 - 공용 셸은 `src/components/ToolPage.astro` — 홈 링크·소개·링크형 탭 바·본문
   슬롯. 공통 컨트롤 스타일(.btn/.chip/.status/.hint/.field-row/textarea)은
   여기의 `<style is:global>`에 `.tool-main` 프리픽스로 선언되어 있다.
@@ -73,6 +73,8 @@
 - 마우스: 버튼 5개 시각화(눌림/눌렀던 기록), 같은 버튼 클릭 간격 80ms 미만은
   의심 더블클릭으로 표시, 휠 카운트, 폴링레이트(250ms 창 이벤트 수 × 4,
   지원 시 pointerrawupdate). 테스트 영역 안에서만 기본 동작 차단.
+- 터치: Pointer Events 기반 멀티터치 시각화. 궤적은 누적 캔버스에 남겨
+  데드존을 확인한다(리사이즈 시 초기화). `touch-action: none` 필수.
 - 모니터: 전체화면 종료 감지는 `fullscreenchange`, 미지원 환경은 fixed 오버레이
   폴백. 주사율은 rAF 간격의 중앙값으로 산출해 일반 주사율에 ±3% 스냅.
 - 반응속도: pointerdown 계측, 시작 시각은 rAF 안에서 기록. 역대 최고 기록은
