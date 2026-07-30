@@ -1,0 +1,256 @@
+---
+// 텍스트 diff 비교: 줄 단위 LCS 기반
+---
+
+<div class="df">
+  <div class="df-inputs">
+    <textarea id="df-a" rows="12" spellcheck="false" placeholder="원본 텍스트"></textarea>
+    <textarea id="df-b" rows="12" spellcheck="false" placeholder="비교할 텍스트"></textarea>
+  </div>
+  <p id="df-stats" class="hint"></p>
+  <div id="df-output" class="df-output"></div>
+  <p id="df-status" class="status" role="status"></p>
+</div>
+
+<script>
+  const inputA = document.getElementById('df-a') as HTMLTextAreaElement;
+  const inputB = document.getElementById('df-b') as HTMLTextAreaElement;
+  const stats = document.getElementById('df-stats') as HTMLParagraphElement;
+  const output = document.getElementById('df-output') as HTMLDivElement;
+  const status = document.getElementById('df-status') as HTMLParagraphElement;
+
+  // DP 테이블 상한 (셀 수). 넘으면 비교를 거부해 브라우저 멈춤을 막는다
+  const MAX_CELLS = 4_000_000;
+
+  type DiffOp = { type: 'same' | 'add' | 'del'; line: string };
+
+  // 범용 LCS diff: 항목 배열 두 개의 차이를 계산한다.
+  // 공통 앞/뒤 구간을 먼저 잘라내 DP 크기를 줄이고, maxCells를 넘으면 null.
+  function lcsDiff(a: string[], b: string[], maxCells: number): DiffOp[] | null {
+    let start = 0;
+    while (start < a.length && start < b.length && a[start] === b[start]) start++;
+    let endA = a.length;
+    let endB = b.length;
+    while (endA > start && endB > start && a[endA - 1] === b[endB - 1]) {
+      endA--;
+      endB--;
+    }
+
+    const midA = a.slice(start, endA);
+    const midB = b.slice(start, endB);
+    if (midA.length * midB.length > maxCells) return null;
+
+    // LCS 길이 테이블
+    const cols = midB.length + 1;
+    const table = new Uint32Array((midA.length + 1) * cols);
+    for (let i = 1; i <= midA.length; i++) {
+      for (let j = 1; j <= midB.length; j++) {
+        table[i * cols + j] =
+          midA[i - 1] === midB[j - 1]
+            ? table[(i - 1) * cols + (j - 1)] + 1
+            : Math.max(table[(i - 1) * cols + j], table[i * cols + (j - 1)]);
+      }
+    }
+
+    // 역추적
+    const middle: DiffOp[] = [];
+    let i = midA.length;
+    let j = midB.length;
+    while (i > 0 || j > 0) {
+      if (i > 0 && j > 0 && midA[i - 1] === midB[j - 1]) {
+        middle.push({ type: 'same', line: midA[i - 1] });
+        i--;
+        j--;
+      } else if (j > 0 && (i === 0 || table[i * cols + (j - 1)] >= table[(i - 1) * cols + j])) {
+        middle.push({ type: 'add', line: midB[j - 1] });
+        j--;
+      } else {
+        middle.push({ type: 'del', line: midA[i - 1] });
+        i--;
+      }
+    }
+    middle.reverse();
+
+    return [
+      ...a.slice(0, start).map((line): DiffOp => ({ type: 'same', line })),
+      ...middle,
+      ...a.slice(endA).map((line): DiffOp => ({ type: 'same', line })),
+    ];
+  }
+
+  // ---------- 줄 안 강조 (intra-line diff) ----------
+  // 삭제 줄과 추가 줄을 짝지어, 줄 안에서 달라진 문자만 진하게 표시한다.
+  // 매우 긴 줄(약 500자 초과 조합)은 강조 없이 줄 전체 표시로 강등된다.
+
+  type Segment = { text: string; changed: boolean };
+
+  const tokenize = (line: string) => [...line];
+
+  function intralineSegments(a: string, b: string): [Segment[], Segment[]] | null {
+    const ops = lcsDiff(tokenize(a), tokenize(b), 250_000);
+    if (ops === null) return null;
+    const segmentsA: Segment[] = [];
+    const segmentsB: Segment[] = [];
+    const push = (list: Segment[], text: string, changed: boolean) => {
+      const last = list[list.length - 1];
+      if (last && last.changed === changed) last.text += text;
+      else list.push({ text, changed });
+    };
+    for (const op of ops) {
+      if (op.type === 'same') {
+        push(segmentsA, op.line, false);
+        push(segmentsB, op.line, false);
+      } else if (op.type === 'del') {
+        push(segmentsA, op.line, true);
+      } else {
+        push(segmentsB, op.line, true);
+      }
+    }
+    return [segmentsA, segmentsB];
+  }
+
+  const MARKERS = { same: ' ', add: '+', del: '-' } as const;
+
+  function buildRow(type: DiffOp['type'], content: string | Segment[]): HTMLDivElement {
+    const row = document.createElement('div');
+    row.className = `df-row df-${type}`;
+    row.append(`${MARKERS[type]} `);
+    if (typeof content === 'string') {
+      row.append(content);
+    } else {
+      for (const segment of content) {
+        if (segment.changed) {
+          const mark = document.createElement('span');
+          mark.className = 'df-hl';
+          mark.textContent = segment.text;
+          row.appendChild(mark);
+        } else {
+          row.append(segment.text);
+        }
+      }
+    }
+    return row;
+  }
+
+  function runDiff() {
+    status.textContent = '';
+    output.innerHTML = '';
+    stats.textContent = '';
+    if (inputA.value === '' && inputB.value === '') return;
+
+    const ops = lcsDiff(inputA.value.split('\n'), inputB.value.split('\n'), MAX_CELLS);
+    if (ops === null) {
+      status.textContent = '입력이 너무 커서 비교할 수 없습니다. 텍스트를 줄여주세요.';
+      return;
+    }
+
+    let added = 0;
+    let deleted = 0;
+    let k = 0;
+    while (k < ops.length) {
+      if (ops[k].type === 'same') {
+        output.appendChild(buildRow('same', ops[k].line));
+        k++;
+        continue;
+      }
+      // 연속된 변경 블록을 모아 삭제↔추가 줄을 짝짓고, 짝지어진 줄은 줄 안 강조를 적용
+      const dels: string[] = [];
+      const adds: string[] = [];
+      while (k < ops.length && ops[k].type !== 'same') {
+        if (ops[k].type === 'del') dels.push(ops[k].line);
+        else adds.push(ops[k].line);
+        k++;
+      }
+      deleted += dels.length;
+      added += adds.length;
+
+      const paired = Math.min(dels.length, adds.length);
+      const delRows: HTMLElement[] = [];
+      const addRows: HTMLElement[] = [];
+      for (let p = 0; p < paired; p++) {
+        const segments = intralineSegments(dels[p], adds[p]);
+        delRows.push(buildRow('del', segments ? segments[0] : dels[p]));
+        addRows.push(buildRow('add', segments ? segments[1] : adds[p]));
+      }
+      for (let p = paired; p < dels.length; p++) delRows.push(buildRow('del', dels[p]));
+      for (let p = paired; p < adds.length; p++) addRows.push(buildRow('add', adds[p]));
+      output.append(...delRows, ...addRows);
+    }
+
+    stats.textContent =
+      added === 0 && deleted === 0
+        ? '두 텍스트가 동일합니다.'
+        : `추가 ${added.toLocaleString()}줄 · 삭제 ${deleted.toLocaleString()}줄`;
+  }
+
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  function schedule() {
+    if (timer !== null) clearTimeout(timer);
+    timer = setTimeout(runDiff, 250);
+  }
+  inputA.addEventListener('input', schedule);
+  inputB.addEventListener('input', schedule);
+</script>
+
+<style>
+  .df {
+    display: grid;
+    gap: 0.9rem;
+  }
+
+  .df-inputs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.7rem;
+  }
+
+  @media (max-width: 720px) {
+    .df-inputs {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  .df-output {
+    max-height: 28rem;
+    overflow: auto;
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    border-radius: 0.7rem;
+    padding: 0.5rem 0;
+    font-family: Consolas, 'Courier New', monospace;
+    font-size: 0.85rem;
+    line-height: 1.5;
+  }
+
+  .df-output:empty {
+    display: none;
+  }
+
+  /* diff 행은 JS로 생성되므로 :global로 선언 */
+  .df-output :global(.df-row) {
+    padding: 0 0.8rem;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  .df-output :global(.df-add) {
+    background: rgba(55, 178, 77, 0.16);
+    color: light-dark(#2b8a3e, #8ce99a);
+  }
+
+  .df-output :global(.df-del) {
+    background: rgba(224, 49, 49, 0.14);
+    color: light-dark(#c92a2a, #ffa8a8);
+  }
+
+  /* 줄 안에서 실제로 달라진 부분만 진하게 강조 */
+  .df-output :global(.df-add .df-hl) {
+    background: rgba(55, 178, 77, 0.38);
+    border-radius: 2px;
+  }
+
+  .df-output :global(.df-del .df-hl) {
+    background: rgba(224, 49, 49, 0.34);
+    border-radius: 2px;
+  }
+</style>

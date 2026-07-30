@@ -45,7 +45,7 @@
 ### 탭형 도구 페이지 공통 구조 (개발 도구 · 하드웨어 테스트)
 
 - 탭 하나가 곧 정적 페이지 하나다 (해시 대신 고유 URL 경로):
-  `/devtools/{timestamp,json,regex}/`,
+  `/devtools/{timestamp,json,regex,diff,color,random,cron}/`,
   `/hwtest/{keyboard,mouse,touch,monitor,reaction,sound,webcam,mic,geo,network}/`.
 - 공용 셸은 `src/components/ToolPage.astro` — 홈 링크·소개·링크형 탭 바·본문
   슬롯. 공통 컨트롤 스타일(.btn/.chip/.status/.hint/.field-row/textarea)은
@@ -65,6 +65,13 @@
 - JSON 에러 위치는 브라우저별 메시지(position/line·column)에서 추출하고,
   추출 실패 시 메시지만 표시하는 강등 경로가 있다.
 - 정규식은 제로 폭 매치 무한 루프를 피하려고 matchAll만 쓰고, 매치 5,000개 상한.
+- Diff: 줄 단위 LCS(공통 앞뒤 구간 제외 후 DP). DP 셀 400만 개 상한으로
+  브라우저 멈춤을 방지한다.
+- 색상: 파싱은 canvas fillStyle 정규화 + CSS.supports 검증. 대비는 WCAG
+  상대 휘도 공식.
+- 랜덤: crypto 기반. 문자열은 modulo 편향을 피하는 rejection sampling.
+- Cron: 5필드(분 시 일 월 요일), 일·요일이 모두 제한되면 표준 cron처럼 OR.
+  다음 실행은 날짜 단위로 건너뛰며 최대 5년 탐색.
 
 ### 하드웨어 테스트 (`src/pages/hwtest/`)
 - 키보드: 전용 페이지라 포커스 없이 항상 캡처(Esc 포함). F5/F11/Ctrl·Cmd 조합만

@@ -9,6 +9,10 @@ export const devtools = {
     { label: '타임스탬프', href: '/devtools/timestamp/' },
     { label: 'JSON', href: '/devtools/json/' },
     { label: '정규식', href: '/devtools/regex/' },
+    { label: 'Diff', href: '/devtools/diff/' },
+    { label: '색상', href: '/devtools/color/' },
+    { label: '랜덤', href: '/devtools/random/' },
+    { label: 'Cron', href: '/devtools/cron/' },
   ] satisfies ToolTab[],
 };
 

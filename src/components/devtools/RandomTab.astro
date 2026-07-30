@@ -1,0 +1,149 @@
+---
+// UUID·랜덤 문자열 생성 (crypto 기반)
+---
+
+<div class="rd">
+  <div class="field-row">
+    <button id="rd-uuid" class="btn btn-primary" type="button">UUID v4 생성</button>
+    <label class="rd-count">
+      개수
+      <input id="rd-uuid-count" type="number" min="1" max="100" step="1" value="5" />
+    </label>
+  </div>
+
+  <h2>랜덤 문자열</h2>
+  <div class="field-row">
+    <button id="rd-string" class="btn btn-primary" type="button">문자열 생성</button>
+    <label class="rd-count">
+      길이
+      <input id="rd-length" type="number" min="4" max="128" step="1" value="24" />
+    </label>
+    <label class="rd-count">
+      개수
+      <input id="rd-string-count" type="number" min="1" max="100" step="1" value="5" />
+    </label>
+    <div class="chip-group" aria-label="문자 종류">
+      <label class="chip">
+        <input type="checkbox" class="rd-charset" data-chars="abcdefghijklmnopqrstuvwxyz" checked />
+        <span>소문자</span>
+      </label>
+      <label class="chip">
+        <input type="checkbox" class="rd-charset" data-chars="ABCDEFGHIJKLMNOPQRSTUVWXYZ" checked />
+        <span>대문자</span>
+      </label>
+      <label class="chip">
+        <input type="checkbox" class="rd-charset" data-chars="0123456789" checked />
+        <span>숫자</span>
+      </label>
+      <label class="chip">
+        <input type="checkbox" class="rd-charset" data-chars="!@#$%^&*()-_=+[]{};:,.?/" />
+        <span>특수문자</span>
+      </label>
+    </div>
+  </div>
+
+  <div class="rd-result-head">
+    <span class="hint">결과는 브라우저의 crypto(암호학적 난수)로 생성됩니다.</span>
+    <button class="btn btn-small copy" data-target="rd-output" type="button">복사</button>
+  </div>
+  <textarea id="rd-output" rows="8" spellcheck="false" readonly></textarea>
+  <p id="rd-status" class="status" role="status"></p>
+</div>
+
+<script>
+  import { setupCopyButtons } from '../../lib/copy-buttons';
+
+  setupCopyButtons();
+
+  const output = document.getElementById('rd-output') as HTMLTextAreaElement;
+  const status = document.getElementById('rd-status') as HTMLParagraphElement;
+
+  const clampCount = (id: string, max: number) => {
+    const raw = Number((document.getElementById(id) as HTMLInputElement).value);
+    return Math.min(max, Math.max(1, Math.floor(Number.isFinite(raw) ? raw : 1)));
+  };
+
+  document.getElementById('rd-uuid')!.addEventListener('click', () => {
+    status.textContent = '';
+    const count = clampCount('rd-uuid-count', 100);
+    output.value = Array.from({ length: count }, () => crypto.randomUUID()).join('\n');
+  });
+
+  // modulo 편향을 피하려고 균등 범위를 벗어난 바이트는 버리고 다시 뽑는다
+  function randomString(charset: string, length: number): string {
+    const acceptLimit = Math.floor(256 / charset.length) * charset.length;
+    let result = '';
+    const buffer = new Uint8Array(length * 2);
+    while (result.length < length) {
+      crypto.getRandomValues(buffer);
+      for (const byte of buffer) {
+        if (byte < acceptLimit) {
+          result += charset[byte % charset.length];
+          if (result.length === length) break;
+        }
+      }
+    }
+    return result;
+  }
+
+  document.getElementById('rd-string')!.addEventListener('click', () => {
+    status.textContent = '';
+    const charset = Array.from(
+      document.querySelectorAll<HTMLInputElement>('.rd-charset:checked'),
+    )
+      .map((c) => c.dataset.chars!)
+      .join('');
+    if (charset === '') {
+      status.textContent = '문자 종류를 하나 이상 선택해주세요.';
+      return;
+    }
+    const length = clampCount('rd-length', 128);
+    const count = clampCount('rd-string-count', 100);
+    output.value = Array.from({ length: count }, () => randomString(charset, length)).join('\n');
+  });
+</script>
+
+<style>
+  .rd {
+    display: grid;
+    gap: 0.9rem;
+  }
+
+  .rd h2 {
+    margin: 0.6rem 0 0;
+    font-size: 1rem;
+    color: var(--text-dim);
+  }
+
+  .rd-count {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    color: var(--text-dim);
+    font-size: 0.9rem;
+    font-weight: 600;
+  }
+
+  .rd-count input {
+    width: 4.5rem;
+    border: 1px solid var(--border);
+    background: var(--bg-soft);
+    color: var(--text);
+    font: inherit;
+    font-size: 0.9rem;
+    padding: 0.35rem 0.5rem;
+    border-radius: 0.6rem;
+  }
+
+  .rd-count input:focus {
+    outline: 2px solid var(--accent);
+    border-color: var(--accent);
+  }
+
+  .rd-result-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.7rem;
+  }
+</style>

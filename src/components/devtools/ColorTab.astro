@@ -1,0 +1,460 @@
+---
+// 색상 변환(HEX/RGB/HSL) + WCAG 대비 검사
+---
+
+<div class="cl">
+  <div class="field-row">
+    <input
+      id="cl-input"
+      type="text"
+      spellcheck="false"
+      placeholder="#4263eb, rgb(66, 99, 235), tomato …"
+    />
+    <input id="cl-picker" type="color" value="#4263eb" aria-label="색상 선택" />
+    <span id="cl-swatch" class="cl-swatch" aria-hidden="true"></span>
+  </div>
+
+  <div class="result-card" id="cl-results" hidden>
+    <div class="result-row">
+      <span class="result-label">HEX</span>
+      <output id="cl-hex"></output>
+      <button class="btn btn-small copy" data-target="cl-hex" type="button">복사</button>
+    </div>
+    <div class="result-row">
+      <span class="result-label">RGB</span>
+      <output id="cl-rgb"></output>
+      <button class="btn btn-small copy" data-target="cl-rgb" type="button">복사</button>
+    </div>
+    <div class="result-row">
+      <span class="result-label">HSL</span>
+      <output id="cl-hsl"></output>
+      <button class="btn btn-small copy" data-target="cl-hsl" type="button">복사</button>
+    </div>
+  </div>
+
+  <h2>이미지에서 추출 (스포이드)</h2>
+  <div class="cl-drop" id="cl-drop">
+    <canvas id="cl-canvas" hidden></canvas>
+    <p class="cl-drop-guide" id="cl-drop-guide">
+      이미지를 여기에 드래그하거나 붙여넣기(Ctrl+V)하세요.
+      <button id="cl-image-select" class="btn btn-small" type="button">이미지 선택</button>
+    </p>
+  </div>
+  <input id="cl-image-file" type="file" accept="image/*" hidden />
+  <p class="cl-pick hint" id="cl-pick" hidden>
+    <span class="cl-pick-swatch" id="cl-pick-swatch"></span>
+    <output id="cl-pick-hex"></output>
+    <span>— 이미지를 클릭하면 위 변환기에 입력됩니다</span>
+  </p>
+
+  <h2>대비 검사 (WCAG)</h2>
+  <div class="field-row">
+    <label class="cl-pair">
+      글자색
+      <input id="cl-fg" type="color" value="#e8eaf0" aria-label="글자색" />
+    </label>
+    <label class="cl-pair">
+      배경색
+      <input id="cl-bg" type="color" value="#0f1117" aria-label="배경색" />
+    </label>
+    <output id="cl-ratio" class="cl-ratio"></output>
+  </div>
+  <div class="cl-badges" id="cl-badges"></div>
+  <div class="cl-preview" id="cl-preview">
+    <span class="cl-preview-normal">일반 텍스트 샘플 Aa 123</span>
+    <span class="cl-preview-large">큰 텍스트 샘플 Aa</span>
+  </div>
+
+  <p id="cl-status" class="status" role="status"></p>
+</div>
+
+<script>
+  import { setupCopyButtons } from '../../lib/copy-buttons';
+
+  setupCopyButtons();
+
+  const input = document.getElementById('cl-input') as HTMLInputElement;
+  const picker = document.getElementById('cl-picker') as HTMLInputElement;
+  const swatch = document.getElementById('cl-swatch') as HTMLSpanElement;
+  const results = document.getElementById('cl-results') as HTMLDivElement;
+  const status = document.getElementById('cl-status') as HTMLParagraphElement;
+  const fgPicker = document.getElementById('cl-fg') as HTMLInputElement;
+  const bgPicker = document.getElementById('cl-bg') as HTMLInputElement;
+  const ratioOut = document.getElementById('cl-ratio') as HTMLOutputElement;
+  const badges = document.getElementById('cl-badges') as HTMLDivElement;
+  const preview = document.getElementById('cl-preview') as HTMLDivElement;
+
+  const out = (id: string) => document.getElementById(id) as HTMLOutputElement;
+
+  // 브라우저의 색상 파서를 활용해 어떤 CSS 색 표기든 #rrggbb로 정규화한다
+  const parseContext = document.createElement('canvas').getContext('2d')!;
+
+  function normalizeColor(value: string): string | null {
+    if (!CSS.supports('color', value)) return null;
+    parseContext.fillStyle = '#000000';
+    parseContext.fillStyle = value;
+    const normalized = parseContext.fillStyle;
+    // rgba(...) 형태(투명도 포함)는 대비 계산이 모호하므로 hex만 다룬다
+    return normalized.startsWith('#') ? normalized : null;
+  }
+
+  function hexToRgb(hex: string): [number, number, number] {
+    return [
+      parseInt(hex.slice(1, 3), 16),
+      parseInt(hex.slice(3, 5), 16),
+      parseInt(hex.slice(5, 7), 16),
+    ];
+  }
+
+  function rgbToHsl(r: number, g: number, b: number): [number, number, number] {
+    const rn = r / 255;
+    const gn = g / 255;
+    const bn = b / 255;
+    const max = Math.max(rn, gn, bn);
+    const min = Math.min(rn, gn, bn);
+    const lightness = (max + min) / 2;
+    if (max === min) return [0, 0, Math.round(lightness * 100)];
+    const delta = max - min;
+    const saturation = delta / (1 - Math.abs(2 * lightness - 1));
+    let hue: number;
+    if (max === rn) hue = ((gn - bn) / delta) % 6;
+    else if (max === gn) hue = (bn - rn) / delta + 2;
+    else hue = (rn - gn) / delta + 4;
+    hue = Math.round(hue * 60);
+    if (hue < 0) hue += 360;
+    return [hue, Math.round(saturation * 100), Math.round(lightness * 100)];
+  }
+
+  function renderConversion(hex: string) {
+    const [r, g, b] = hexToRgb(hex);
+    const [h, s, l] = rgbToHsl(r, g, b);
+    out('cl-hex').textContent = hex;
+    out('cl-rgb').textContent = `rgb(${r}, ${g}, ${b})`;
+    out('cl-hsl').textContent = `hsl(${h}, ${s}%, ${l}%)`;
+    swatch.style.background = hex;
+    results.hidden = false;
+  }
+
+  input.addEventListener('input', () => {
+    status.textContent = '';
+    const value = input.value.trim();
+    if (!value) return;
+    const hex = normalizeColor(value);
+    if (hex === null) {
+      status.textContent = '해석할 수 없는 색상입니다. (#rrggbb, rgb(), hsl(), 색 이름 지원)';
+      return;
+    }
+    picker.value = hex;
+    renderConversion(hex);
+  });
+
+  picker.addEventListener('input', () => {
+    status.textContent = '';
+    input.value = picker.value;
+    renderConversion(picker.value);
+  });
+
+  // ---------- 이미지 스포이드 ----------
+
+  const dropZone = document.getElementById('cl-drop') as HTMLDivElement;
+  const pickCanvas = document.getElementById('cl-canvas') as HTMLCanvasElement;
+  const dropGuide = document.getElementById('cl-drop-guide') as HTMLParagraphElement;
+  const imageFileInput = document.getElementById('cl-image-file') as HTMLInputElement;
+  const pickRow = document.getElementById('cl-pick') as HTMLParagraphElement;
+  const pickSwatch = document.getElementById('cl-pick-swatch') as HTMLSpanElement;
+  const pickHex = document.getElementById('cl-pick-hex') as HTMLOutputElement;
+
+  const pickContext = pickCanvas.getContext('2d', { willReadFrequently: true })!;
+
+  function loadImage(source: Blob) {
+    status.textContent = '';
+    if (!source.type.startsWith('image/')) {
+      status.textContent = '이미지 파일이 아닙니다.';
+      return;
+    }
+    const url = URL.createObjectURL(source);
+    const image = new Image();
+    image.onload = () => {
+      URL.revokeObjectURL(url);
+      pickCanvas.width = image.naturalWidth;
+      pickCanvas.height = image.naturalHeight;
+      pickContext.drawImage(image, 0, 0);
+      pickCanvas.hidden = false;
+      dropGuide.hidden = true;
+      pickRow.hidden = false;
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(url);
+      status.textContent = '이미지를 불러오지 못했습니다.';
+    };
+    image.src = url;
+  }
+
+  // 표시 크기 → 원본 픽셀 좌표로 환산해 색을 샘플링한다
+  function pixelHexAt(e: MouseEvent): string {
+    const rect = pickCanvas.getBoundingClientRect();
+    const x = Math.min(
+      pickCanvas.width - 1,
+      Math.max(0, Math.floor(((e.clientX - rect.left) / rect.width) * pickCanvas.width)),
+    );
+    const y = Math.min(
+      pickCanvas.height - 1,
+      Math.max(0, Math.floor(((e.clientY - rect.top) / rect.height) * pickCanvas.height)),
+    );
+    const [r, g, b] = pickContext.getImageData(x, y, 1, 1).data;
+    return `#${[r, g, b].map((v) => v.toString(16).padStart(2, '0')).join('')}`;
+  }
+
+  pickCanvas.addEventListener('pointermove', (e) => {
+    const hex = pixelHexAt(e);
+    pickSwatch.style.background = hex;
+    pickHex.textContent = hex;
+  });
+
+  pickCanvas.addEventListener('click', (e) => {
+    const hex = pixelHexAt(e);
+    input.value = hex;
+    picker.value = hex;
+    renderConversion(hex);
+  });
+
+  document.getElementById('cl-image-select')!.addEventListener('click', () => {
+    imageFileInput.click();
+  });
+
+  imageFileInput.addEventListener('change', () => {
+    const file = imageFileInput.files?.[0];
+    if (file) loadImage(file);
+    imageFileInput.value = '';
+  });
+
+  dropZone.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    dropZone.classList.add('drag-over');
+  });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+  dropZone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dropZone.classList.remove('drag-over');
+    const file = e.dataTransfer?.files?.[0];
+    if (file) loadImage(file);
+  });
+
+  document.addEventListener('paste', (e) => {
+    const item = Array.from(e.clipboardData?.items ?? []).find((i) =>
+      i.type.startsWith('image/'),
+    );
+    const file = item?.getAsFile();
+    if (file) loadImage(file);
+  });
+
+  // ---------- WCAG 대비 ----------
+
+  function relativeLuminance(hex: string): number {
+    const linearize = (channel: number) => {
+      const c = channel / 255;
+      return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+    };
+    const [r, g, b] = hexToRgb(hex);
+    return 0.2126 * linearize(r) + 0.7152 * linearize(g) + 0.0722 * linearize(b);
+  }
+
+  function contrastRatio(a: string, b: string): number {
+    const la = relativeLuminance(a);
+    const lb = relativeLuminance(b);
+    return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+  }
+
+  function renderContrast() {
+    const ratio = contrastRatio(fgPicker.value, bgPicker.value);
+    ratioOut.textContent = `대비 ${ratio.toFixed(2)} : 1`;
+    const checks: [string, boolean][] = [
+      ['AA 일반 (4.5)', ratio >= 4.5],
+      ['AA 큰글씨 (3)', ratio >= 3],
+      ['AAA 일반 (7)', ratio >= 7],
+      ['AAA 큰글씨 (4.5)', ratio >= 4.5],
+    ];
+    badges.innerHTML = '';
+    for (const [label, pass] of checks) {
+      const badge = document.createElement('span');
+      badge.className = `cl-badge ${pass ? 'cl-pass' : 'cl-fail'}`;
+      badge.textContent = `${pass ? '✓' : '✗'} ${label}`;
+      badges.appendChild(badge);
+    }
+    preview.style.color = fgPicker.value;
+    preview.style.background = bgPicker.value;
+  }
+
+  fgPicker.addEventListener('input', renderContrast);
+  bgPicker.addEventListener('input', renderContrast);
+
+  renderConversion(picker.value);
+  input.value = picker.value;
+  renderContrast();
+</script>
+
+<style>
+  .cl {
+    display: grid;
+    gap: 0.9rem;
+  }
+
+  .cl h2 {
+    margin: 0.6rem 0 0;
+    font-size: 1rem;
+    color: var(--text-dim);
+  }
+
+  .cl input[type='color'] {
+    width: 44px;
+    height: 36px;
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+    background: var(--surface);
+    padding: 2px;
+    cursor: pointer;
+  }
+
+  .cl-swatch {
+    width: 36px;
+    height: 36px;
+    border-radius: 0.5rem;
+    border: 1px solid var(--border);
+  }
+
+  .result-card {
+    display: grid;
+    gap: 0.5rem;
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    border-radius: 0.8rem;
+    padding: 0.9rem 1rem;
+  }
+
+  .result-row {
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+  }
+
+  .result-label {
+    flex: 0 0 3.2rem;
+    color: var(--text-dim);
+    font-size: 0.85rem;
+    font-weight: 600;
+  }
+
+  .result-row output {
+    flex: 1;
+    font-family: Consolas, 'Courier New', monospace;
+    font-size: 0.95rem;
+  }
+
+  .cl-drop {
+    display: grid;
+    place-items: center;
+    min-height: 120px;
+    border: 1px dashed var(--border);
+    border-radius: 0.8rem;
+    background: var(--bg-soft);
+    overflow: hidden;
+  }
+
+  .cl-drop.drag-over {
+    border-color: var(--accent);
+    border-style: solid;
+  }
+
+  .cl-drop canvas {
+    display: block;
+    max-width: 100%;
+    max-height: 420px;
+    cursor: crosshair;
+  }
+
+  .cl-drop-guide {
+    margin: 0;
+    padding: 1rem;
+    color: var(--text-dim);
+    font-size: 0.9rem;
+    text-align: center;
+  }
+
+  .cl-pick {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  /* display: flex가 hidden 속성의 기본 display: none을 덮어쓰지 않도록 */
+  .cl-pick[hidden] {
+    display: none;
+  }
+
+  .cl-pick-swatch {
+    width: 18px;
+    height: 18px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+  }
+
+  .cl-pick output {
+    font-family: Consolas, 'Courier New', monospace;
+  }
+
+  .cl-pair {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    color: var(--text-dim);
+    font-size: 0.9rem;
+    font-weight: 600;
+  }
+
+  .cl-ratio {
+    font-weight: 700;
+    font-size: 1.05rem;
+  }
+
+  .cl-badges {
+    display: flex;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+  }
+
+  /* 배지는 JS로 생성되므로 :global로 선언 */
+  .cl-badges :global(.cl-badge) {
+    font-size: 0.8rem;
+    font-weight: 600;
+    padding: 0.2rem 0.6rem;
+    border-radius: 999px;
+    border: 1px solid;
+  }
+
+  .cl-badges :global(.cl-pass) {
+    color: light-dark(#2b8a3e, #8ce99a);
+    border-color: currentColor;
+  }
+
+  .cl-badges :global(.cl-fail) {
+    color: var(--danger);
+    border-color: currentColor;
+  }
+
+  .cl-preview {
+    display: grid;
+    gap: 0.3rem;
+    padding: 1rem 1.2rem;
+    border-radius: 0.8rem;
+    border: 1px solid var(--border);
+  }
+
+  .cl-preview-normal {
+    font-size: 0.95rem;
+  }
+
+  .cl-preview-large {
+    font-size: 1.5rem;
+    font-weight: 700;
+  }
+</style>

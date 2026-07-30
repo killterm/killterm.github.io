@@ -1,0 +1,253 @@
+---
+// cron 표현식 해석: 필드별 설명 + 다음 실행 시각 계산
+---
+
+<div class="cr">
+  <div class="field-row">
+    <input
+      id="cr-input"
+      type="text"
+      spellcheck="false"
+      placeholder="*/5 9-18 * * 1-5"
+      value="*/5 9-18 * * 1-5"
+    />
+  </div>
+  <p class="hint">형식: 분(0-59) 시(0-23) 일(1-31) 월(1-12) 요일(0-7, 0·7=일) — *, */n, a-b, a,b,c 지원</p>
+
+  <div class="result-card" id="cr-results" hidden>
+    <div class="cr-desc" id="cr-desc"></div>
+    <div class="cr-next">
+      <span class="cr-next-label">다음 실행 (브라우저 로컬 시간)</span>
+      <ol id="cr-next-list"></ol>
+    </div>
+  </div>
+  <p id="cr-status" class="status" role="status"></p>
+</div>
+
+<script>
+  const input = document.getElementById('cr-input') as HTMLInputElement;
+  const results = document.getElementById('cr-results') as HTMLDivElement;
+  const descOut = document.getElementById('cr-desc') as HTMLDivElement;
+  const nextList = document.getElementById('cr-next-list') as HTMLOListElement;
+  const status = document.getElementById('cr-status') as HTMLParagraphElement;
+
+  const FIELD_NAMES = ['분', '시', '일', '월', '요일'];
+  const FIELD_RANGES: [number, number][] = [
+    [0, 59],
+    [0, 23],
+    [1, 31],
+    [1, 12],
+    [0, 7],
+  ];
+  const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
+
+  // 한 필드("*/5", "1-5", "0,30" 등)를 허용 값 집합으로 푼다
+  function parseField(expr: string, min: number, max: number): Set<number> {
+    const values = new Set<number>();
+    for (const part of expr.split(',')) {
+      const stepMatch = part.match(/^(.+)\/(\d+)$/);
+      const step = stepMatch ? Number(stepMatch[2]) : 1;
+      const base = stepMatch ? stepMatch[1] : part;
+      if (step === 0) throw new Error(`${part}: 간격은 1 이상이어야 합니다`);
+
+      let from: number;
+      let to: number;
+      if (base === '*') {
+        from = min;
+        to = max;
+      } else if (/^\d+-\d+$/.test(base)) {
+        [from, to] = base.split('-').map(Number);
+      } else if (/^\d+$/.test(base)) {
+        from = Number(base);
+        to = stepMatch ? max : from;
+      } else {
+        throw new Error(`${part}: 해석할 수 없는 표기입니다`);
+      }
+      if (from < min || to > max || from > to) {
+        throw new Error(`${part}: ${min}~${max} 범위를 벗어났습니다`);
+      }
+      for (let v = from; v <= to; v += step) values.add(v);
+    }
+    return values;
+  }
+
+  type CronSets = {
+    minutes: Set<number>;
+    hours: Set<number>;
+    daysOfMonth: Set<number>;
+    months: Set<number>;
+    daysOfWeek: Set<number>;
+    domRestricted: boolean;
+    dowRestricted: boolean;
+  };
+
+  function parseCron(expr: string): CronSets {
+    const fields = expr.trim().split(/\s+/);
+    if (fields.length !== 5) {
+      throw new Error(`필드가 5개여야 합니다 (현재 ${fields.length}개)`);
+    }
+    const parsed = fields.map((f, i) => parseField(f, FIELD_RANGES[i][0], FIELD_RANGES[i][1]));
+    const daysOfWeek = new Set([...parsed[4]].map((d) => (d === 7 ? 0 : d)));
+    return {
+      minutes: parsed[0],
+      hours: parsed[1],
+      daysOfMonth: parsed[2],
+      months: parsed[3],
+      daysOfWeek,
+      domRestricted: fields[2] !== '*',
+      dowRestricted: fields[4] !== '*',
+    };
+  }
+
+  function describeField(expr: string, index: number): string {
+    if (expr === '*') return ['매분', '매시', '매일', '매월', '모든 요일'][index];
+    const label = (v: string) => (index === 4 ? (WEEKDAYS[Number(v) % 7] ?? v) : v);
+    return expr
+      .split(',')
+      .map((part) => {
+        const stepMatch = part.match(/^(.+)\/(\d+)$/);
+        if (stepMatch) {
+          const base = stepMatch[1] === '*' ? '' : `${stepMatch[1]} 범위에서 `;
+          return `${base}${stepMatch[2]}${FIELD_NAMES[index]}마다`.replace('일일', '일');
+        }
+        if (part.includes('-')) {
+          const [from, to] = part.split('-');
+          return `${label(from)}~${label(to)}`;
+        }
+        return label(part);
+      })
+      .join(', ');
+  }
+
+  // 날짜 단위로 건너뛰며 다음 실행 시각을 찾는다 (최대 5년 탐색)
+  function nextRuns(sets: CronSets, count: number): Date[] {
+    const runs: Date[] = [];
+    const start = new Date();
+    start.setSeconds(0, 0);
+    start.setMinutes(start.getMinutes() + 1);
+
+    const day = new Date(start);
+    day.setHours(0, 0, 0, 0);
+
+    for (let i = 0; i < 1830 && runs.length < count; i++) {
+      const monthMatch = sets.months.has(day.getMonth() + 1);
+      const domMatch = sets.daysOfMonth.has(day.getDate());
+      const dowMatch = sets.daysOfWeek.has(day.getDay());
+      // 표준 cron: 일·요일이 모두 제한되면 OR, 아니면 AND
+      const dayMatch =
+        sets.domRestricted && sets.dowRestricted ? domMatch || dowMatch : domMatch && dowMatch;
+
+      if (monthMatch && dayMatch) {
+        for (const hour of [...sets.hours].sort((a, b) => a - b)) {
+          for (const minute of [...sets.minutes].sort((a, b) => a - b)) {
+            const candidate = new Date(day);
+            candidate.setHours(hour, minute);
+            if (candidate >= start) {
+              runs.push(candidate);
+              if (runs.length === count) return runs;
+            }
+          }
+        }
+      }
+      day.setDate(day.getDate() + 1);
+    }
+    return runs;
+  }
+
+  const formatter = new Intl.DateTimeFormat('ko-KR', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    weekday: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+
+  function run() {
+    status.textContent = '';
+    if (input.value.trim() === '') {
+      results.hidden = true;
+      return;
+    }
+    let sets: CronSets;
+    try {
+      sets = parseCron(input.value);
+    } catch (e) {
+      results.hidden = true;
+      status.textContent = e instanceof Error ? e.message : String(e);
+      return;
+    }
+
+    const fields = input.value.trim().split(/\s+/);
+    descOut.innerHTML = '';
+    for (const [i, field] of fields.entries()) {
+      const row = document.createElement('div');
+      row.className = 'cr-desc-row';
+      row.textContent = `${FIELD_NAMES[i]}: ${describeField(field, i)}`;
+      descOut.appendChild(row);
+    }
+
+    nextList.innerHTML = '';
+    const runs = nextRuns(sets, 5);
+    if (runs.length === 0) {
+      status.textContent = '5년 안에 일치하는 실행 시각이 없습니다 (2월 30일 같은 조합인지 확인).';
+    }
+    for (const run of runs) {
+      const item = document.createElement('li');
+      item.textContent = formatter.format(run);
+      nextList.appendChild(item);
+    }
+    results.hidden = false;
+  }
+
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  input.addEventListener('input', () => {
+    if (timer !== null) clearTimeout(timer);
+    timer = setTimeout(run, 200);
+  });
+
+  run();
+</script>
+
+<style>
+  .cr {
+    display: grid;
+    gap: 0.9rem;
+  }
+
+  .result-card {
+    display: grid;
+    gap: 0.8rem;
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    border-radius: 0.8rem;
+    padding: 0.9rem 1rem;
+  }
+
+  .cr-desc {
+    display: grid;
+    gap: 0.2rem;
+  }
+
+  /* 설명 행은 JS로 생성되므로 :global로 선언 */
+  .cr-desc :global(.cr-desc-row) {
+    font-size: 0.92rem;
+  }
+
+  .cr-next-label {
+    display: block;
+    color: var(--text-dim);
+    font-size: 0.85rem;
+    font-weight: 600;
+    margin-bottom: 0.3rem;
+  }
+
+  .cr-next ol {
+    margin: 0;
+    padding-left: 1.4rem;
+    font-family: Consolas, 'Courier New', monospace;
+    font-size: 0.92rem;
+    line-height: 1.7;
+  }
+</style>

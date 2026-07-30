@@ -1,0 +1,16 @@
+---
+import ToolPage from '../../components/ToolPage.astro';
+import RandomTab from '../../components/devtools/RandomTab.astro';
+import { devtools } from '../../lib/tool-tabs';
+---
+
+<ToolPage
+  title="UUID·랜덤 문자열 — Killterm"
+  description="UUID v4와 랜덤 문자열을 생성합니다."
+  heading={devtools.heading}
+  intro={devtools.intro}
+  tabs={devtools.tabs}
+  active="/devtools/random/"
+>
+  <RandomTab />
+</ToolPage>
