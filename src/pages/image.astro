@@ -3,246 +3,458 @@ import Layout from '../layouts/Layout.astro';
 ---
 
 <Layout
-  title="이미지 도구 — Killterm"
-  description="EXIF 확인, 리사이즈, WebP/PNG/JPG 변환을 브라우저 안에서 처리합니다."
+  title="이미지 편집 — Killterm"
+  description="레이어 합성·이동·스케일, 자르기, 캔버스 리사이즈, WebP/PNG/JPG 내보내기, EXIF 확인을 브라우저 안에서 처리합니다."
 >
   <main>
-    <nav class="top">
-      <a href="/">← 홈으로</a>
-    </nav>
-
-    <header class="intro">
-      <h1>🖼️ 이미지 도구</h1>
-      <p>
-        EXIF 메타데이터 확인, 리사이즈, 형식 변환을 한 곳에서. 이미지는 브라우저 밖으로
-        전송되지 않으며, 변환·리사이즈한 다운로드 파일에는 EXIF가 포함되지 않습니다.
-      </p>
+    <header class="editor-header">
+      <a class="home" href="/">← 홈으로</a>
+      <h1>🖼️ 이미지 편집</h1>
+      <span class="note">이미지는 브라우저 밖으로 전송되지 않으며, 내보낸 파일에는 EXIF가 포함되지 않습니다.</span>
     </header>
 
-    <div class="drop" id="img-drop">
-      <div class="stage" id="img-stage" hidden>
-        <img id="img-preview" alt="불러온 이미지 미리보기" />
-        <canvas id="img-crop-overlay" hidden></canvas>
+    <div class="editor">
+      <!-- 좌측 툴바 -->
+      <nav class="toolbar" aria-label="도구">
+        <button id="tool-move" class="tool active" type="button" title="이동 (V)">✥</button>
+        <button id="tool-crop" class="tool" type="button" title="자르기 (C)">⬚</button>
+        <span class="toolbar-divider" aria-hidden="true"></span>
+        <button id="history-undo" class="tool" type="button" title="실행 취소 (Ctrl+Z)" disabled>↶</button>
+        <button id="history-redo" class="tool" type="button" title="다시 실행 (Ctrl+Shift+Z)" disabled>↷</button>
+      </nav>
+
+      <!-- 캔버스 영역 -->
+      <div class="workspace">
+        <div class="context-bar" id="context-bar">
+          <span id="context-hint" class="context-hint">이미지를 추가하면 편집을 시작할 수 있습니다.</span>
+          <div class="crop-options" id="crop-options" hidden>
+            <div class="chip-group" role="radiogroup" aria-label="자르기 비율">
+              <label class="chip">
+                <input type="radio" name="crop-ratio" value="free" checked />
+                <span>자유</span>
+              </label>
+              <label class="chip">
+                <input type="radio" name="crop-ratio" value="1" />
+                <span>1:1</span>
+              </label>
+              <label class="chip">
+                <input type="radio" name="crop-ratio" value={String(4 / 3)} />
+                <span>4:3</span>
+              </label>
+              <label class="chip">
+                <input type="radio" name="crop-ratio" value={String(16 / 9)} />
+                <span>16:9</span>
+              </label>
+              <label class="chip">
+                <input type="radio" name="crop-ratio" value={String(9 / 16)} />
+                <span>9:16</span>
+              </label>
+            </div>
+            <button id="crop-apply" class="btn btn-small btn-primary" type="button" disabled>
+              자르기 적용
+            </button>
+            <button id="crop-cancel" class="btn btn-small" type="button" disabled>
+              선택 해제 (Esc)
+            </button>
+          </div>
+        </div>
+
+        <div class="canvas-area" id="canvas-area">
+          <div class="doc-stack" id="doc-stack" hidden>
+            <canvas id="doc-canvas"></canvas>
+            <canvas id="doc-overlay"></canvas>
+          </div>
+          <p class="drop-guide" id="drop-guide">
+            이미지를 여기에 드래그하거나 붙여넣기(Ctrl+V)하세요.<br />
+            추가하는 이미지마다 새 레이어가 됩니다.
+          </p>
+        </div>
       </div>
-      <p class="drop-guide" id="img-guide">
-        이미지를 여기에 드래그하거나 붙여넣기(Ctrl+V)하세요.
-        <button id="img-select" class="btn btn-small" type="button">이미지 선택</button>
-      </p>
+
+      <!-- 우측 패널 -->
+      <aside class="panel">
+        <section class="panel-section">
+          <h2>레이어</h2>
+          <div class="layer-list" id="layer-list"></div>
+          <div class="panel-row">
+            <button id="layer-up" class="btn btn-small" type="button" title="위로">↑</button>
+            <button id="layer-down" class="btn btn-small" type="button" title="아래로">↓</button>
+            <button id="layer-delete" class="btn btn-small" type="button" title="삭제">🗑</button>
+            <button id="layer-add" class="btn btn-small btn-primary" type="button">이미지 추가</button>
+          </div>
+          <input id="layer-file" type="file" accept="image/*" multiple hidden />
+        </section>
+
+        <section class="panel-section">
+          <h2>캔버스</h2>
+          <div class="panel-row">
+            <label class="num-field">
+              폭
+              <input id="doc-width" type="number" min="1" max="20000" step="1" />
+            </label>
+            <label class="num-field">
+              높이
+              <input id="doc-height" type="number" min="1" max="20000" step="1" />
+            </label>
+          </div>
+          <div class="panel-row">
+            <label class="check-field">
+              <input type="checkbox" id="doc-ratio" checked />
+              비율 유지
+            </label>
+            <button id="doc-resize" class="btn btn-small" type="button">리사이즈 적용</button>
+          </div>
+          <p class="hint">캔버스와 모든 레이어가 함께 스케일됩니다.</p>
+        </section>
+
+        <section class="panel-section">
+          <h2>내보내기</h2>
+          <div class="chip-group" role="radiogroup" aria-label="출력 형식">
+            <label class="chip">
+              <input type="radio" name="export-format" value="image/png" checked />
+              <span>PNG</span>
+            </label>
+            <label class="chip">
+              <input type="radio" name="export-format" value="image/jpeg" />
+              <span>JPG</span>
+            </label>
+            <label class="chip">
+              <input type="radio" name="export-format" value="image/webp" />
+              <span>WebP</span>
+            </label>
+          </div>
+          <div class="panel-row">
+            <label class="num-field">
+              품질
+              <input id="export-quality" type="number" min="1" max="100" step="1" value="90" disabled />
+            </label>
+            <button id="export-download" class="btn btn-small btn-primary" type="button">다운로드</button>
+          </div>
+          <p class="hint">보이는 레이어를 합성해 내보냅니다 (EXIF 제거됨).</p>
+        </section>
+
+        <section class="panel-section">
+          <details id="exif-details">
+            <summary>EXIF (활성 레이어)</summary>
+            <div class="exif-card" id="exif-card">레이어를 선택하세요.</div>
+          </details>
+        </section>
+      </aside>
     </div>
-    <input id="img-file" type="file" accept="image/*" hidden />
-    <p id="img-info" class="hint"></p>
 
-    <section class="section" id="img-exif-section" hidden>
-      <h2>EXIF 메타데이터</h2>
-      <div class="exif-card" id="img-exif"></div>
-    </section>
-
-    <section class="section" id="img-edit-section" hidden>
-      <div class="field-row">
-        <button id="img-reset" class="btn" type="button">원본으로 되돌리기</button>
-        <span class="hint">모든 편집을 취소하고 처음 불러온 이미지로 복원합니다.</span>
-      </div>
-
-      <h2>자르기 (Crop)</h2>
-      <div class="field-row">
-        <button id="img-crop-mode" class="btn" type="button">영역 선택 시작</button>
-        <div class="chip-group" role="radiogroup" aria-label="자르기 비율">
-          <label class="chip">
-            <input type="radio" name="img-crop-ratio" value="free" checked />
-            <span>자유</span>
-          </label>
-          <label class="chip">
-            <input type="radio" name="img-crop-ratio" value="1" />
-            <span>1:1</span>
-          </label>
-          <label class="chip">
-            <input type="radio" name="img-crop-ratio" value={String(4 / 3)} />
-            <span>4:3</span>
-          </label>
-          <label class="chip">
-            <input type="radio" name="img-crop-ratio" value={String(16 / 9)} />
-            <span>16:9</span>
-          </label>
-          <label class="chip">
-            <input type="radio" name="img-crop-ratio" value={String(9 / 16)} />
-            <span>9:16</span>
-          </label>
-        </div>
-        <button id="img-crop-apply" class="btn" type="button" disabled>자르기 적용</button>
-        <span class="hint" id="img-crop-info">영역 선택을 시작한 뒤 이미지 위에서 드래그하세요.</span>
-      </div>
-
-      <h2>리사이즈</h2>
-      <div class="field-row">
-        <label class="num-field">
-          폭
-          <input id="img-width" type="number" min="1" max="20000" step="1" />
-        </label>
-        <span aria-hidden="true">×</span>
-        <label class="num-field">
-          높이
-          <input id="img-height" type="number" min="1" max="20000" step="1" />
-        </label>
-        <label class="ratio-lock">
-          <input type="checkbox" id="img-ratio" checked />
-          비율 유지
-        </label>
-        <button id="img-resize" class="btn" type="button">리사이즈 적용</button>
-      </div>
-
-      <h2>변환 · 다운로드</h2>
-      <div class="field-row">
-        <div class="chip-group" role="radiogroup" aria-label="출력 형식">
-          <label class="chip">
-            <input type="radio" name="img-format" value="image/png" checked />
-            <span>PNG</span>
-          </label>
-          <label class="chip">
-            <input type="radio" name="img-format" value="image/jpeg" />
-            <span>JPG</span>
-          </label>
-          <label class="chip">
-            <input type="radio" name="img-format" value="image/webp" />
-            <span>WebP</span>
-          </label>
-        </div>
-        <label class="num-field" id="img-quality-field">
-          품질
-          <input id="img-quality" type="number" min="1" max="100" step="1" value="90" disabled />
-        </label>
-        <button id="img-download" class="btn btn-primary" type="button">변환 후 다운로드</button>
-      </div>
-    </section>
-
-    <p id="img-status" class="status" role="status"></p>
+    <footer class="status-bar">
+      <span id="status-doc">캔버스 없음</span>
+      <span id="status-layer"></span>
+      <span id="status-message" class="status-message" role="status"></span>
+    </footer>
   </main>
 </Layout>
 
 <script>
-  import { parseExif } from '../lib/exif';
+  import { parseExif, type ExifEntry } from '../lib/exif';
 
-  const dropZone = document.getElementById('img-drop') as HTMLDivElement;
-  const stage = document.getElementById('img-stage') as HTMLDivElement;
-  const preview = document.getElementById('img-preview') as HTMLImageElement;
-  const guide = document.getElementById('img-guide') as HTMLParagraphElement;
-  const fileInput = document.getElementById('img-file') as HTMLInputElement;
-  const info = document.getElementById('img-info') as HTMLParagraphElement;
-  const exifSection = document.getElementById('img-exif-section') as HTMLElement;
-  const exifCard = document.getElementById('img-exif') as HTMLDivElement;
-  const editSection = document.getElementById('img-edit-section') as HTMLElement;
-  const widthInput = document.getElementById('img-width') as HTMLInputElement;
-  const heightInput = document.getElementById('img-height') as HTMLInputElement;
-  const ratioLock = document.getElementById('img-ratio') as HTMLInputElement;
-  const qualityInput = document.getElementById('img-quality') as HTMLInputElement;
-  const status = document.getElementById('img-status') as HTMLParagraphElement;
+  // ---------- 상태 ----------
 
-  // 작업 중인 이미지는 캔버스에 보관한다 (리사이즈 결과가 다음 작업의 입력이 됨)
-  const workCanvas = document.createElement('canvas');
-  const workContext = workCanvas.getContext('2d')!;
-  let originalBitmap: ImageBitmap | null = null;
-  let fileName = 'image';
-  let fileSize = 0;
-  let fileType = '';
+  type Layer = {
+    id: number;
+    name: string;
+    canvas: HTMLCanvasElement;
+    x: number;
+    y: number;
+    /** 캔버스에 그려지는 표시 크기. 원본 픽셀(canvas)은 그대로 두는 비파괴 스케일 */
+    w: number;
+    h: number;
+    visible: boolean;
+    exif: ExifEntry[] | null;
+    isJpeg: boolean;
+    thumb: string;
+  };
 
-  function baseName(name: string): string {
-    return name.replace(/\.[^.]+$/, '') || 'image';
+  let layers: Layer[] = []; // index 0 = 맨 아래
+  let activeLayerId: number | null = null;
+  let layerCounter = 0;
+  let docWidth = 0;
+  let docHeight = 0;
+  let tool: 'move' | 'crop' = 'move';
+
+  const activeLayer = () => layers.find((l) => l.id === activeLayerId) ?? null;
+
+  // ---------- 요소 ----------
+
+  const el = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+  const docStack = el<HTMLDivElement>('doc-stack');
+  const docCanvas = el<HTMLCanvasElement>('doc-canvas');
+  const overlay = el<HTMLCanvasElement>('doc-overlay');
+  const canvasArea = el<HTMLDivElement>('canvas-area');
+  const dropGuide = el<HTMLParagraphElement>('drop-guide');
+  const layerList = el<HTMLDivElement>('layer-list');
+  const layerFileInput = el<HTMLInputElement>('layer-file');
+  const contextHint = el<HTMLSpanElement>('context-hint');
+  const cropOptions = el<HTMLDivElement>('crop-options');
+  const cropApplyButton = el<HTMLButtonElement>('crop-apply');
+  const docWidthInput = el<HTMLInputElement>('doc-width');
+  const docHeightInput = el<HTMLInputElement>('doc-height');
+  const docRatioLock = el<HTMLInputElement>('doc-ratio');
+  const exportQuality = el<HTMLInputElement>('export-quality');
+  const exifCard = el<HTMLDivElement>('exif-card');
+  const statusDoc = el<HTMLSpanElement>('status-doc');
+  const statusLayer = el<HTMLSpanElement>('status-layer');
+  const statusMessage = el<HTMLSpanElement>('status-message');
+
+  const docContext = docCanvas.getContext('2d')!;
+  const overlayContext = overlay.getContext('2d')!;
+
+  const setStatus = (message: string) => {
+    statusMessage.textContent = message;
+  };
+
+  // ---------- 히스토리 (undo/redo) ----------
+  // 레이어 픽셀(canvas)은 편집 시 새 객체로 교체될 뿐 변형되지 않으므로,
+  // 스냅숏은 레이어 객체만 복제하고 canvas는 참조를 공유한다 (저비용).
+
+  type Snapshot = {
+    docWidth: number;
+    docHeight: number;
+    activeLayerId: number | null;
+    layers: Layer[];
+  };
+
+  const HISTORY_LIMIT = 30;
+  const undoStack: Snapshot[] = [];
+  const redoStack: Snapshot[] = [];
+  const undoButton = el<HTMLButtonElement>('history-undo');
+  const redoButton = el<HTMLButtonElement>('history-redo');
+
+  const snapshot = (): Snapshot => ({
+    docWidth,
+    docHeight,
+    activeLayerId,
+    layers: layers.map((layer) => ({ ...layer })),
+  });
+
+  function updateHistoryButtons() {
+    undoButton.disabled = undoStack.length === 0;
+    redoButton.disabled = redoStack.length === 0;
   }
 
-  function renderInfo() {
-    const sizeMb = (fileSize / 1024 / 1024).toFixed(2);
-    info.textContent =
-      `${fileName} (${fileType || '알 수 없는 형식'}, ${sizeMb}MB) — ` +
-      `현재 ${workCanvas.width}×${workCanvas.height}px`;
+  // 상태를 바꾸기 "직전"에 호출한다
+  function pushHistory() {
+    undoStack.push(snapshot());
+    if (undoStack.length > HISTORY_LIMIT) undoStack.shift();
+    redoStack.length = 0;
+    updateHistoryButtons();
   }
 
-  function renderPreview() {
-    // 크기가 바뀌면 선택 영역 좌표가 어긋나므로 자르기 모드를 닫는다
-    if (cropMode) setCropMode(false);
-    preview.src = workCanvas.toDataURL();
-    stage.hidden = false;
-    guide.hidden = true;
-    widthInput.value = String(workCanvas.width);
-    heightInput.value = String(workCanvas.height);
-    renderInfo();
+  function restoreSnapshot(target: Snapshot) {
+    docWidth = target.docWidth;
+    docHeight = target.docHeight;
+    activeLayerId = target.activeLayerId;
+    layers = target.layers.map((layer) => ({ ...layer }));
+    clearCropSelection();
+    renderLayerList();
+    renderExifPanel();
+    renderDocument();
   }
 
-  function renderExif(buffer: ArrayBuffer) {
-    exifCard.innerHTML = '';
-    const entries = fileType === 'image/jpeg' ? parseExif(buffer) : null;
-    if (fileType !== 'image/jpeg') {
-      exifCard.textContent = 'EXIF는 주로 JPEG에 저장됩니다. 이 형식은 확인을 지원하지 않습니다.';
-    } else if (entries === null || entries.length === 0) {
-      exifCard.textContent = 'EXIF 메타데이터가 없습니다.';
-    } else {
-      for (const entry of entries) {
-        const row = document.createElement('div');
-        row.className = `exif-row${entry.sensitive ? ' exif-sensitive' : ''}`;
-        const label = document.createElement('span');
-        label.className = 'exif-label';
-        label.textContent = entry.sensitive ? `⚠ ${entry.label}` : entry.label;
-        const value = document.createElement('span');
-        value.textContent = entry.value;
-        row.append(label, value);
-        exifCard.appendChild(row);
-      }
-      if (entries.some((e) => e.sensitive)) {
-        const note = document.createElement('p');
-        note.className = 'exif-note';
-        note.textContent =
-          '⚠ 위치 정보가 포함되어 있습니다. 아래에서 변환해 받으면 EXIF가 제거됩니다.';
-        exifCard.appendChild(note);
-      }
+  function undo() {
+    const previous = undoStack.pop();
+    if (!previous) return;
+    redoStack.push(snapshot());
+    restoreSnapshot(previous);
+    updateHistoryButtons();
+  }
+
+  function redo() {
+    const next = redoStack.pop();
+    if (!next) return;
+    undoStack.push(snapshot());
+    restoreSnapshot(next);
+    updateHistoryButtons();
+  }
+
+  undoButton.addEventListener('click', undo);
+  redoButton.addEventListener('click', redo);
+
+  // ---------- 합성 렌더 ----------
+
+  function renderDocument() {
+    if (layers.length === 0) {
+      docStack.hidden = true;
+      dropGuide.hidden = false;
+      statusDoc.textContent = '캔버스 없음';
+      statusLayer.textContent = '';
+      return;
     }
-    exifSection.hidden = false;
+    docCanvas.width = docWidth;
+    docCanvas.height = docHeight;
+    overlay.width = docWidth;
+    overlay.height = docHeight;
+    docContext.clearRect(0, 0, docWidth, docHeight);
+    docContext.imageSmoothingQuality = 'high';
+    for (const layer of layers) {
+      if (layer.visible) docContext.drawImage(layer.canvas, layer.x, layer.y, layer.w, layer.h);
+    }
+    docStack.hidden = false;
+    dropGuide.hidden = true;
+    docWidthInput.value = String(docWidth);
+    docHeightInput.value = String(docHeight);
+    statusDoc.textContent = `캔버스 ${docWidth}×${docHeight}px · 레이어 ${layers.length}개`;
+    statusLayer.textContent = activeLayer() ? `활성: ${activeLayer()!.name}` : '';
+    drawSelection();
   }
 
-  async function loadImage(file: File) {
-    status.textContent = '';
+  // ---------- 레이어 패널 ----------
+
+  function makeThumb(canvas: HTMLCanvasElement): string {
+    const thumb = document.createElement('canvas');
+    const scale = 44 / Math.max(canvas.width, canvas.height);
+    thumb.width = Math.max(1, Math.round(canvas.width * scale));
+    thumb.height = Math.max(1, Math.round(canvas.height * scale));
+    thumb.getContext('2d')!.drawImage(canvas, 0, 0, thumb.width, thumb.height);
+    return thumb.toDataURL();
+  }
+
+  function renderLayerList() {
+    layerList.innerHTML = '';
+    // 목록은 위 = 최상위 레이어
+    for (const layer of [...layers].reverse()) {
+      const item = document.createElement('div');
+      item.className = `layer-item${layer.id === activeLayerId ? ' active' : ''}`;
+      item.addEventListener('click', () => {
+        activeLayerId = layer.id;
+        renderLayerList();
+        renderExifPanel();
+        renderDocument();
+      });
+
+      const eye = document.createElement('button');
+      eye.type = 'button';
+      eye.className = 'layer-eye';
+      eye.textContent = layer.visible ? '👁' : '–';
+      eye.title = layer.visible ? '숨기기' : '표시';
+      eye.addEventListener('click', (e) => {
+        e.stopPropagation();
+        pushHistory();
+        layer.visible = !layer.visible;
+        renderLayerList();
+        renderDocument();
+      });
+
+      const thumb = document.createElement('img');
+      thumb.className = 'layer-thumb';
+      thumb.src = layer.thumb;
+      thumb.alt = '';
+
+      const name = document.createElement('span');
+      name.className = 'layer-name';
+      name.textContent = layer.name;
+
+      item.append(eye, thumb, name);
+      layerList.appendChild(item);
+    }
+  }
+
+  function renderExifPanel() {
+    const layer = activeLayer();
+    exifCard.innerHTML = '';
+    if (!layer) {
+      exifCard.textContent = '레이어를 선택하세요.';
+      return;
+    }
+    if (!layer.isJpeg) {
+      exifCard.textContent = 'EXIF는 주로 JPEG에 저장됩니다. 이 레이어는 확인을 지원하지 않습니다.';
+      return;
+    }
+    if (!layer.exif || layer.exif.length === 0) {
+      exifCard.textContent = 'EXIF 메타데이터가 없습니다.';
+      return;
+    }
+    for (const entry of layer.exif) {
+      const row = document.createElement('div');
+      row.className = `exif-row${entry.sensitive ? ' exif-sensitive' : ''}`;
+      const label = document.createElement('span');
+      label.className = 'exif-label';
+      label.textContent = entry.sensitive ? `⚠ ${entry.label}` : entry.label;
+      const value = document.createElement('span');
+      value.textContent = entry.value;
+      row.append(label, value);
+      exifCard.appendChild(row);
+    }
+  }
+
+  // ---------- 레이어 추가 (파일 → 레이어) ----------
+
+  async function addLayerFromFile(file: File) {
+    setStatus('');
     if (!file.type.startsWith('image/')) {
-      status.textContent = '이미지 파일이 아닙니다.';
+      setStatus('이미지 파일이 아닙니다.');
       return;
     }
     let bitmap: ImageBitmap;
     try {
       bitmap = await createImageBitmap(file);
     } catch {
-      status.textContent = '이미지를 불러오지 못했습니다.';
+      setStatus(`${file.name}: 이미지를 불러오지 못했습니다.`);
       return;
     }
-    originalBitmap?.close();
-    originalBitmap = bitmap;
-    fileName = file.name;
-    fileSize = file.size;
-    fileType = file.type;
+    const canvas = document.createElement('canvas');
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    canvas.getContext('2d')!.drawImage(bitmap, 0, 0);
+    bitmap.close();
 
-    workCanvas.width = bitmap.width;
-    workCanvas.height = bitmap.height;
-    workContext.drawImage(bitmap, 0, 0);
-    renderPreview();
-    renderExif(await file.arrayBuffer());
-    editSection.hidden = false;
+    pushHistory();
+    const isJpeg = file.type === 'image/jpeg';
+    const layer: Layer = {
+      id: layerCounter++,
+      name: file.name,
+      canvas,
+      x: 0,
+      y: 0,
+      w: canvas.width,
+      h: canvas.height,
+      visible: true,
+      exif: isJpeg ? parseExif(await file.arrayBuffer()) : null,
+      isJpeg,
+      thumb: makeThumb(canvas),
+    };
+
+    if (layers.length === 0) {
+      // 첫 이미지가 캔버스 크기를 정의한다
+      docWidth = canvas.width;
+      docHeight = canvas.height;
+    } else {
+      // 이후 레이어는 캔버스 중앙에 배치
+      layer.x = Math.round((docWidth - layer.w) / 2);
+      layer.y = Math.round((docHeight - layer.h) / 2);
+    }
+    layers.push(layer);
+    activeLayerId = layer.id;
+    renderLayerList();
+    renderExifPanel();
+    renderDocument();
   }
 
-  // ---------- 로드 경로: 선택 / 드래그&드롭 / 붙여넣기 ----------
+  el<HTMLButtonElement>('layer-add').addEventListener('click', () => layerFileInput.click());
 
-  document.getElementById('img-select')!.addEventListener('click', () => fileInput.click());
-
-  fileInput.addEventListener('change', () => {
-    const file = fileInput.files?.[0];
-    if (file) loadImage(file);
-    fileInput.value = '';
+  layerFileInput.addEventListener('change', async () => {
+    for (const file of Array.from(layerFileInput.files ?? [])) {
+      await addLayerFromFile(file);
+    }
+    layerFileInput.value = '';
   });
 
-  dropZone.addEventListener('dragover', (e) => {
+  canvasArea.addEventListener('dragover', (e) => {
     e.preventDefault();
-    dropZone.classList.add('drag-over');
+    canvasArea.classList.add('drag-over');
   });
-  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
-  dropZone.addEventListener('drop', (e) => {
+  canvasArea.addEventListener('dragleave', () => canvasArea.classList.remove('drag-over'));
+  canvasArea.addEventListener('drop', async (e) => {
     e.preventDefault();
-    dropZone.classList.remove('drag-over');
-    const file = e.dataTransfer?.files?.[0];
-    if (file) loadImage(file);
+    canvasArea.classList.remove('drag-over');
+    for (const file of Array.from(e.dataTransfer?.files ?? [])) {
+      await addLayerFromFile(file);
+    }
   });
 
   document.addEventListener('paste', (e) => {
@@ -250,119 +462,188 @@ import Layout from '../layouts/Layout.astro';
       i.type.startsWith('image/'),
     );
     const file = item?.getAsFile();
-    if (file) loadImage(file);
+    if (file) addLayerFromFile(file);
   });
 
-  // ---------- 리사이즈 ----------
+  // ---------- 레이어 순서/삭제 ----------
 
-  const aspectRatio = () => workCanvas.width / workCanvas.height;
+  function moveActiveLayer(direction: 1 | -1) {
+    const index = layers.findIndex((l) => l.id === activeLayerId);
+    const next = index + direction;
+    if (index < 0 || next < 0 || next >= layers.length) return;
+    pushHistory();
+    [layers[index], layers[next]] = [layers[next], layers[index]];
+    renderLayerList();
+    renderDocument();
+  }
 
-  widthInput.addEventListener('input', () => {
-    if (!ratioLock.checked) return;
-    const width = Number(widthInput.value);
-    if (width > 0) heightInput.value = String(Math.max(1, Math.round(width / aspectRatio())));
+  el<HTMLButtonElement>('layer-up').addEventListener('click', () => moveActiveLayer(1));
+  el<HTMLButtonElement>('layer-down').addEventListener('click', () => moveActiveLayer(-1));
+
+  el<HTMLButtonElement>('layer-delete').addEventListener('click', () => {
+    const index = layers.findIndex((l) => l.id === activeLayerId);
+    if (index < 0) return;
+    pushHistory();
+    layers.splice(index, 1);
+    activeLayerId = layers[Math.min(index, layers.length - 1)]?.id ?? null;
+    if (layers.length === 0) {
+      docWidth = 0;
+      docHeight = 0;
+      clearCropSelection();
+    }
+    renderLayerList();
+    renderExifPanel();
+    renderDocument();
   });
 
-  heightInput.addEventListener('input', () => {
-    if (!ratioLock.checked) return;
-    const height = Number(heightInput.value);
-    if (height > 0) widthInput.value = String(Math.max(1, Math.round(height * aspectRatio())));
-  });
+  // ---------- 도구 전환 ----------
 
-  document.getElementById('img-resize')!.addEventListener('click', () => {
-    status.textContent = '';
-    const width = Math.floor(Number(widthInput.value));
-    const height = Math.floor(Number(heightInput.value));
-    if (!(width >= 1 && height >= 1 && width <= 20000 && height <= 20000)) {
-      status.textContent = '폭과 높이는 1~20000 사이여야 합니다.';
+  const toolButtons = { move: el<HTMLButtonElement>('tool-move'), crop: el<HTMLButtonElement>('tool-crop') };
+
+  function setTool(next: 'move' | 'crop') {
+    tool = next;
+    toolButtons.move.classList.toggle('active', next === 'move');
+    toolButtons.crop.classList.toggle('active', next === 'crop');
+    cropOptions.hidden = next !== 'crop';
+    contextHint.textContent =
+      next === 'move'
+        ? '이동 도구: 캔버스를 드래그하면 활성 레이어가 이동합니다.'
+        : '자르기 도구: 드래그로 영역 선택 · 안쪽 드래그 이동 · 핸들로 조정';
+    if (next !== 'crop') {
+      clearCropSelection();
+    }
+    drawSelection();
+  }
+
+  toolButtons.move.addEventListener('click', () => setTool('move'));
+  toolButtons.crop.addEventListener('click', () => setTool('crop'));
+
+  document.addEventListener('keydown', (e) => {
+    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+    if ((e.metaKey || e.ctrlKey) && (e.key === 'z' || e.key === 'Z')) {
+      e.preventDefault();
+      if (e.shiftKey) redo();
+      else undo();
       return;
     }
-    const resized = document.createElement('canvas');
-    resized.width = width;
-    resized.height = height;
-    const ctx = resized.getContext('2d')!;
-    ctx.imageSmoothingQuality = 'high';
-    ctx.drawImage(workCanvas, 0, 0, width, height);
-    workCanvas.width = width;
-    workCanvas.height = height;
-    workContext.drawImage(resized, 0, 0);
-    renderPreview();
+    if ((e.metaKey || e.ctrlKey) && (e.key === 'y' || e.key === 'Y')) {
+      e.preventDefault();
+      redo();
+      return;
+    }
+    if (e.key === 'Escape' && tool === 'crop') {
+      clearCropSelection();
+      return;
+    }
+    if (e.key === 'v' || e.key === 'V') setTool('move');
+    if (e.key === 'c' || e.key === 'C') setTool('crop');
   });
 
-  document.getElementById('img-reset')!.addEventListener('click', () => {
-    if (!originalBitmap) return;
-    workCanvas.width = originalBitmap.width;
-    workCanvas.height = originalBitmap.height;
-    workContext.drawImage(originalBitmap, 0, 0);
-    renderPreview();
-  });
+  // ---------- 캔버스 좌표 (문서 픽셀 기준) ----------
 
-  // ---------- 자르기 ----------
+  const docPoint = (e: PointerEvent) => {
+    const rect = overlay.getBoundingClientRect();
+    return {
+      x: Math.min(docWidth, Math.max(0, ((e.clientX - rect.left) / rect.width) * docWidth)),
+      y: Math.min(docHeight, Math.max(0, ((e.clientY - rect.top) / rect.height) * docHeight)),
+    };
+  };
 
-  const overlay = document.getElementById('img-crop-overlay') as HTMLCanvasElement;
-  const overlayContext = overlay.getContext('2d')!;
-  const cropModeButton = document.getElementById('img-crop-mode') as HTMLButtonElement;
-  const cropApplyButton = document.getElementById('img-crop-apply') as HTMLButtonElement;
-  const cropInfo = document.getElementById('img-crop-info') as HTMLSpanElement;
+  // 표시 배율 (문서 px → 화면 px). 핸들·선 두께를 화면 기준으로 일정하게 유지
+  const displayScale = () => {
+    const rect = overlay.getBoundingClientRect();
+    return rect.width > 0 ? rect.width / docWidth : 1;
+  };
 
-  let cropMode = false;
-  let dragStart: { x: number; y: number } | null = null;
+  // ---------- 자르기 선택 (GIMP 스타일, 문서 좌표) ----------
+
   let selection: { x: number; y: number; w: number; h: number } | null = null;
-  // 드래그 동작: 빈 곳 = 새 영역 생성, 영역 안 = 이동,
-  // 모서리 = 반대 모서리를 고정점 삼아 다시 그리기, 변 = 그 변만 조정
-  type DragMode = 'create' | 'move' | 'edge' | null;
+  type DragMode = 'create' | 'move-sel' | 'edge' | 'move-layer' | 'scale-layer' | null;
   let dragMode: DragMode = null;
+  let scaleCorner = 'se';
+  let layerRectOrigin = { x: 0, y: 0, w: 0, h: 0 };
+  let dragStart: { x: number; y: number } | null = null;
   let grabOffset = { x: 0, y: 0 };
   let activeEdge: 'n' | 's' | 'e' | 'w' | null = null;
+  let layerOrigin = { x: 0, y: 0 };
+  let movePushed = false;
 
-  const HANDLE_RADIUS = 12;
-
-  // 선택된 비율 (w/h). 자유 선택이면 null
   const cropRatio = (): number | null => {
     const value = (
-      document.querySelector('input[name="img-crop-ratio"]:checked') as HTMLInputElement
+      document.querySelector('input[name="crop-ratio"]:checked') as HTMLInputElement
     ).value;
     return value === 'free' ? null : Number(value);
   };
 
-  function setCropMode(on: boolean) {
-    cropMode = on;
-    overlay.hidden = !on;
-    cropModeButton.textContent = on ? '영역 선택 종료' : '영역 선택 시작';
+  const cropCancelButton = el<HTMLButtonElement>('crop-cancel');
+
+  function clearCropSelection() {
     selection = null;
-    dragStart = null;
     cropApplyButton.disabled = true;
-    if (on) {
-      // 오버레이 해상도를 현재 표시 크기에 맞춘다
-      overlay.width = preview.clientWidth;
-      overlay.height = preview.clientHeight;
-      drawSelection();
-      cropInfo.textContent = '이미지 위에서 드래그해 영역을 선택하세요.';
-    } else {
-      cropInfo.textContent = '영역 선택을 시작한 뒤 이미지 위에서 드래그하세요.';
+    cropCancelButton.disabled = true;
+    drawSelection();
+  }
+
+  cropCancelButton.addEventListener('click', clearCropSelection);
+
+  const handleLength = () => {
+    if (!selection) return 18;
+    const css = 18 / displayScale();
+    return Math.max(6 / displayScale(), Math.min(css, selection.w / 3, selection.h / 3));
+  };
+
+  // 이동 도구에서 활성 레이어 외곽선 + 모서리 스케일 핸들을 그린다
+  const layerCorners = (layer: Layer): [string, number, number][] => [
+    ['nw', layer.x, layer.y],
+    ['ne', layer.x + layer.w, layer.y],
+    ['sw', layer.x, layer.y + layer.h],
+    ['se', layer.x + layer.w, layer.y + layer.h],
+  ];
+
+  function layerCornerAt(point: { x: number; y: number }, layer: Layer): string | null {
+    const radius = 12 / displayScale();
+    for (const [zone, cx, cy] of layerCorners(layer)) {
+      if (Math.abs(point.x - cx) <= radius && Math.abs(point.y - cy) <= radius) return zone;
+    }
+    return null;
+  }
+
+  function drawLayerHandles() {
+    const layer = activeLayer();
+    if (!layer) return;
+    const scale = displayScale();
+    overlayContext.strokeStyle = '#6c8cff';
+    overlayContext.lineWidth = 1.5 / scale;
+    overlayContext.setLineDash([6 / scale, 4 / scale]);
+    overlayContext.strokeRect(layer.x, layer.y, layer.w, layer.h);
+    overlayContext.setLineDash([]);
+    const size = 10 / scale;
+    for (const [, cx, cy] of layerCorners(layer)) {
+      overlayContext.fillStyle = '#ffffff';
+      overlayContext.fillRect(cx - size / 2, cy - size / 2, size, size);
+      overlayContext.strokeRect(cx - size / 2, cy - size / 2, size, size);
     }
   }
 
-  // GIMP 스타일 핸들: 선택 영역 "안쪽"에 붙는 ㄱ자 브래킷(모서리)과 바(변).
-  // 영역 밖으로 삐져나가지 않아 이미지 테두리 근처에서도 화면을 가리지 않는다.
-  const handleLength = () =>
-    selection ? Math.max(10, Math.min(18, selection.w / 3, selection.h / 3)) : 18;
-
   function drawSelection() {
     overlayContext.clearRect(0, 0, overlay.width, overlay.height);
+    if (tool === 'move') {
+      if (layers.length > 0) drawLayerHandles();
+      return;
+    }
+    if (!selection) return;
+    const scale = displayScale();
+    const { x, y, w, h } = selection;
     overlayContext.fillStyle = 'rgba(0, 0, 0, 0.5)';
     overlayContext.fillRect(0, 0, overlay.width, overlay.height);
-    if (!selection) return;
-    const { x, y, w, h } = selection;
     overlayContext.clearRect(x, y, w, h);
     overlayContext.strokeStyle = '#6c8cff';
-    overlayContext.lineWidth = 2;
-    overlayContext.strokeRect(x + 1, y + 1, w - 2, h - 2);
+    overlayContext.lineWidth = 2 / scale;
+    overlayContext.strokeRect(x, y, w, h);
 
     const L = handleLength();
-    const T = 4;
+    const T = 4 / scale;
     overlayContext.fillStyle = '#ffffff';
-    // 모서리 ㄱ자 브래킷
     overlayContext.fillRect(x, y, L, T);
     overlayContext.fillRect(x, y, T, L);
     overlayContext.fillRect(x + w - L, y, L, T);
@@ -371,9 +652,8 @@ import Layout from '../layouts/Layout.astro';
     overlayContext.fillRect(x, y + h - L, T, L);
     overlayContext.fillRect(x + w - L, y + h - T, L, T);
     overlayContext.fillRect(x + w - T, y + h - L, T, L);
-    // 변 중앙 바 (자유 비율일 때만)
     if (cropRatio() === null) {
-      const bar = Math.max(12, Math.min(24, w / 3, h / 3));
+      const bar = Math.max(12 / scale, Math.min(24 / scale, w / 3, h / 3));
       overlayContext.fillRect(x + w / 2 - bar / 2, y, bar, T);
       overlayContext.fillRect(x + w / 2 - bar / 2, y + h - T, bar, T);
       overlayContext.fillRect(x, y + h / 2 - bar / 2, T, bar);
@@ -381,44 +661,19 @@ import Layout from '../layouts/Layout.astro';
     }
   }
 
-  // 표시 좌표 → 원본 픽셀 사각형
-  function sourceRect() {
-    if (!selection || selection.w < 2 || selection.h < 2) return null;
-    const scaleX = workCanvas.width / overlay.width;
-    const scaleY = workCanvas.height / overlay.height;
-    const sx = Math.min(workCanvas.width - 1, Math.round(selection.x * scaleX));
-    const sy = Math.min(workCanvas.height - 1, Math.round(selection.y * scaleY));
-    return {
-      sx,
-      sy,
-      sw: Math.max(1, Math.min(Math.round(selection.w * scaleX), workCanvas.width - sx)),
-      sh: Math.max(1, Math.min(Math.round(selection.h * scaleY), workCanvas.height - sy)),
-    };
-  }
-
-  const overlayPoint = (e: PointerEvent) => {
-    const rect = overlay.getBoundingClientRect();
-    return {
-      x: Math.min(overlay.width, Math.max(0, e.clientX - rect.left)),
-      y: Math.min(overlay.height, Math.max(0, e.clientY - rect.top)),
-    };
-  };
-
-  // 포인터 위치가 어떤 동작 영역인지 판정 (GIMP 방식):
-  // 영역 안쪽의 모서리 구역 = 크기 조정, 변 가장자리 구역 = 그 변 조정, 중앙 = 이동
   function hitZone(point: { x: number; y: number }): string {
     if (!selection) return 'create';
     const { x, y, w, h } = selection;
-    const outsideTolerance = 4;
+    const tolerance = 4 / displayScale();
     if (
-      point.x < x - outsideTolerance ||
-      point.x > x + w + outsideTolerance ||
-      point.y < y - outsideTolerance ||
-      point.y > y + h + outsideTolerance
+      point.x < x - tolerance ||
+      point.x > x + w + tolerance ||
+      point.y < y - tolerance ||
+      point.y > y + h + tolerance
     ) {
       return 'create';
     }
-    const cornerZone = handleLength() + HANDLE_RADIUS / 2;
+    const cornerZone = handleLength() + 6 / displayScale();
     const nearLeft = point.x <= x + cornerZone;
     const nearRight = point.x >= x + w - cornerZone;
     const nearTop = point.y <= y + cornerZone;
@@ -428,13 +683,13 @@ import Layout from '../layouts/Layout.astro';
     if (nearBottom && nearLeft) return 'sw';
     if (nearBottom && nearRight) return 'se';
     if (cropRatio() === null) {
-      const edgeZone = HANDLE_RADIUS;
+      const edgeZone = 12 / displayScale();
       if (point.y <= y + edgeZone) return 'n';
       if (point.y >= y + h - edgeZone) return 's';
       if (point.x <= x + edgeZone) return 'w';
       if (point.x >= x + w - edgeZone) return 'e';
     }
-    return 'move';
+    return 'move-sel';
   }
 
   const ZONE_CURSORS: Record<string, string> = {
@@ -446,11 +701,10 @@ import Layout from '../layouts/Layout.astro';
     s: 'ns-resize',
     e: 'ew-resize',
     w: 'ew-resize',
-    move: 'move',
+    'move-sel': 'move',
     create: 'crosshair',
   };
 
-  // 모서리 핸들을 잡으면 반대 모서리를 고정점으로 새로 그리는 동작과 동일하다
   function oppositeCorner(zone: string): { x: number; y: number } {
     const { x, y, w, h } = selection!;
     if (zone === 'nw') return { x: x + w, y: y + h };
@@ -459,21 +713,51 @@ import Layout from '../layouts/Layout.astro';
     return { x, y };
   }
 
-  function updateCropInfo() {
-    const rect = sourceRect();
-    if (rect) {
-      cropInfo.textContent = `선택 영역: ${rect.sw}×${rect.sh}px (드래그: 이동 · 핸들: 크기 조정)`;
-    }
+  function sourceRect() {
+    if (!selection || selection.w < 2 || selection.h < 2) return null;
+    const sx = Math.min(docWidth - 1, Math.max(0, Math.round(selection.x)));
+    const sy = Math.min(docHeight - 1, Math.max(0, Math.round(selection.y)));
+    return {
+      sx,
+      sy,
+      sw: Math.max(1, Math.min(Math.round(selection.w), docWidth - sx)),
+      sh: Math.max(1, Math.min(Math.round(selection.h), docHeight - sy)),
+    };
   }
 
+  function updateCropStatus() {
+    const rect = sourceRect();
+    if (rect) setStatus(`선택 영역: ${rect.sw}×${rect.sh}px`);
+  }
+
+  // ---------- 캔버스 포인터 (이동/자르기 공용) ----------
+
   overlay.addEventListener('pointerdown', (e) => {
-    if (!cropMode) return;
+    if (layers.length === 0) return;
     e.preventDefault();
     overlay.setPointerCapture(e.pointerId);
-    const point = overlayPoint(e);
+    const point = docPoint(e);
+
+    if (tool === 'move') {
+      const layer = activeLayer();
+      if (!layer) return;
+      const corner = layerCornerAt(point, layer);
+      if (corner) {
+        dragMode = 'scale-layer';
+        scaleCorner = corner;
+        layerRectOrigin = { x: layer.x, y: layer.y, w: layer.w, h: layer.h };
+      } else {
+        dragMode = 'move-layer';
+        dragStart = point;
+        layerOrigin = { x: layer.x, y: layer.y };
+      }
+      movePushed = false;
+      return;
+    }
+
     const zone = hitZone(point);
-    if (zone === 'move' && selection) {
-      dragMode = 'move';
+    if (zone === 'move-sel' && selection) {
+      dragMode = 'move-sel';
       grabOffset = { x: point.x - selection.x, y: point.y - selection.y };
     } else if (['nw', 'ne', 'sw', 'se'].includes(zone) && selection) {
       dragMode = 'create';
@@ -491,20 +775,66 @@ import Layout from '../layouts/Layout.astro';
   });
 
   overlay.addEventListener('pointermove', (e) => {
-    if (!cropMode) return;
-    const point = overlayPoint(e);
+    if (layers.length === 0) return;
+    const point = docPoint(e);
 
-    // 드래그 중이 아니면 커서만 갱신
     if (dragMode === null) {
-      overlay.style.cursor = ZONE_CURSORS[hitZone(point)];
+      if (tool === 'move') {
+        const layer = activeLayer();
+        const corner = layer ? layerCornerAt(point, layer) : null;
+        overlay.style.cursor = corner ? ZONE_CURSORS[corner] : 'grab';
+      } else {
+        overlay.style.cursor = ZONE_CURSORS[hitZone(point)];
+      }
       return;
     }
 
-    if (dragMode === 'move' && selection) {
-      selection.x = Math.min(overlay.width - selection.w, Math.max(0, point.x - grabOffset.x));
-      selection.y = Math.min(overlay.height - selection.h, Math.max(0, point.y - grabOffset.y));
+    if (dragMode === 'scale-layer') {
+      const layer = activeLayer();
+      if (!layer) return;
+      if (!movePushed) {
+        pushHistory();
+        movePushed = true;
+      }
+      const origin = layerRectOrigin;
+      // 반대 모서리를 고정점으로 비율을 유지하며 스케일
+      const anchor = {
+        x: scaleCorner.includes('w') ? origin.x + origin.w : origin.x,
+        y: scaleCorner.includes('n') ? origin.y + origin.h : origin.y,
+      };
+      const factor = Math.max(
+        Math.abs(point.x - anchor.x) / origin.w,
+        Math.abs(point.y - anchor.y) / origin.h,
+        8 / Math.max(origin.w, origin.h),
+      );
+      layer.w = origin.w * factor;
+      layer.h = origin.h * factor;
+      layer.x = scaleCorner.includes('w') ? anchor.x - layer.w : anchor.x;
+      layer.y = scaleCorner.includes('n') ? anchor.y - layer.h : anchor.y;
+      renderDocument();
+      setStatus(`레이어 크기: ${Math.round(layer.w)}×${Math.round(layer.h)}px`);
+      return;
+    }
+
+    if (dragMode === 'move-layer' && dragStart) {
+      const layer = activeLayer();
+      if (!layer) return;
+      // 실제로 움직이기 시작한 시점에 한 번만 히스토리에 기록
+      if (!movePushed) {
+        pushHistory();
+        movePushed = true;
+      }
+      layer.x = Math.round(layerOrigin.x + point.x - dragStart.x);
+      layer.y = Math.round(layerOrigin.y + point.y - dragStart.y);
+      renderDocument();
+      return;
+    }
+
+    if (dragMode === 'move-sel' && selection) {
+      selection.x = Math.min(docWidth - selection.w, Math.max(0, point.x - grabOffset.x));
+      selection.y = Math.min(docHeight - selection.h, Math.max(0, point.y - grabOffset.y));
       drawSelection();
-      updateCropInfo();
+      updateCropStatus();
       return;
     }
 
@@ -512,31 +842,30 @@ import Layout from '../layouts/Layout.astro';
       const right = selection.x + selection.w;
       const bottom = selection.y + selection.h;
       if (activeEdge === 'e') {
-        selection.w = Math.min(overlay.width - selection.x, Math.max(2, point.x - selection.x));
+        selection.w = Math.min(docWidth - selection.x, Math.max(2, point.x - selection.x));
       } else if (activeEdge === 'w') {
         selection.x = Math.min(right - 2, Math.max(0, point.x));
         selection.w = right - selection.x;
       } else if (activeEdge === 's') {
-        selection.h = Math.min(overlay.height - selection.y, Math.max(2, point.y - selection.y));
+        selection.h = Math.min(docHeight - selection.y, Math.max(2, point.y - selection.y));
       } else {
         selection.y = Math.min(bottom - 2, Math.max(0, point.y));
         selection.h = bottom - selection.y;
       }
       drawSelection();
-      updateCropInfo();
+      updateCropStatus();
       return;
     }
 
-    if (!dragStart) return;
+    if (dragMode !== 'create' || !dragStart) return;
     let dx = point.x - dragStart.x;
     let dy = point.y - dragStart.y;
     const ratio = cropRatio();
     if (ratio !== null) {
-      // 드래그 폭을 기준으로 비율을 강제하되, 경계를 넘지 않게 폭을 줄인다
       const signX = dx >= 0 ? 1 : -1;
       const signY = dy >= 0 ? 1 : -1;
-      const maxW = signX > 0 ? overlay.width - dragStart.x : dragStart.x;
-      const maxH = signY > 0 ? overlay.height - dragStart.y : dragStart.y;
+      const maxW = signX > 0 ? docWidth - dragStart.x : dragStart.x;
+      const maxH = signY > 0 ? docHeight - dragStart.y : dragStart.y;
       const width = Math.min(Math.abs(dx), maxW, maxH * ratio);
       dx = signX * width;
       dy = signY * (width / ratio);
@@ -548,35 +877,81 @@ import Layout from '../layouts/Layout.astro';
       h: Math.abs(dy),
     };
     drawSelection();
-    updateCropInfo();
+    updateCropStatus();
   });
 
   overlay.addEventListener('pointerup', () => {
+    if (dragMode === 'move-layer') setStatus('');
     dragMode = null;
     dragStart = null;
     activeEdge = null;
-    cropApplyButton.disabled = sourceRect() === null;
+    const hasSelection = tool === 'crop' && sourceRect() !== null;
+    cropApplyButton.disabled = !hasSelection;
+    cropCancelButton.disabled = !hasSelection;
   });
 
-  cropModeButton.addEventListener('click', () => setCropMode(!cropMode));
+  // ---------- 자르기 적용: 문서를 줄이고 레이어 오프셋을 이동 ----------
 
   cropApplyButton.addEventListener('click', () => {
     const rect = sourceRect();
     if (!rect) return;
-    const cropped = document.createElement('canvas');
-    cropped.width = rect.sw;
-    cropped.height = rect.sh;
-    cropped
-      .getContext('2d')!
-      .drawImage(workCanvas, rect.sx, rect.sy, rect.sw, rect.sh, 0, 0, rect.sw, rect.sh);
-    workCanvas.width = rect.sw;
-    workCanvas.height = rect.sh;
-    workContext.drawImage(cropped, 0, 0);
-    setCropMode(false);
-    renderPreview();
+    pushHistory();
+    docWidth = rect.sw;
+    docHeight = rect.sh;
+    for (const layer of layers) {
+      layer.x -= rect.sx;
+      layer.y -= rect.sy;
+    }
+    clearCropSelection();
+    renderDocument();
+    setStatus(`캔버스를 ${rect.sw}×${rect.sh}px로 잘랐습니다. (레이어 픽셀은 보존됨)`);
   });
 
-  // ---------- 변환 · 다운로드 ----------
+  // ---------- 문서 리사이즈 (전체 스케일) ----------
+
+  docWidthInput.addEventListener('input', () => {
+    if (!docRatioLock.checked || docWidth === 0) return;
+    const width = Number(docWidthInput.value);
+    if (width > 0) {
+      docHeightInput.value = String(Math.max(1, Math.round((width / docWidth) * docHeight)));
+    }
+  });
+
+  docHeightInput.addEventListener('input', () => {
+    if (!docRatioLock.checked || docHeight === 0) return;
+    const height = Number(docHeightInput.value);
+    if (height > 0) {
+      docWidthInput.value = String(Math.max(1, Math.round((height / docHeight) * docWidth)));
+    }
+  });
+
+  el<HTMLButtonElement>('doc-resize').addEventListener('click', () => {
+    if (layers.length === 0) return;
+    const width = Math.floor(Number(docWidthInput.value));
+    const height = Math.floor(Number(docHeightInput.value));
+    if (!(width >= 1 && height >= 1 && width <= 20000 && height <= 20000)) {
+      setStatus('폭과 높이는 1~20000 사이여야 합니다.');
+      return;
+    }
+    pushHistory();
+    const fx = width / docWidth;
+    const fy = height / docHeight;
+    // 원본 픽셀은 그대로 두고 표시 크기·오프셋만 스케일 (비파괴)
+    for (const layer of layers) {
+      layer.x = Math.round(layer.x * fx);
+      layer.y = Math.round(layer.y * fy);
+      layer.w = Math.max(1, layer.w * fx);
+      layer.h = Math.max(1, layer.h * fy);
+    }
+    docWidth = width;
+    docHeight = height;
+    clearCropSelection();
+    renderLayerList();
+    renderDocument();
+    setStatus(`캔버스를 ${width}×${height}px로 리사이즈했습니다.`);
+  });
+
+  // ---------- 내보내기 (보이는 레이어 합성) ----------
 
   const EXTENSIONS: Record<string, string> = {
     'image/png': 'png',
@@ -584,195 +959,333 @@ import Layout from '../layouts/Layout.astro';
     'image/webp': 'webp',
   };
 
-  const selectedFormat = () =>
-    (document.querySelector('input[name="img-format"]:checked') as HTMLInputElement).value;
+  const exportFormat = () =>
+    (document.querySelector('input[name="export-format"]:checked') as HTMLInputElement).value;
 
-  // 품질은 JPG/WebP에만 적용된다
-  for (const radio of document.querySelectorAll<HTMLInputElement>('input[name="img-format"]')) {
+  for (const radio of document.querySelectorAll<HTMLInputElement>('input[name="export-format"]')) {
     radio.addEventListener('change', () => {
-      qualityInput.disabled = selectedFormat() === 'image/png';
+      exportQuality.disabled = exportFormat() === 'image/png';
     });
   }
 
-  document.getElementById('img-download')!.addEventListener('click', () => {
-    status.textContent = '';
-    if (!originalBitmap) return;
-    const format = selectedFormat();
-    const quality = Math.min(100, Math.max(1, Number(qualityInput.value) || 90)) / 100;
-    workCanvas.toBlob(
+  el<HTMLButtonElement>('export-download').addEventListener('click', () => {
+    if (layers.length === 0) return;
+    const format = exportFormat();
+    const quality = Math.min(100, Math.max(1, Number(exportQuality.value) || 90)) / 100;
+    // docCanvas가 이미 문서 해상도의 합성 결과다
+    renderDocument();
+    docCanvas.toBlob(
       (blob) => {
         if (!blob) {
-          status.textContent = '변환에 실패했습니다. (이 브라우저가 해당 형식을 지원하지 않을 수 있음)';
+          setStatus('변환에 실패했습니다. (이 브라우저가 해당 형식을 지원하지 않을 수 있음)');
           return;
         }
         const url = URL.createObjectURL(blob);
         const anchor = document.createElement('a');
         anchor.href = url;
-        anchor.download = `${baseName(fileName)}.${EXTENSIONS[format]}`;
+        const base = (layers[0]?.name ?? 'image').replace(/\.[^.]+$/, '') || 'image';
+        anchor.download = `${base}.${EXTENSIONS[format]}`;
         anchor.click();
         URL.revokeObjectURL(url);
-        const sizeMb = (blob.size / 1024 / 1024).toFixed(2);
-        status.textContent = '';
-        info.textContent = `${anchor.download} (${sizeMb}MB) 다운로드 — EXIF 제거됨`;
+        setStatus(`${anchor.download} (${(blob.size / 1024 / 1024).toFixed(2)}MB) 다운로드 — EXIF 제거됨`);
       },
       format,
       quality,
     );
   });
+
+  setTool('move');
 </script>
 
 <style>
   main {
-    max-width: 900px;
-    margin: 0 auto;
-    padding: 2.5rem 1.5rem 4rem;
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
   }
 
-  .top a {
+  .editor-header {
+    display: flex;
+    align-items: baseline;
+    gap: 1rem;
+    padding: 0.7rem 1.2rem;
+    border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
+    /* 우상단 테마 토글과 겹치지 않게 여유 */
+    padding-right: 5rem;
+  }
+
+  .editor-header .home {
     color: var(--text-dim);
     text-decoration: none;
     font-size: 0.9rem;
   }
 
-  .top a:hover {
+  .editor-header .home:hover {
     color: var(--accent);
   }
 
-  .intro h1 {
-    margin: 1rem 0 0.5rem;
-    font-size: clamp(1.6rem, 4vw, 2.2rem);
-    letter-spacing: -0.02em;
+  .editor-header h1 {
+    margin: 0;
+    font-size: 1.15rem;
   }
 
-  .intro p {
+  .editor-header .note {
     color: var(--text-dim);
-    margin: 0 0 1.5rem;
+    font-size: 0.8rem;
   }
 
-  .drop {
+  /* ---------- 에디터 그리드 ---------- */
+
+  .editor {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 56px 1fr 280px;
+    min-height: 0;
+  }
+
+  .toolbar {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.6rem 0;
+    border-right: 1px solid var(--border);
+    background: var(--bg-soft);
+  }
+
+  .tool {
+    width: 40px;
+    height: 40px;
     display: grid;
     place-items: center;
-    min-height: 160px;
-    border: 1px dashed var(--border);
-    border-radius: 0.9rem;
-    background: var(--bg-soft);
-    overflow: hidden;
+    font-size: 1.15rem;
+    background: transparent;
+    color: var(--text-dim);
+    border: 1px solid transparent;
+    border-radius: 0.55rem;
+    cursor: pointer;
   }
 
-  .drop.drag-over {
-    border-color: var(--accent);
-    border-style: solid;
+  .tool:hover {
+    border-color: var(--border);
+    color: var(--text);
   }
 
-  .stage {
-    position: relative;
+  .tool.active {
+    background: var(--accent);
+    color: #fff;
   }
 
-  .stage[hidden] {
+  .tool:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+  }
+
+  .toolbar-divider {
+    width: 60%;
+    height: 1px;
+    background: var(--border);
+    margin: 0.3rem 0;
+  }
+
+  .workspace {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+  }
+
+  .context-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+    padding: 0.45rem 1rem;
+    border-bottom: 1px solid var(--border);
+    min-height: 46px;
+    flex-wrap: wrap;
+  }
+
+  .context-hint {
+    color: var(--text-dim);
+    font-size: 0.82rem;
+  }
+
+  .crop-options {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+  }
+
+  .crop-options[hidden] {
     display: none;
   }
 
-  .stage img {
-    display: block;
-    max-width: 100%;
-    max-height: 440px;
+  .canvas-area {
+    flex: 1;
+    display: grid;
+    place-items: center;
+    overflow: auto;
+    padding: 1.2rem;
+    min-height: 0;
+    /* 체커보드 배경 */
+    --checker: light-dark(rgba(28, 35, 51, 0.08), rgba(255, 255, 255, 0.05));
+    background-image:
+      linear-gradient(45deg, var(--checker) 25%, transparent 25%, transparent 75%, var(--checker) 75%),
+      linear-gradient(45deg, var(--checker) 25%, transparent 25%, transparent 75%, var(--checker) 75%);
+    background-size: 24px 24px;
+    background-position: 0 0, 12px 12px;
   }
 
-  /* 자르기 오버레이: 미리보기 위에 겹쳐 드래그 선택을 받는다 */
-  .stage canvas {
+  .canvas-area.drag-over {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+  }
+
+  /* 캔버스가 배경과 확실히 구분되도록 진한 그림자 + 외곽선 */
+  .doc-stack {
+    position: relative;
+    max-width: 100%;
+    max-height: 100%;
+    box-shadow:
+      0 0 0 1px light-dark(rgba(28, 35, 51, 0.35), rgba(255, 255, 255, 0.18)),
+      0 14px 48px light-dark(rgba(28, 35, 51, 0.45), rgba(0, 0, 0, 0.75));
+  }
+
+  .doc-stack[hidden] {
+    display: none;
+  }
+
+  .doc-stack canvas {
+    display: block;
+    max-width: 100%;
+    max-height: calc(100vh - 220px);
+  }
+
+  #doc-overlay {
     position: absolute;
     inset: 0;
     width: 100%;
     height: 100%;
-    cursor: crosshair;
     touch-action: none;
+    cursor: grab;
   }
 
   .drop-guide {
     margin: 0;
-    padding: 1rem;
     color: var(--text-dim);
-    font-size: 0.9rem;
+    font-size: 0.92rem;
     text-align: center;
+    line-height: 1.8;
   }
 
-  .section {
-    margin-top: 1.5rem;
-    display: grid;
-    gap: 0.9rem;
-  }
+  /* ---------- 우측 패널 ---------- */
 
-  .section[hidden] {
-    display: none;
-  }
-
-  .section h2 {
-    margin: 0;
-    font-size: 1rem;
-    color: var(--text-dim);
-  }
-
-  .exif-card {
-    display: grid;
-    gap: 0.35rem;
+  .panel {
+    border-left: 1px solid var(--border);
     background: var(--bg-soft);
-    border: 1px solid var(--border);
-    border-radius: 0.8rem;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .panel-section {
     padding: 0.9rem 1rem;
-    font-size: 0.9rem;
-  }
-
-  /* EXIF 행은 JS로 생성되므로 :global로 선언 */
-  .exif-card :global(.exif-row) {
+    border-bottom: 1px solid var(--border);
     display: grid;
-    grid-template-columns: 11rem 1fr;
-    gap: 0.7rem;
+    gap: 0.6rem;
   }
 
-  .exif-card :global(.exif-label) {
+  .panel-section h2 {
+    margin: 0;
+    font-size: 0.85rem;
     color: var(--text-dim);
-    font-weight: 600;
+    font-weight: 700;
   }
 
-  .exif-card :global(.exif-sensitive) {
-    color: var(--danger);
+  .panel-row {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    flex-wrap: wrap;
   }
 
-  .exif-card :global(.exif-sensitive .exif-label) {
-    color: var(--danger);
+  .layer-list {
+    display: grid;
+    gap: 3px;
+    max-height: 240px;
+    overflow-y: auto;
   }
 
-  .exif-card :global(.exif-note) {
-    margin: 0.4rem 0 0;
-    color: var(--danger);
+  .layer-list:empty::before {
+    content: '레이어가 없습니다';
+    color: var(--text-dim);
+    font-size: 0.82rem;
+  }
+
+  /* 레이어 항목은 JS로 생성되므로 :global로 선언 */
+  .layer-list :global(.layer-item) {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.3rem 0.4rem;
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+    background: var(--surface);
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .layer-list :global(.layer-item.active) {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+  }
+
+  .layer-list :global(.layer-eye) {
+    width: 26px;
+    height: 26px;
+    flex: none;
+    background: transparent;
+    border: none;
+    color: var(--text);
+    cursor: pointer;
     font-size: 0.85rem;
   }
 
-  .field-row {
-    display: flex;
-    align-items: center;
-    gap: 0.7rem;
-    flex-wrap: wrap;
+  .layer-list :global(.layer-thumb) {
+    width: 34px;
+    height: 26px;
+    object-fit: contain;
+    flex: none;
+    background: light-dark(rgba(28, 35, 51, 0.1), rgba(255, 255, 255, 0.08));
+    border-radius: 3px;
+  }
+
+  .layer-list :global(.layer-name) {
+    font-size: 0.8rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .num-field {
     display: flex;
     align-items: center;
-    gap: 0.4rem;
+    gap: 0.35rem;
     color: var(--text-dim);
-    font-size: 0.9rem;
+    font-size: 0.82rem;
     font-weight: 600;
   }
 
   .num-field input {
-    width: 6rem;
+    width: 5rem;
     border: 1px solid var(--border);
-    background: var(--bg-soft);
+    background: var(--surface);
     color: var(--text);
     font: inherit;
-    font-size: 0.9rem;
-    padding: 0.35rem 0.5rem;
-    border-radius: 0.6rem;
+    font-size: 0.85rem;
+    padding: 0.3rem 0.45rem;
+    border-radius: 0.5rem;
   }
 
   .num-field input:focus {
@@ -785,14 +1298,67 @@ import Layout from '../layouts/Layout.astro';
     cursor: not-allowed;
   }
 
-  .ratio-lock {
+  .check-field {
     display: flex;
     align-items: center;
     gap: 0.35rem;
     color: var(--text-dim);
-    font-size: 0.9rem;
+    font-size: 0.82rem;
     cursor: pointer;
   }
+
+  /* ---------- EXIF ---------- */
+
+  #exif-details summary {
+    cursor: pointer;
+    font-size: 0.85rem;
+    color: var(--text-dim);
+    font-weight: 700;
+  }
+
+  .exif-card {
+    margin-top: 0.6rem;
+    display: grid;
+    gap: 0.3rem;
+    font-size: 0.8rem;
+  }
+
+  .exif-card :global(.exif-row) {
+    display: grid;
+    grid-template-columns: 8rem 1fr;
+    gap: 0.5rem;
+  }
+
+  .exif-card :global(.exif-label) {
+    color: var(--text-dim);
+    font-weight: 600;
+  }
+
+  .exif-card :global(.exif-sensitive),
+  .exif-card :global(.exif-sensitive .exif-label) {
+    color: var(--danger);
+  }
+
+  /* ---------- 상태 바 ---------- */
+
+  .status-bar {
+    display: flex;
+    align-items: center;
+    gap: 1.2rem;
+    padding: 0.4rem 1.2rem;
+    border-top: 1px solid var(--border);
+    font-size: 0.8rem;
+    color: var(--text-dim);
+    min-height: 32px;
+    flex-wrap: wrap;
+  }
+
+  .status-message {
+    color: var(--text);
+    overflow-wrap: anywhere;
+  }
+
+  /* ---------- 공용 컨트롤 ---------- */
 
   .chip-group {
     display: inline-flex;
@@ -803,6 +1369,10 @@ import Layout from '../layouts/Layout.astro';
     border-radius: 0.7rem;
   }
 
+  .panel .chip-group {
+    background: var(--surface);
+  }
+
   .chip input {
     position: absolute;
     opacity: 0;
@@ -811,9 +1381,9 @@ import Layout from '../layouts/Layout.astro';
 
   .chip span {
     display: block;
-    padding: 0.3rem 0.7rem;
+    padding: 0.25rem 0.6rem;
     border-radius: 0.5rem;
-    font-size: 0.82rem;
+    font-size: 0.8rem;
     font-weight: 600;
     color: var(--text-dim);
     cursor: pointer;
@@ -836,8 +1406,8 @@ import Layout from '../layouts/Layout.astro';
     color: var(--text);
     font: inherit;
     font-weight: 600;
-    padding: 0.55rem 1.2rem;
-    border-radius: 0.7rem;
+    padding: 0.45rem 0.9rem;
+    border-radius: 0.6rem;
     cursor: pointer;
   }
 
@@ -856,26 +1426,41 @@ import Layout from '../layouts/Layout.astro';
     color: #fff;
   }
 
-  .btn-primary:hover {
+  .btn-primary:hover:not(:disabled) {
     filter: brightness(1.1);
   }
 
   .btn-small {
-    padding: 0.25rem 0.7rem;
+    padding: 0.3rem 0.6rem;
     font-size: 0.8rem;
   }
 
   .hint {
     color: var(--text-dim);
-    font-size: 0.82rem;
-    margin: 0.6rem 0 0;
+    font-size: 0.78rem;
+    margin: 0;
   }
 
-  .status {
-    min-height: 1.2em;
-    margin: 0.4rem 0 0;
-    font-size: 0.88rem;
-    color: var(--danger);
-    overflow-wrap: anywhere;
+  /* ---------- 좁은 화면 강등 ---------- */
+
+  @media (max-width: 900px) {
+    main {
+      height: auto;
+    }
+
+    .editor {
+      grid-template-columns: 48px 1fr;
+      grid-template-rows: auto auto;
+    }
+
+    .panel {
+      grid-column: 1 / -1;
+      border-left: none;
+      border-top: 1px solid var(--border);
+    }
+
+    .canvas-area {
+      min-height: 50vh;
+    }
   }
 </style>
