@@ -1,0 +1,877 @@
+---
+import Layout from '../layouts/Layout.astro';
+---
+
+<Layout
+  title="스프라이트 시트 플레이어 — Killterm"
+  description="스프라이트 시트 PNG를 잘라서 애니메이션으로 재생합니다. Aseprite/TexturePacker JSON 지원."
+>
+  <main>
+    <nav class="top">
+      <a href="/">← 홈으로</a>
+    </nav>
+
+    <header class="intro">
+      <h1>🎞️ 스프라이트 시트 플레이어</h1>
+      <p>
+        스프라이트 시트는 여러 프레임을 한 장에 이어 붙인 <b>평범한 PNG</b>입니다. 잘라서
+        빠르게 넘겨 그리면 애니메이션이 되죠. 이미지를 드롭하고 격자를 맞춰 재생해보세요.
+        파일은 브라우저 밖으로 전송되지 않습니다.
+      </p>
+    </header>
+
+    <div class="sample-row">
+      <span class="sample-label">예시 (자체 제작 · CC0)</span>
+      <button class="btn btn-small sample" data-src="/sprites/ball.png" data-fw="48" data-fh="48" type="button">
+        🟠 공 튀기기 (48×48 ×8)
+      </button>
+      <button class="btn btn-small sample" data-src="/sprites/coin.png" data-fw="32" data-fh="32" type="button">
+        🪙 동전 회전 (32×32 ×6)
+      </button>
+      <button id="sample-json" class="btn btn-small" type="button">
+        🏷️ 공 + Aseprite JSON (클립·프레임별 시간)
+      </button>
+    </div>
+
+    <!-- 시트 + 격자 오버레이 -->
+    <div class="drop" id="drop-zone">
+      <canvas id="sheet-canvas" hidden></canvas>
+      <p class="drop-guide" id="drop-guide">
+        스프라이트 시트 PNG를 여기에 드래그하거나 붙여넣기(Ctrl+V)하세요.
+        <button id="file-select" class="btn btn-small" type="button">파일 선택</button>
+      </p>
+    </div>
+    <input id="file-input" type="file" accept="image/*" hidden />
+    <input id="json-input" type="file" accept=".json,application/json" hidden />
+
+    <!-- 프레임 설정 -->
+    <section class="controls" id="frame-controls" hidden>
+      <div class="field-row" id="grid-controls">
+        <label class="num-field">
+          프레임 폭
+          <input id="grid-w" type="number" min="1" max="4096" step="1" value="48" />
+        </label>
+        <label class="num-field">
+          높이
+          <input id="grid-h" type="number" min="1" max="4096" step="1" value="48" />
+        </label>
+        <label class="num-field">
+          여백
+          <input id="grid-margin" type="number" min="0" max="512" step="1" value="0" />
+        </label>
+        <label class="num-field">
+          간격
+          <input id="grid-spacing" type="number" min="0" max="512" step="1" value="0" />
+        </label>
+        <label class="num-field">
+          프레임 수
+          <input id="grid-count" type="number" min="0" max="4096" step="1" value="0" />
+        </label>
+        <span class="hint">프레임 수 0 = 격자 전체 (행 우선 순서)</span>
+      </div>
+
+      <div class="field-row">
+        <label class="num-field" id="clip-field">
+          재생 프레임
+          <input id="clip-input" type="text" placeholder="예: 0-7 또는 0,2,4 (빈칸=전체)" />
+        </label>
+        <label class="num-field" id="tag-field" hidden>
+          클립
+          <select id="tag-select" aria-label="애니메이션 클립"></select>
+        </label>
+        <button id="json-load" class="btn btn-small" type="button">메타데이터 JSON 열기</button>
+        <button id="json-clear" class="btn btn-small" type="button" hidden>JSON 해제 (격자 모드)</button>
+      </div>
+      <p class="hint" id="mode-hint"></p>
+    </section>
+
+    <!-- 플레이어 -->
+    <section class="player" id="player-section" hidden>
+      <div class="player-stage">
+        <canvas id="player-canvas" class="pixelated"></canvas>
+      </div>
+      <div class="field-row">
+        <button id="play-toggle" class="btn btn-primary" type="button">⏸ 일시정지</button>
+        <button id="step-prev" class="btn btn-small" type="button">◀</button>
+        <button id="step-next" class="btn btn-small" type="button">▶</button>
+        <span class="frame-indicator" id="frame-indicator"></span>
+      </div>
+      <div class="field-row">
+        <label class="num-field" id="fps-field">
+          FPS
+          <input id="fps-input" type="number" min="1" max="60" step="1" value="10" />
+        </label>
+        <label class="num-field">
+          반복
+          <select id="loop-select">
+            <option value="loop" selected>루프</option>
+            <option value="pingpong">핑퐁 (왕복)</option>
+            <option value="once">한 번</option>
+          </select>
+        </label>
+        <label class="num-field">
+          배율
+          <select id="scale-select">
+            <option value="1">1×</option>
+            <option value="2">2×</option>
+            <option value="4" selected>4×</option>
+            <option value="8">8×</option>
+          </select>
+        </label>
+        <label class="check-field">
+          <input type="checkbox" id="pixelated-toggle" checked />
+          픽셀 아트 (계단 보간)
+        </label>
+      </div>
+      <div class="field-row">
+        <span class="export-label">내보내기</span>
+        <button id="export-png" class="btn btn-small" type="button">시트 PNG (Aseprite Import용)</button>
+        <button id="export-gif" class="btn btn-small" type="button">GIF (애니메이션)</button>
+      </div>
+      <p class="hint" id="export-hint"></p>
+    </section>
+
+    <p id="status" class="status" role="status"></p>
+  </main>
+</Layout>
+
+<script>
+  // @ts-expect-error — gifenc는 타입 선언이 없다
+  import { GIFEncoder, quantize, applyPalette } from 'gifenc';
+
+  const el = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+  const dropZone = el<HTMLDivElement>('drop-zone');
+  const sheetCanvas = el<HTMLCanvasElement>('sheet-canvas');
+  const dropGuide = el<HTMLParagraphElement>('drop-guide');
+  const fileInput = el<HTMLInputElement>('file-input');
+  const jsonInput = el<HTMLInputElement>('json-input');
+  const frameControls = el<HTMLElement>('frame-controls');
+  const gridControls = el<HTMLDivElement>('grid-controls');
+  const clipField = el<HTMLLabelElement>('clip-field');
+  const clipInput = el<HTMLInputElement>('clip-input');
+  const tagField = el<HTMLLabelElement>('tag-field');
+  const tagSelect = el<HTMLSelectElement>('tag-select');
+  const jsonClearButton = el<HTMLButtonElement>('json-clear');
+  const modeHint = el<HTMLParagraphElement>('mode-hint');
+  const playerSection = el<HTMLElement>('player-section');
+  const playerCanvas = el<HTMLCanvasElement>('player-canvas');
+  const playToggle = el<HTMLButtonElement>('play-toggle');
+  const frameIndicator = el<HTMLSpanElement>('frame-indicator');
+  const fpsInput = el<HTMLInputElement>('fps-input');
+  const loopSelect = el<HTMLSelectElement>('loop-select');
+  const scaleSelect = el<HTMLSelectElement>('scale-select');
+  const pixelatedToggle = el<HTMLInputElement>('pixelated-toggle');
+  const status = el<HTMLParagraphElement>('status');
+
+  const sheetContext = sheetCanvas.getContext('2d')!;
+  const playerContext = playerCanvas.getContext('2d')!;
+
+  const setStatus = (message: string) => {
+    status.textContent = message;
+  };
+
+  // ---------- 상태 ----------
+
+  type Frame = { x: number; y: number; w: number; h: number; duration: number | null };
+  type Tag = { name: string; from: number; to: number; direction: string };
+
+  let sheet: ImageBitmap | null = null;
+  let frames: Frame[] = [];
+  let sequence: number[] = []; // 재생할 프레임 인덱스 순서
+  let mode: 'grid' | 'json' = 'grid';
+  let tags: Tag[] = [];
+
+  // 재생 상태
+  let playing = true;
+  let seqPos = 0;
+  let direction = 1; // 핑퐁용
+  let accumulated = 0;
+  let lastTime: number | null = null;
+
+  const num = (input: HTMLInputElement, fallback: number) => {
+    const value = Math.floor(Number(input.value));
+    return Number.isFinite(value) && value >= 0 ? value : fallback;
+  };
+
+  // ---------- 그리드 모드: 입력값 → 프레임 좌표 ----------
+
+  function computeGridFrames(): Frame[] {
+    if (!sheet) return [];
+    const frameW = Math.max(1, num(el<HTMLInputElement>('grid-w'), 1));
+    const frameH = Math.max(1, num(el<HTMLInputElement>('grid-h'), 1));
+    const margin = num(el<HTMLInputElement>('grid-margin'), 0);
+    const spacing = num(el<HTMLInputElement>('grid-spacing'), 0);
+    const cols = Math.max(0, Math.floor((sheet.width - margin * 2 + spacing) / (frameW + spacing)));
+    const rows = Math.max(0, Math.floor((sheet.height - margin * 2 + spacing) / (frameH + spacing)));
+    const limit = num(el<HTMLInputElement>('grid-count'), 0);
+    const result: Frame[] = [];
+    // 행 우선 순서
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        if (limit > 0 && result.length >= limit) return result;
+        result.push({
+          x: margin + c * (frameW + spacing),
+          y: margin + r * (frameH + spacing),
+          w: frameW,
+          h: frameH,
+          duration: null,
+        });
+      }
+    }
+    return result;
+  }
+
+  // "0-7,9,11" 형식의 재생 프레임 지정을 인덱스 배열로
+  function parseClipRange(text: string, max: number): number[] {
+    const trimmed = text.trim();
+    if (trimmed === '') return frames.map((_, i) => i);
+    const result: number[] = [];
+    for (const part of trimmed.split(',')) {
+      const range = part.trim().match(/^(\d+)\s*-\s*(\d+)$/);
+      if (range) {
+        const from = Number(range[1]);
+        const to = Number(range[2]);
+        for (let i = from; from <= to ? i <= to : i >= to; i += from <= to ? 1 : -1) {
+          result.push(i);
+        }
+      } else if (/^\d+$/.test(part.trim())) {
+        result.push(Number(part.trim()));
+      } else {
+        throw new Error(`재생 프레임 형식이 올바르지 않습니다: "${part.trim()}"`);
+      }
+    }
+    const invalid = result.find((i) => i >= max);
+    if (invalid !== undefined) {
+      throw new Error(`프레임 ${invalid}는 없습니다 (0~${max - 1}).`);
+    }
+    return result;
+  }
+
+  // ---------- 메타데이터 JSON (Aseprite / TexturePacker) ----------
+
+  function parseMetaJson(json: unknown): { frames: Frame[]; tags: Tag[] } {
+    const data = json as {
+      frames?: Record<string, unknown> | unknown[];
+      meta?: { frameTags?: Tag[] };
+    };
+    if (!data?.frames) throw new Error('frames 항목이 없는 JSON입니다. Aseprite/TexturePacker 내보내기 파일인지 확인해주세요.');
+    const entries = Array.isArray(data.frames) ? data.frames : Object.values(data.frames);
+    const parsed: Frame[] = entries.map((entry) => {
+      const e = entry as { frame?: { x: number; y: number; w: number; h: number }; duration?: number };
+      if (!e?.frame) throw new Error('frame 좌표가 없는 항목이 있습니다.');
+      return { ...e.frame, duration: typeof e.duration === 'number' ? e.duration : null };
+    });
+    if (parsed.length === 0) throw new Error('프레임이 비어 있습니다.');
+    return { frames: parsed, tags: data.meta?.frameTags ?? [] };
+  }
+
+  function applyMetaJson(json: unknown) {
+    const parsed = parseMetaJson(json);
+    frames = parsed.frames;
+    tags = parsed.tags;
+    mode = 'json';
+    gridControls.hidden = true;
+    clipField.hidden = true;
+    jsonClearButton.hidden = false;
+    fpsInput.disabled = frames.some((f) => f.duration !== null);
+    tagSelect.innerHTML = '<option value="">전체 프레임</option>';
+    for (const tag of tags) {
+      const option = document.createElement('option');
+      option.value = tag.name;
+      option.textContent = `${tag.name} (${tag.from}–${tag.to}${tag.direction === 'pingpong' ? ', 핑퐁' : ''})`;
+      tagSelect.appendChild(option);
+    }
+    tagField.hidden = false;
+    if (tags.length > 0) tagSelect.value = tags[0].name;
+    modeHint.textContent =
+      'JSON 모드: 프레임 좌표·재생 시간은 메타데이터를 따릅니다.' +
+      (fpsInput.disabled ? ' (프레임별 시간이 있어 FPS 입력은 비활성)' : '');
+    rebuildSequence();
+    drawSheet();
+  }
+
+  function clearMetaJson() {
+    mode = 'grid';
+    tags = [];
+    gridControls.hidden = false;
+    clipField.hidden = false;
+    tagField.hidden = true;
+    jsonClearButton.hidden = true;
+    fpsInput.disabled = false;
+    modeHint.textContent = '격자 모드: 프레임 폭·높이를 시트에 맞춰 조정하세요. 격자가 실시간으로 표시됩니다.';
+    refreshGrid();
+  }
+
+  // ---------- 시퀀스(재생 순서) 구성 ----------
+
+  function rebuildSequence() {
+    setStatus('');
+    try {
+      if (mode === 'json') {
+        const tag = tags.find((t) => t.name === tagSelect.value);
+        if (tag) {
+          const base: number[] = [];
+          for (let i = tag.from; i <= tag.to; i++) base.push(i);
+          sequence = base;
+          if (tag.direction === 'pingpong') loopSelect.value = 'pingpong';
+          if (tag.direction === 'reverse') sequence = base.reverse();
+        } else {
+          sequence = frames.map((_, i) => i);
+        }
+      } else {
+        sequence = parseClipRange(clipInput.value, frames.length);
+      }
+    } catch (e) {
+      setStatus(e instanceof Error ? e.message : String(e));
+      sequence = frames.map((_, i) => i);
+    }
+    seqPos = 0;
+    direction = 1;
+    accumulated = 0;
+    resizePlayer();
+  }
+
+  // ---------- 시트 미리보기 + 격자 오버레이 ----------
+
+  function drawSheet() {
+    if (!sheet) return;
+    sheetCanvas.width = sheet.width;
+    sheetCanvas.height = sheet.height;
+    sheetContext.imageSmoothingEnabled = false;
+    sheetContext.drawImage(sheet, 0, 0);
+    sheetContext.strokeStyle = 'rgba(108, 140, 255, 0.9)';
+    sheetContext.lineWidth = 1;
+    sheetContext.font = '10px Consolas, monospace';
+    sheetContext.fillStyle = 'rgba(108, 140, 255, 0.9)';
+    for (const [i, frame] of frames.entries()) {
+      sheetContext.strokeRect(frame.x + 0.5, frame.y + 0.5, frame.w - 1, frame.h - 1);
+      sheetContext.fillText(String(i), frame.x + 2, frame.y + 10);
+    }
+  }
+
+  function refreshGrid() {
+    if (mode !== 'grid') return;
+    frames = computeGridFrames();
+    if (frames.length === 0) {
+      setStatus('프레임이 하나도 나오지 않습니다. 프레임 폭·높이가 이미지보다 큰지 확인해주세요.');
+    }
+    rebuildSequence();
+    drawSheet();
+  }
+
+  // ---------- 재생 ----------
+
+  function currentFrame(): Frame | null {
+    if (sequence.length === 0) return null;
+    return frames[sequence[seqPos]] ?? null;
+  }
+
+  function resizePlayer() {
+    const frame = currentFrame();
+    if (!frame) return;
+    const scale = Number(scaleSelect.value);
+    playerCanvas.width = frame.w * scale;
+    playerCanvas.height = frame.h * scale;
+    drawPlayer();
+  }
+
+  function drawPlayer() {
+    const frame = currentFrame();
+    if (!sheet || !frame) return;
+    const scale = Number(scaleSelect.value);
+    playerContext.imageSmoothingEnabled = !pixelatedToggle.checked;
+    playerContext.clearRect(0, 0, playerCanvas.width, playerCanvas.height);
+    playerContext.drawImage(
+      sheet,
+      frame.x,
+      frame.y,
+      frame.w,
+      frame.h,
+      0,
+      0,
+      frame.w * scale,
+      frame.h * scale,
+    );
+    frameIndicator.textContent = `프레임 ${sequence[seqPos]} (${seqPos + 1}/${sequence.length})`;
+  }
+
+  function frameDuration(): number {
+    const frame = currentFrame();
+    if (frame?.duration != null) return frame.duration;
+    const fps = Math.min(60, Math.max(1, num(fpsInput, 10)));
+    return 1000 / fps;
+  }
+
+  function advance(step: 1 | -1) {
+    if (sequence.length === 0) return;
+    const loopMode = loopSelect.value;
+    let next = seqPos + step * direction;
+    if (loopMode === 'pingpong') {
+      if (next >= sequence.length || next < 0) {
+        direction *= -1;
+        next = seqPos + step * direction;
+      }
+    } else if (next >= sequence.length) {
+      if (loopMode === 'once') {
+        playing = false;
+        playToggle.textContent = '▶ 재생';
+        return;
+      }
+      next = 0;
+    } else if (next < 0) {
+      next = sequence.length - 1;
+    }
+    seqPos = Math.min(sequence.length - 1, Math.max(0, next));
+  }
+
+  function tick(time: number) {
+    if (sheet && playing && sequence.length > 1) {
+      if (lastTime !== null) {
+        accumulated += time - lastTime;
+        // 탭 백그라운드 복귀 시 몰아서 도는 것을 방지
+        accumulated = Math.min(accumulated, 1000);
+        while (accumulated >= frameDuration()) {
+          accumulated -= frameDuration();
+          advance(1);
+        }
+      }
+      drawPlayer();
+    }
+    lastTime = time;
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+
+  // ---------- 로드 ----------
+
+  async function loadSheet(file: File | Blob, presetW?: number, presetH?: number) {
+    setStatus('');
+    try {
+      sheet = await createImageBitmap(file);
+    } catch {
+      setStatus('이미지를 불러오지 못했습니다.');
+      return;
+    }
+    sheetCanvas.hidden = false;
+    dropGuide.hidden = true;
+    frameControls.hidden = false;
+    playerSection.hidden = false;
+    // 기본 추정: 가로 스트립이면 프레임 = 정사각(높이×높이)
+    el<HTMLInputElement>('grid-w').value = String(presetW ?? sheet.height);
+    el<HTMLInputElement>('grid-h').value = String(presetH ?? sheet.height);
+    el<HTMLInputElement>('grid-count').value = '0';
+    clipInput.value = '';
+    playing = true;
+    playToggle.textContent = '⏸ 일시정지';
+    clearMetaJson();
+  }
+
+  el<HTMLButtonElement>('file-select').addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', () => {
+    const file = fileInput.files?.[0];
+    if (file) loadSheet(file);
+    fileInput.value = '';
+  });
+
+  dropZone.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    dropZone.classList.add('drag-over');
+  });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+  dropZone.addEventListener('drop', async (e) => {
+    e.preventDefault();
+    dropZone.classList.remove('drag-over');
+    for (const file of Array.from(e.dataTransfer?.files ?? [])) {
+      if (file.type.startsWith('image/')) await loadSheet(file);
+      else if (file.name.endsWith('.json')) await loadJsonFile(file);
+    }
+  });
+
+  document.addEventListener('paste', (e) => {
+    const item = Array.from(e.clipboardData?.items ?? []).find((i) => i.type.startsWith('image/'));
+    const file = item?.getAsFile();
+    if (file) loadSheet(file);
+  });
+
+  async function loadJsonFile(file: File | Blob) {
+    if (!sheet) {
+      setStatus('먼저 스프라이트 시트 이미지를 불러와주세요.');
+      return;
+    }
+    try {
+      applyMetaJson(JSON.parse(await file.text()));
+    } catch (e) {
+      setStatus(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  el<HTMLButtonElement>('json-load').addEventListener('click', () => jsonInput.click());
+  jsonInput.addEventListener('change', () => {
+    const file = jsonInput.files?.[0];
+    if (file) loadJsonFile(file);
+    jsonInput.value = '';
+  });
+  jsonClearButton.addEventListener('click', clearMetaJson);
+
+  // ---------- 예시 ----------
+
+  for (const button of document.querySelectorAll<HTMLButtonElement>('.sample')) {
+    button.addEventListener('click', async () => {
+      const response = await fetch(button.dataset.src!);
+      await loadSheet(await response.blob(), Number(button.dataset.fw), Number(button.dataset.fh));
+    });
+  }
+
+  el<HTMLButtonElement>('sample-json').addEventListener('click', async () => {
+    const image = await fetch('/sprites/ball.png');
+    await loadSheet(await image.blob(), 48, 48);
+    const json = await fetch('/sprites/ball.json');
+    applyMetaJson(await json.json());
+  });
+
+  // ---------- 컨트롤 이벤트 ----------
+
+  for (const id of ['grid-w', 'grid-h', 'grid-margin', 'grid-spacing', 'grid-count']) {
+    el<HTMLInputElement>(id).addEventListener('input', refreshGrid);
+  }
+  clipInput.addEventListener('input', rebuildSequence);
+  tagSelect.addEventListener('change', rebuildSequence);
+  scaleSelect.addEventListener('change', resizePlayer);
+  pixelatedToggle.addEventListener('change', () => {
+    playerCanvas.classList.toggle('pixelated', pixelatedToggle.checked);
+    drawPlayer();
+  });
+
+  playToggle.addEventListener('click', () => {
+    playing = !playing;
+    playToggle.textContent = playing ? '⏸ 일시정지' : '▶ 재생';
+    accumulated = 0;
+  });
+
+  const step = (delta: 1 | -1) => {
+    playing = false;
+    playToggle.textContent = '▶ 재생';
+    advance(delta);
+    drawPlayer();
+  };
+  el<HTMLButtonElement>('step-prev').addEventListener('click', () => step(-1));
+  el<HTMLButtonElement>('step-next').addEventListener('click', () => step(1));
+
+  // ---------- 내보내기 ----------
+
+  const exportHint = el<HTMLParagraphElement>('export-hint');
+
+  // 재생 시퀀스의 프레임들을 담을 셀 크기 (JSON 모드는 프레임 크기가 제각각일 수 있음)
+  function cellSize() {
+    const seqFrames = sequence.map((i) => frames[i]);
+    return {
+      w: Math.max(...seqFrames.map((f) => f.w)),
+      h: Math.max(...seqFrames.map((f) => f.h)),
+    };
+  }
+
+  function drawFrameCentered(
+    ctx: CanvasRenderingContext2D,
+    frame: Frame,
+    cellX: number,
+    cellY: number,
+    cell: { w: number; h: number },
+  ) {
+    ctx.drawImage(
+      sheet!,
+      frame.x,
+      frame.y,
+      frame.w,
+      frame.h,
+      cellX + Math.floor((cell.w - frame.w) / 2),
+      cellY + Math.floor((cell.h - frame.h) / 2),
+      frame.w,
+      frame.h,
+    );
+  }
+
+  function downloadBlob(blob: Blob, name: string) {
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = name;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }
+
+  // 현재 재생 시퀀스를 균일 그리드 PNG로 다시 구워 Aseprite Import Sprite Sheet에 맞춘다
+  el<HTMLButtonElement>('export-png').addEventListener('click', () => {
+    if (!sheet || sequence.length === 0) return;
+    const cell = cellSize();
+    const cols = Math.min(sequence.length, 16);
+    const rows = Math.ceil(sequence.length / cols);
+    const canvas = document.createElement('canvas');
+    canvas.width = cell.w * cols;
+    canvas.height = cell.h * rows;
+    const ctx = canvas.getContext('2d')!;
+    sequence.forEach((frameIndex, i) => {
+      drawFrameCentered(ctx, frames[frameIndex], (i % cols) * cell.w, Math.floor(i / cols) * cell.h, cell);
+    });
+    canvas.toBlob((blob) => {
+      if (!blob) return;
+      downloadBlob(blob, 'spritesheet.png');
+      exportHint.textContent =
+        `Aseprite에서 File → Import Sprite Sheet로 열고 ` +
+        `프레임 폭 ${cell.w} · 높이 ${cell.h} · 여백/간격 0을 입력하면 애니메이션으로 분해됩니다.`;
+    }, 'image/png');
+  });
+
+  // GIF는 Aseprite가 프레임·타이밍까지 그대로 애니메이션으로 가져온다
+  el<HTMLButtonElement>('export-gif').addEventListener('click', () => {
+    if (!sheet || sequence.length === 0) return;
+    const cell = cellSize();
+    const canvas = document.createElement('canvas');
+    canvas.width = cell.w;
+    canvas.height = cell.h;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
+
+    const gif = GIFEncoder();
+    for (const frameIndex of sequence) {
+      const frame = frames[frameIndex];
+      ctx.clearRect(0, 0, cell.w, cell.h);
+      drawFrameCentered(ctx, frame, 0, 0, cell);
+      const { data } = ctx.getImageData(0, 0, cell.w, cell.h);
+      // rgba4444: 투명도를 팔레트에 포함시키는 gifenc 포맷
+      const palette = quantize(data, 256, { format: 'rgba4444' });
+      const indexed = applyPalette(data, palette, 'rgba4444');
+      gif.writeFrame(indexed, cell.w, cell.h, {
+        palette,
+        transparent: true,
+        delay: Math.round(frame.duration ?? 1000 / Math.min(60, Math.max(1, num(fpsInput, 10)))),
+      });
+    }
+    gif.finish();
+    downloadBlob(new Blob([gif.bytes()], { type: 'image/gif' }), 'sprite.gif');
+    exportHint.textContent = 'GIF는 Aseprite에서 바로 애니메이션으로 열립니다 (프레임 시간 보존).';
+  });
+</script>
+
+<style>
+  main {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 2.5rem 1.5rem 4rem;
+  }
+
+  .top a {
+    color: var(--text-dim);
+    text-decoration: none;
+    font-size: 0.9rem;
+  }
+
+  .top a:hover {
+    color: var(--accent);
+  }
+
+  .intro h1 {
+    margin: 1rem 0 0.5rem;
+    font-size: clamp(1.6rem, 4vw, 2.2rem);
+    letter-spacing: -0.02em;
+  }
+
+  .intro p {
+    color: var(--text-dim);
+    margin: 0 0 1rem;
+  }
+
+  .intro b {
+    color: var(--text);
+  }
+
+  .sample-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin-bottom: 1rem;
+  }
+
+  .sample-label {
+    color: var(--text-dim);
+    font-size: 0.85rem;
+    font-weight: 600;
+  }
+
+  .drop {
+    display: grid;
+    place-items: center;
+    min-height: 120px;
+    border: 1px dashed var(--border);
+    border-radius: 0.9rem;
+    background: var(--bg-soft);
+    overflow-x: auto;
+    padding: 0.8rem;
+  }
+
+  .drop.drag-over {
+    border-color: var(--accent);
+    border-style: solid;
+  }
+
+  .drop canvas {
+    image-rendering: pixelated;
+    max-width: 100%;
+  }
+
+  .drop-guide {
+    margin: 0;
+    color: var(--text-dim);
+    font-size: 0.9rem;
+    text-align: center;
+  }
+
+  .controls {
+    margin-top: 1rem;
+    display: grid;
+    gap: 0.7rem;
+  }
+
+  .controls[hidden],
+  .player[hidden] {
+    display: none;
+  }
+
+  .field-row {
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+    flex-wrap: wrap;
+  }
+
+  .num-field {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    color: var(--text-dim);
+    font-size: 0.85rem;
+    font-weight: 600;
+  }
+
+  .num-field input[type='number'] {
+    width: 4.6rem;
+  }
+
+  .num-field input,
+  .num-field select {
+    border: 1px solid var(--border);
+    background: var(--bg-soft);
+    color: var(--text);
+    font: inherit;
+    font-size: 0.85rem;
+    padding: 0.3rem 0.5rem;
+    border-radius: 0.5rem;
+  }
+
+  .num-field input:focus,
+  .num-field select:focus {
+    outline: 2px solid var(--accent);
+    border-color: var(--accent);
+  }
+
+  .num-field input:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
+  #clip-input {
+    width: 15rem;
+  }
+
+  .check-field {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    color: var(--text-dim);
+    font-size: 0.85rem;
+    cursor: pointer;
+  }
+
+  .player {
+    margin-top: 1.2rem;
+    display: grid;
+    gap: 0.7rem;
+  }
+
+  .player-stage {
+    display: grid;
+    place-items: center;
+    min-height: 160px;
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    border-radius: 0.9rem;
+    padding: 1rem;
+    /* 체커보드 */
+    --checker: light-dark(rgba(28, 35, 51, 0.07), rgba(255, 255, 255, 0.04));
+    background-image:
+      linear-gradient(45deg, var(--checker) 25%, transparent 25%, transparent 75%, var(--checker) 75%),
+      linear-gradient(45deg, var(--checker) 25%, transparent 25%, transparent 75%, var(--checker) 75%);
+    background-size: 20px 20px;
+    background-position: 0 0, 10px 10px;
+  }
+
+  .player-stage canvas.pixelated {
+    image-rendering: pixelated;
+  }
+
+  .export-label {
+    color: var(--text-dim);
+    font-size: 0.85rem;
+    font-weight: 600;
+  }
+
+  .frame-indicator {
+    font-family: Consolas, 'Courier New', monospace;
+    font-size: 0.88rem;
+    color: var(--text-dim);
+  }
+
+  .btn {
+    appearance: none;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    font: inherit;
+    font-weight: 600;
+    padding: 0.5rem 1rem;
+    border-radius: 0.7rem;
+    cursor: pointer;
+  }
+
+  .btn:hover {
+    border-color: var(--accent);
+  }
+
+  .btn-primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+  }
+
+  .btn-primary:hover {
+    filter: brightness(1.1);
+  }
+
+  .btn-small {
+    padding: 0.3rem 0.7rem;
+    font-size: 0.82rem;
+  }
+
+  .hint {
+    color: var(--text-dim);
+    font-size: 0.82rem;
+    margin: 0;
+  }
+
+  .status {
+    min-height: 1.2em;
+    margin: 0.6rem 0 0;
+    font-size: 0.88rem;
+    color: var(--danger);
+    overflow-wrap: anywhere;
+  }
+</style>

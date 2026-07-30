@@ -179,6 +179,23 @@
 - EXIF 파서는 `src/lib/exif.ts` — JPEG APP1의 TIFF IFD를 직접 파싱(의존성 없음),
   레이어별로 저장하고 GPS 좌표는 sensitive로 경고 표시.
 
+### 스프라이트 시트 플레이어 (`src/pages/sprite.astro`)
+
+- 스프라이트 시트 PNG를 격자로 잘라 canvas에서 애니메이션 재생. 격자 모드
+  (폭/높이/여백/간격/프레임 수, 행 우선, 실시간 격자 오버레이)와 메타데이터
+  모드(Aseprite/TexturePacker JSON — 프레임 좌표·프레임별 duration·frameTags
+  클립)를 지원한다. 프레임별 duration이 있으면 FPS 입력은 비활성.
+- 재생: 루프/핑퐁/한 번, 프레임 스텝, 배율, `image-rendering: pixelated` 토글.
+  백그라운드 복귀 시 누적 시간을 1초로 제한해 몰아 돌지 않게 한다.
+- 예시 시트는 `public/sprites/` — 자체 제작(CC0): ball.png(48×48×8, squash
+  데모), coin.png(32×32×6), ball.json(Aseprite 형식, 클립·가변 duration 데모).
+  생성 스크립트는 의존성 없는 최소 PNG 인코더로 만들었다(재생성 시 참고).
+- 내보내기: ① 재생 시퀀스를 균일 그리드 PNG로 재베이크(최대 16열 래핑) —
+  Aseprite Import Sprite Sheet용이며 프레임 크기 안내 문구를 함께 표시.
+  ② GIF(gifenc, rgba4444 팔레트로 투명도 유지) — Aseprite가 프레임 시간까지
+  애니메이션으로 가져오는 유일한 경로. Aseprite JSON은 역방향 임포트가 없어
+  내보내지 않는다.
+
 ### P2P 화상 통화 (`src/pages/call.astro`)
 
 - **수동 시그널링** WebRTC: SDP를 사람이 메신저로 복사/붙여넣기 교환.

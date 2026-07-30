@@ -1,0 +1,97 @@
+{
+  "frames": {
+    "ball 0.png": {
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 48,
+        "h": 48
+      },
+      "duration": 60
+    },
+    "ball 1.png": {
+      "frame": {
+        "x": 48,
+        "y": 0,
+        "w": 48,
+        "h": 48
+      },
+      "duration": 80
+    },
+    "ball 2.png": {
+      "frame": {
+        "x": 96,
+        "y": 0,
+        "w": 48,
+        "h": 48
+      },
+      "duration": 110
+    },
+    "ball 3.png": {
+      "frame": {
+        "x": 144,
+        "y": 0,
+        "w": 48,
+        "h": 48
+      },
+      "duration": 140
+    },
+    "ball 4.png": {
+      "frame": {
+        "x": 192,
+        "y": 0,
+        "w": 48,
+        "h": 48
+      },
+      "duration": 140
+    },
+    "ball 5.png": {
+      "frame": {
+        "x": 240,
+        "y": 0,
+        "w": 48,
+        "h": 48
+      },
+      "duration": 110
+    },
+    "ball 6.png": {
+      "frame": {
+        "x": 288,
+        "y": 0,
+        "w": 48,
+        "h": 48
+      },
+      "duration": 80
+    },
+    "ball 7.png": {
+      "frame": {
+        "x": 336,
+        "y": 0,
+        "w": 48,
+        "h": 48
+      },
+      "duration": 60
+    }
+  },
+  "meta": {
+    "app": "killterm sample",
+    "size": {
+      "w": 384,
+      "h": 48
+    },
+    "frameTags": [
+      {
+        "name": "bounce",
+        "from": 0,
+        "to": 7,
+        "direction": "forward"
+      },
+      {
+        "name": "floor-hit",
+        "from": 0,
+        "to": 1,
+        "direction": "pingpong"
+      }
+    ]
+  }
+}
