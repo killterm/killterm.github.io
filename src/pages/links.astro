@@ -3,7 +3,7 @@ import Layout from '../layouts/Layout.astro';
 
 const categories = [
   {
-    name: 'Killterm',
+    name: '일상',
     links: [
       {
         label: 'YouTube',
@@ -19,6 +19,16 @@ const categories = [
         label: 'GitHub',
         description: 'GitHub 프로필',
         url: 'https://github.com/killterm',
+      },
+      {
+        label: '기상청 레이더',
+        description: '실시간 강수 레이더 영상',
+        url: 'https://www.weather.go.kr/w/weather/radar/rain.do',
+      },
+      {
+        label: '네이버 날씨',
+        description: '현재 위치 기준 날씨 예보',
+        url: 'https://search.naver.com/search.naver?query=%EB%82%A0%EC%94%A8',
       },
     ],
   },
@@ -39,6 +49,16 @@ const categories = [
         label: 'Delisted Games Watch List',
         description: '판매 중단됐거나 중단 예정인 게임 목록',
         url: 'https://delistedgames.com/watch-list/',
+      },
+      {
+        label: 'Player.gg',
+        description: '출시 전 게임 플레이테스트 참여 플랫폼',
+        url: 'https://player.gg/',
+      },
+      {
+        label: 'Alpha Beta Gamer',
+        description: '데모·알파·베타 등 미출시 게임 체험 정보 모음',
+        url: 'https://alphabetagamer.com/',
       },
     ],
   },
@@ -259,16 +279,6 @@ const categories = [
         label: 'Jonathan Blow Interviews & Chats',
         description: 'Jonathan Blow 인터뷰·대담 모음 재생목록',
         url: 'https://www.youtube.com/playlist?list=PL1tgpR5Or1xPNQjvIn1i7yhyBnJBLZ9GB',
-      },
-    ],
-  },
-  {
-    name: '플레이테스트',
-    links: [
-      {
-        label: 'Player.gg',
-        description: '출시 전 게임 플레이테스트 참여 플랫폼',
-        url: 'https://player.gg/',
       },
     ],
   },
