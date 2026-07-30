@@ -227,6 +227,44 @@
   범위 클램프가 공유한다.
 - 원리 설명은 두 곳에 역할을 나눠 둔다: 페이지의 접이식 `<details>`는
   방문자용 3단계 요약, 이 문서는 유지보수자용 설계 근거.
+- 파형에 `triangle`을 추가했다(Bfxr가 sfxr에 추가한 파형). `WAVE_TYPES`의
+  앞 4개 순서는 sfxr 원본 그대로 유지해야 한다 — 프리셋/랜덤의 정수 매핑이
+  이 순서에 의존한다. 출력은 원래 16-bit/44.1kHz라 "8비트 느낌"은 비트
+  심도가 아니라 파형의 단순함에서 온다 (음색 확장 = 파형/합성 추가).
+- **SFX 보관함**(`src/lib/sfx-store.ts`): localStorage `killterm-sfx-sounds`에
+  `{id, name, params}[]` 저장. 읽을 때 `defaultParams()` 위에 덮어 이후
+  파라미터가 추가돼도 옛 저장본이 동작한다. 칩튠 작곡기가 악기 목록으로 공유.
+
+### 칩튠 작곡기 (`src/pages/composer.astro`)
+
+- SFX 보관함의 소리를 **악기**로 써서 곡을 만드는 패턴 기반 시퀀서.
+  용어 주의: 소리를 타임라인에 배치하는 것은 믹싱이 아니라
+  **시퀀싱** — 믹싱은 트랙 볼륨/밸런스 후반 작업.
+- **음정 매핑**(`src/lib/composer-engine.ts`): sfxr 파라미터에서 baseFreq만
+  음표 주파수로 치환해 재합성하면 같은 음색으로 모든 음정이 나온다.
+  sfxr 내부 스텝이 초당 44100×8이고 period = 100/(baseFreq²+0.001)이므로
+  `freq = 3528×(baseFreq²+0.001)`, 역산 `baseFreqForHz = √(hz/3528 − 0.001)`
+  (유효 ~3.5Hz–3528Hz, 피아노롤 C3~B5는 여유). Node에서 사인파
+  zero-crossing으로 정확도 검증함.
+- **채널 4개, 모노포닉(스텝당 한 음), 노트는 원샷**(길이는 엔벨로프가 결정)
+  — 칩튠 하드웨어/LC 관례이자 구현 단순화. 화음이 필요하면 채널을 나눠 쓴다.
+- **곡 구조**: 패턴(32스텝 = 16분음표×2마디) 여러 개 + 시퀀스(패턴 인덱스
+  나열). 곡 JSON에는 악기를 참조가 아니라 **파라미터로 내장**한다 — JSON
+  파일 하나로 다른 브라우저에서도 완전 재생 가능.
+- **재생은 룩어헤드 스케줄러**: setInterval(25ms)로 0.12초 앞까지
+  AudioBufferSource를 오디오 클록 기준 예약("tale of two clocks" 패턴).
+  setTimeout/rAF 직접 발음은 째깍임이 밀린다. 노트 렌더는 파라미터
+  JSON+노트를 키로 캐시(노이즈 파형이 Math.random 기반이라 캐시가 세션 내
+  일관성도 담보), AudioBuffer는 Float32Array를 키로 WeakMap 캐시.
+- **WAV 내보내기**는 실시간 녹음이 아니라 `mixSong()` 오프라인 믹스다운
+  (채널 볼륨 × 마스터 × 0.5 헤드룸, 클램프) — 순수 함수라 Node 검증 공유.
+- 곡은 localStorage `killterm-composer-song`에 자동 저장 + JSON
+  내보내기/가져오기(만다라트 관례). 가져오기는 `normalizeSong()`으로 형태
+  검증·기본값 보강.
+- **예시 곡**(자체 제작 · CC0): `public/songs/demo.json` — C장조 8마디,
+  패턴 A(C→G)·B(Am→F), 시퀀스 [A,A,B,A]. 내장 악기 파라미터를 그대로 쓰도록
+  생성 스크립트에서 `BUILTIN_INSTRUMENTS`를 임베드해 만들었다(재생성 시
+  스크립트로). 버튼은 현재 곡을 덮어쓰므로 confirm 후 곡 모드로 자동 재생.
 
 ### P2P 화상 통화 (`src/pages/call.astro`)
 

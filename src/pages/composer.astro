@@ -1,0 +1,1106 @@
+---
+import Layout from '../layouts/Layout.astro';
+import GlassSlider from '../components/GlassSlider.astro';
+---
+
+<Layout
+  title="칩튠 작곡기 — Killterm"
+  description="SFX 생성기의 소리를 악기로 써서 패턴 시퀀싱으로 곡을 만듭니다."
+>
+  <main>
+    <nav class="top">
+      <a href="/">← 홈으로</a>
+    </nav>
+
+    <header class="intro">
+      <h1>🎹 칩튠 작곡기</h1>
+      <p>
+        <a href="/sfx/">레트로 SFX 생성기</a>에서 보관함에 저장한 소리를 악기로 골라,
+        패턴에 노트를 찍고 순서를 이어붙여 곡을 만드세요. 채널은 4개(스텝당 한 음)이고,
+        작업 중인 곡은 이 브라우저에 자동 저장됩니다.
+      </p>
+    </header>
+
+    <section class="toolbar">
+      <button id="play-toggle" class="btn btn-primary" type="button">▶ 재생</button>
+      <span class="mode-group" role="group" aria-label="재생 범위">
+        <button id="mode-pattern" class="btn btn-small mode" aria-pressed="true" type="button">
+          패턴
+        </button>
+        <button id="mode-song" class="btn btn-small mode" aria-pressed="false" type="button">
+          곡 (시퀀스)
+        </button>
+      </span>
+      <label class="num-field">
+        BPM
+        <input id="bpm-input" type="number" min="60" max="240" step="1" value="120" />
+      </label>
+      <span class="row-label">마스터</span>
+      <GlassSlider id="master-volume" min="0" max="100" step="1" value="80" aria-label="마스터 볼륨" />
+      <span class="mono-value" id="master-value">80%</span>
+    </section>
+
+    <div class="demo-row">
+      <button id="load-demo" class="btn demo-button" type="button">🎵 예시 곡 들어보기</button>
+      <span class="hint">자체 제작 · CC0 — 처음이라면 눌러서 전체 흐름을 확인해보세요.</span>
+    </div>
+
+    <section class="channels">
+      <div class="field-row" id="channel-tabs"></div>
+      <div class="field-row">
+        <label class="num-field">
+          악기
+          <select id="instrument-select" aria-label="채널 악기"></select>
+        </label>
+        <span class="row-label">채널 볼륨</span>
+        <GlassSlider id="channel-volume" min="0" max="100" step="1" value="80" aria-label="채널 볼륨" />
+        <span class="mono-value" id="channel-volume-value">80%</span>
+        <label class="check-field">
+          <input type="checkbox" id="mute-toggle" />
+          음소거
+        </label>
+      </div>
+    </section>
+
+    <div class="roll" id="roll-scroll">
+      <div class="roll-grid" id="roll-grid"></div>
+    </div>
+
+    <section class="patterns">
+      <div class="field-row">
+        <span class="row-label">패턴</span>
+        <span id="pattern-list" class="chip-row"></span>
+        <button id="pattern-add" class="btn btn-small" type="button">＋ 추가</button>
+        <button id="pattern-clone" class="btn btn-small" type="button">⧉ 복제</button>
+        <button id="pattern-delete" class="btn btn-small" type="button">× 삭제</button>
+      </div>
+      <div class="field-row">
+        <span class="row-label">시퀀스</span>
+        <span id="sequence-list" class="chip-row"></span>
+        <button id="sequence-add" class="btn btn-small" type="button">＋ 현재 패턴 추가</button>
+      </div>
+      <p class="hint">
+        시퀀스는 곡의 구성입니다 — 패턴 번호를 순서대로 이어붙여 하나의 곡이 됩니다.
+        "곡 (시퀀스)" 모드로 재생하면 이 순서대로 연주합니다.
+      </p>
+    </section>
+
+    <section class="exports">
+      <div class="field-row">
+        <span class="row-label">내보내기</span>
+        <button id="export-wav" class="btn btn-small" type="button">💾 WAV (곡 전체)</button>
+        <button id="export-json" class="btn btn-small" type="button">곡 JSON 내보내기</button>
+        <button id="import-json" class="btn btn-small" type="button">곡 JSON 가져오기</button>
+        <button id="reset-song" class="btn btn-small" type="button">새 곡</button>
+      </div>
+      <input id="import-input" type="file" accept=".json,application/json" hidden />
+    </section>
+
+    <p id="status" class="status" role="status"></p>
+  </main>
+</Layout>
+
+<script>
+  import {
+    BUILTIN_INSTRUMENTS,
+    CHANNEL_COUNT,
+    MAX_PATTERNS,
+    MAX_SEQUENCE,
+    NOTE_COUNT,
+    PATTERN_STEPS,
+    cloneInstrument,
+    defaultSong,
+    emptyPattern,
+    isBlackKey,
+    mixSong,
+    normalizeSong,
+    noteLabel,
+    renderNote,
+    stepDuration,
+    type Song,
+  } from '../lib/composer-engine';
+  import { SAMPLE_RATE } from '../lib/sfx-synth';
+  import { listSounds } from '../lib/sfx-store';
+  import { encodeWav } from '../lib/wav-encode';
+
+  const el = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+  const playToggle = el<HTMLButtonElement>('play-toggle');
+  const modePatternButton = el<HTMLButtonElement>('mode-pattern');
+  const modeSongButton = el<HTMLButtonElement>('mode-song');
+  const bpmInput = el<HTMLInputElement>('bpm-input');
+  const masterVolumeSlider = el<HTMLInputElement>('master-volume');
+  const masterValue = el<HTMLSpanElement>('master-value');
+  const channelTabs = el<HTMLDivElement>('channel-tabs');
+  const instrumentSelect = el<HTMLSelectElement>('instrument-select');
+  const channelVolumeSlider = el<HTMLInputElement>('channel-volume');
+  const channelVolumeValue = el<HTMLSpanElement>('channel-volume-value');
+  const muteToggle = el<HTMLInputElement>('mute-toggle');
+  const rollGrid = el<HTMLDivElement>('roll-grid');
+  const patternList = el<HTMLSpanElement>('pattern-list');
+  const sequenceList = el<HTMLSpanElement>('sequence-list');
+  const importInput = el<HTMLInputElement>('import-input');
+  const status = el<HTMLParagraphElement>('status');
+
+  const setStatus = (message: string) => {
+    status.textContent = message;
+  };
+
+  // ---------- 상태 ----------
+
+  const SONG_STORAGE_KEY = 'killterm-composer-song';
+
+  function loadSong(): Song {
+    try {
+      const raw = localStorage.getItem(SONG_STORAGE_KEY);
+      if (raw) {
+        const restored = normalizeSong(JSON.parse(raw));
+        if (restored) return restored;
+      }
+    } catch {
+      // 깨진 저장본은 새 곡으로 대체
+    }
+    return defaultSong();
+  }
+
+  let song = loadSong();
+  let currentPatternIndex = 0;
+  let currentChannelIndex = 0;
+  let playMode: 'pattern' | 'song' = 'pattern';
+
+  function persist() {
+    localStorage.setItem(SONG_STORAGE_KEY, JSON.stringify(song));
+  }
+
+  const masterVolume = () => Number(masterVolumeSlider.value) / 100;
+
+  // ---------- 재생 (룩어헤드 스케줄러) ----------
+  // setInterval은 째깍임이 불안정하므로 시각은 항상 AudioContext 클록으로
+  // 계산하고, 25ms마다 앞으로 0.12초어치 노트를 미리 예약한다.
+
+  const SCHEDULE_AHEAD_SECONDS = 0.12;
+  let audioContext: AudioContext | null = null;
+  let playing = false;
+  let timer = 0;
+  let nextStepTime = 0;
+  let globalStep = 0;
+  const activeSources = new Set<AudioBufferSourceNode>();
+  const stepQueue: { step: number; time: number }[] = [];
+  // renderNote가 캐시한 Float32Array를 그대로 키로 쓴다
+  const bufferCache = new WeakMap<Float32Array, AudioBuffer>();
+
+  function ensureAudioContext(): AudioContext {
+    audioContext ??= new AudioContext();
+    if (audioContext.state === 'suspended') void audioContext.resume();
+    return audioContext;
+  }
+
+  function getAudioBuffer(samples: Float32Array): AudioBuffer {
+    let buffer = bufferCache.get(samples);
+    if (!buffer) {
+      buffer = ensureAudioContext().createBuffer(1, samples.length, SAMPLE_RATE);
+      buffer.copyToChannel(samples, 0);
+      bufferCache.set(samples, buffer);
+    }
+    return buffer;
+  }
+
+  function playNoteAt(channelIndex: number, noteIndex: number, time: number) {
+    const channel = song.channels[channelIndex];
+    const samples = renderNote(channel.instrument.params, noteIndex);
+    if (samples.length === 0) return;
+    const context = ensureAudioContext();
+    const source = context.createBufferSource();
+    source.buffer = getAudioBuffer(samples);
+    const gain = context.createGain();
+    // 0.5 = 4채널 중첩 헤드룸 (mixSong과 동일)
+    gain.gain.value = channel.volume * masterVolume() * 0.5;
+    source.connect(gain).connect(context.destination);
+    source.start(time);
+    activeSources.add(source);
+    source.addEventListener('ended', () => activeSources.delete(source));
+  }
+
+  const totalSteps = () =>
+    playMode === 'pattern' ? PATTERN_STEPS : song.sequence.length * PATTERN_STEPS;
+
+  const patternIndexAtStep = (step: number) =>
+    playMode === 'pattern'
+      ? currentPatternIndex
+      : song.sequence[Math.floor(step / PATTERN_STEPS)] ?? 0;
+
+  function scheduleStep(step: number, time: number) {
+    const pattern = song.patterns[patternIndexAtStep(step)];
+    if (!pattern) return;
+    const stepInPattern = step % PATTERN_STEPS;
+    for (let channelIndex = 0; channelIndex < CHANNEL_COUNT; channelIndex++) {
+      const channel = song.channels[channelIndex];
+      if (channel.muted || channel.volume === 0) continue;
+      const note = pattern.notes[channelIndex][stepInPattern];
+      if (note !== null) playNoteAt(channelIndex, note, time);
+    }
+  }
+
+  function schedulerTick() {
+    const context = audioContext!;
+    while (nextStepTime < context.currentTime + SCHEDULE_AHEAD_SECONDS) {
+      const step = globalStep % totalSteps();
+      scheduleStep(step, nextStepTime);
+      stepQueue.push({ step, time: nextStepTime });
+      nextStepTime += stepDuration(song.bpm);
+      globalStep++;
+    }
+  }
+
+  function drawPlayhead() {
+    if (!playing) return;
+    const context = audioContext!;
+    let latest: { step: number; time: number } | null = null;
+    while (stepQueue.length > 0 && stepQueue[0].time <= context.currentTime) {
+      latest = stepQueue.shift()!;
+    }
+    if (latest) {
+      // 곡 모드에서는 재생 중인 패턴을 화면이 따라간다
+      const playingPattern = patternIndexAtStep(latest.step);
+      if (playingPattern !== currentPatternIndex && song.patterns[playingPattern]) {
+        currentPatternIndex = playingPattern;
+        renderPatternList();
+        renderGrid();
+      }
+      setPlayingColumn(latest.step % PATTERN_STEPS);
+    }
+    requestAnimationFrame(drawPlayhead);
+  }
+
+  function startPlayback() {
+    const context = ensureAudioContext();
+    playing = true;
+    globalStep = 0;
+    stepQueue.length = 0;
+    nextStepTime = context.currentTime + 0.06;
+    playToggle.textContent = '⏹ 정지';
+    schedulerTick();
+    timer = window.setInterval(schedulerTick, 25);
+    requestAnimationFrame(drawPlayhead);
+  }
+
+  function stopPlayback() {
+    playing = false;
+    window.clearInterval(timer);
+    for (const source of activeSources) {
+      try {
+        source.stop();
+      } catch {
+        // 이미 끝난 소스는 무시
+      }
+    }
+    activeSources.clear();
+    stepQueue.length = 0;
+    setPlayingColumn(-1);
+    playToggle.textContent = '▶ 재생';
+  }
+
+  playToggle.addEventListener('click', () => (playing ? stopPlayback() : startPlayback()));
+
+  for (const [button, mode] of [
+    [modePatternButton, 'pattern'],
+    [modeSongButton, 'song'],
+  ] as const) {
+    button.addEventListener('click', () => {
+      playMode = mode;
+      modePatternButton.setAttribute('aria-pressed', String(mode === 'pattern'));
+      modeSongButton.setAttribute('aria-pressed', String(mode === 'song'));
+      if (playing) {
+        stopPlayback();
+        startPlayback();
+      }
+    });
+  }
+
+  bpmInput.addEventListener('change', () => {
+    song.bpm = Math.min(240, Math.max(60, Number(bpmInput.value) || 120));
+    bpmInput.value = String(song.bpm);
+    persist();
+  });
+
+  masterVolumeSlider.addEventListener('input', () => {
+    masterValue.textContent = `${masterVolumeSlider.value}%`;
+  });
+
+  // ---------- 피아노롤 ----------
+
+  // cells[노트][스텝] — 위쪽 행이 높은 음(B5)
+  const cells: HTMLButtonElement[][] = Array.from({ length: NOTE_COUNT }, () => []);
+  let playingColumn = -1;
+
+  function buildGrid() {
+    for (let noteIndex = NOTE_COUNT - 1; noteIndex >= 0; noteIndex--) {
+      const label = document.createElement('span');
+      label.className = 'roll-label';
+      if (noteIndex % 12 === 11) label.classList.add('octave-top');
+      label.textContent = noteLabel(noteIndex);
+      rollGrid.append(label);
+      for (let step = 0; step < PATTERN_STEPS; step++) {
+        const cell = document.createElement('button');
+        cell.type = 'button';
+        cell.className = 'cell';
+        if (isBlackKey(noteIndex)) cell.classList.add('black');
+        if (step % 4 === 0) cell.classList.add('beat');
+        if (noteIndex % 12 === 11) cell.classList.add('octave-top');
+        cell.setAttribute('aria-label', `${noteLabel(noteIndex)} · 스텝 ${step + 1}`);
+        cell.addEventListener('click', () => onCellClick(noteIndex, step));
+        rollGrid.append(cell);
+        cells[noteIndex][step] = cell;
+      }
+    }
+  }
+
+  function onCellClick(noteIndex: number, step: number) {
+    const notes = song.patterns[currentPatternIndex].notes[currentChannelIndex];
+    if (notes[step] === noteIndex) {
+      notes[step] = null;
+    } else {
+      notes[step] = noteIndex;
+      // 찍은 음을 바로 들려준다 (클릭 = 사용자 제스처라 AudioContext 생성 가능)
+      playNoteAt(currentChannelIndex, noteIndex, ensureAudioContext().currentTime);
+    }
+    persist();
+    renderGrid();
+  }
+
+  function renderGrid() {
+    const pattern = song.patterns[currentPatternIndex];
+    // 노트/고스트 색이 채널 색을 따라가도록 그리드에 현재 채널 클래스를 단다
+    for (let channelIndex = 0; channelIndex < CHANNEL_COUNT; channelIndex++) {
+      rollGrid.classList.toggle(`ch-${channelIndex}`, channelIndex === currentChannelIndex);
+    }
+    // 다른 채널 노트는 그 채널 색의 흐린 점으로 겹쳐 보여준다
+    const ghostChannels = new Map<string, number>();
+    for (let channelIndex = 0; channelIndex < CHANNEL_COUNT; channelIndex++) {
+      if (channelIndex === currentChannelIndex) continue;
+      pattern.notes[channelIndex].forEach((note, step) => {
+        const key = `${note}:${step}`;
+        if (note !== null && !ghostChannels.has(key)) ghostChannels.set(key, channelIndex);
+      });
+    }
+    const ownNotes = pattern.notes[currentChannelIndex];
+    for (let noteIndex = 0; noteIndex < NOTE_COUNT; noteIndex++) {
+      for (let step = 0; step < PATTERN_STEPS; step++) {
+        const cell = cells[noteIndex][step];
+        const ghostChannel = ghostChannels.get(`${noteIndex}:${step}`);
+        cell.classList.toggle('active', ownNotes[step] === noteIndex);
+        for (let channelIndex = 0; channelIndex < CHANNEL_COUNT; channelIndex++) {
+          cell.classList.toggle(`ghost-${channelIndex}`, ghostChannel === channelIndex);
+        }
+      }
+    }
+  }
+
+  function setPlayingColumn(column: number) {
+    if (column === playingColumn) return;
+    for (let noteIndex = 0; noteIndex < NOTE_COUNT; noteIndex++) {
+      if (playingColumn >= 0) cells[noteIndex][playingColumn].classList.remove('playing');
+      if (column >= 0) cells[noteIndex][column].classList.add('playing');
+    }
+    playingColumn = column;
+  }
+
+  // ---------- 채널 ----------
+
+  function renderChannelTabs() {
+    channelTabs.innerHTML = '';
+    song.channels.forEach((channel, channelIndex) => {
+      const tab = document.createElement('button');
+      tab.type = 'button';
+      tab.className = `btn btn-small channel-tab ch-${channelIndex}`;
+      tab.setAttribute('aria-pressed', String(channelIndex === currentChannelIndex));
+      tab.textContent = `${channelIndex + 1}. ${channel.instrument.name}${channel.muted ? ' 🔇' : ''}`;
+      tab.addEventListener('click', () => {
+        currentChannelIndex = channelIndex;
+        renderChannelTabs();
+        renderChannelControls();
+        renderGrid();
+      });
+      channelTabs.append(tab);
+    });
+  }
+
+  function renderInstrumentOptions() {
+    instrumentSelect.innerHTML = '';
+    const builtinGroup = document.createElement('optgroup');
+    builtinGroup.label = '내장 악기';
+    BUILTIN_INSTRUMENTS.forEach((instrument, index) => {
+      const option = document.createElement('option');
+      option.value = `builtin:${index}`;
+      option.textContent = instrument.name;
+      builtinGroup.append(option);
+    });
+    instrumentSelect.append(builtinGroup);
+
+    const sounds = listSounds();
+    if (sounds.length > 0) {
+      const storedGroup = document.createElement('optgroup');
+      storedGroup.label = 'SFX 보관함';
+      for (const sound of sounds) {
+        const option = document.createElement('option');
+        option.value = `stored:${sound.id}`;
+        option.textContent = sound.name;
+        storedGroup.append(option);
+      }
+      instrumentSelect.append(storedGroup);
+    }
+
+    // 저장본과 일치하지 않는 악기(가져온 곡 등)를 위한 자리 표시
+    const currentOption = document.createElement('option');
+    currentOption.value = 'current';
+    currentOption.hidden = true;
+    instrumentSelect.append(currentOption);
+  }
+
+  function renderChannelControls() {
+    const channel = song.channels[currentChannelIndex];
+    const builtinIndex = BUILTIN_INSTRUMENTS.findIndex(
+      (instrument) => instrument.name === channel.instrument.name,
+    );
+    const stored = listSounds().find((sound) => sound.name === channel.instrument.name);
+    if (builtinIndex >= 0) {
+      instrumentSelect.value = `builtin:${builtinIndex}`;
+    } else if (stored) {
+      instrumentSelect.value = `stored:${stored.id}`;
+    } else {
+      const currentOption = instrumentSelect.querySelector<HTMLOptionElement>('[value="current"]')!;
+      currentOption.textContent = `(현재: ${channel.instrument.name})`;
+      instrumentSelect.value = 'current';
+    }
+    channelVolumeSlider.value = String(Math.round(channel.volume * 100));
+    channelVolumeValue.textContent = `${Math.round(channel.volume * 100)}%`;
+    muteToggle.checked = channel.muted;
+  }
+
+  instrumentSelect.addEventListener('change', () => {
+    const value = instrumentSelect.value;
+    const channel = song.channels[currentChannelIndex];
+    if (value.startsWith('builtin:')) {
+      channel.instrument = cloneInstrument(BUILTIN_INSTRUMENTS[Number(value.slice(8))]);
+    } else if (value.startsWith('stored:')) {
+      const sound = listSounds().find((item) => item.id === value.slice(7));
+      if (sound) channel.instrument = { name: sound.name, params: { ...sound.params } };
+    }
+    persist();
+    renderChannelTabs();
+    // 바뀐 음색을 바로 들려준다
+    playNoteAt(currentChannelIndex, 12, ensureAudioContext().currentTime);
+  });
+
+  channelVolumeSlider.addEventListener('input', () => {
+    const channel = song.channels[currentChannelIndex];
+    channel.volume = Number(channelVolumeSlider.value) / 100;
+    channelVolumeValue.textContent = `${channelVolumeSlider.value}%`;
+    persist();
+  });
+
+  muteToggle.addEventListener('change', () => {
+    song.channels[currentChannelIndex].muted = muteToggle.checked;
+    persist();
+    renderChannelTabs();
+  });
+
+  // ---------- 패턴 · 시퀀스 ----------
+
+  function renderPatternList() {
+    patternList.innerHTML = '';
+    song.patterns.forEach((_, patternIndex) => {
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'btn btn-small pattern-chip';
+      chip.setAttribute('aria-pressed', String(patternIndex === currentPatternIndex));
+      chip.textContent = String(patternIndex + 1);
+      chip.addEventListener('click', () => {
+        currentPatternIndex = patternIndex;
+        renderPatternList();
+        renderGrid();
+      });
+      patternList.append(chip);
+    });
+  }
+
+  function renderSequenceList() {
+    sequenceList.innerHTML = '';
+    song.sequence.forEach((patternIndex, position) => {
+      const chip = document.createElement('span');
+      chip.className = 'seq-chip';
+      const label = document.createElement('span');
+      label.textContent = String(patternIndex + 1);
+      chip.append(label);
+      const moveLeft = document.createElement('button');
+      moveLeft.type = 'button';
+      moveLeft.textContent = '◀';
+      moveLeft.disabled = position === 0;
+      moveLeft.addEventListener('click', () => {
+        [song.sequence[position - 1], song.sequence[position]] = [
+          song.sequence[position],
+          song.sequence[position - 1],
+        ];
+        persist();
+        renderSequenceList();
+      });
+      const moveRight = document.createElement('button');
+      moveRight.type = 'button';
+      moveRight.textContent = '▶';
+      moveRight.disabled = position === song.sequence.length - 1;
+      moveRight.addEventListener('click', () => {
+        [song.sequence[position], song.sequence[position + 1]] = [
+          song.sequence[position + 1],
+          song.sequence[position],
+        ];
+        persist();
+        renderSequenceList();
+      });
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.textContent = '×';
+      remove.addEventListener('click', () => {
+        if (song.sequence.length <= 1) {
+          setStatus('시퀀스에는 최소 한 개의 패턴이 필요합니다.');
+          return;
+        }
+        song.sequence.splice(position, 1);
+        persist();
+        renderSequenceList();
+      });
+      chip.append(moveLeft, moveRight, remove);
+      sequenceList.append(chip);
+    });
+  }
+
+  el<HTMLButtonElement>('pattern-add').addEventListener('click', () => {
+    if (song.patterns.length >= MAX_PATTERNS) {
+      setStatus(`패턴은 최대 ${MAX_PATTERNS}개까지 만들 수 있습니다.`);
+      return;
+    }
+    song.patterns.push(emptyPattern());
+    currentPatternIndex = song.patterns.length - 1;
+    persist();
+    renderPatternList();
+    renderGrid();
+  });
+
+  el<HTMLButtonElement>('pattern-clone').addEventListener('click', () => {
+    if (song.patterns.length >= MAX_PATTERNS) {
+      setStatus(`패턴은 최대 ${MAX_PATTERNS}개까지 만들 수 있습니다.`);
+      return;
+    }
+    const clone = emptyPattern();
+    song.patterns[currentPatternIndex].notes.forEach((row, channelIndex) => {
+      clone.notes[channelIndex] = [...row];
+    });
+    song.patterns.push(clone);
+    currentPatternIndex = song.patterns.length - 1;
+    persist();
+    renderPatternList();
+    renderGrid();
+  });
+
+  el<HTMLButtonElement>('pattern-delete').addEventListener('click', () => {
+    if (song.patterns.length <= 1) {
+      setStatus('마지막 패턴은 삭제할 수 없습니다.');
+      return;
+    }
+    const removed = currentPatternIndex;
+    song.patterns.splice(removed, 1);
+    song.sequence = song.sequence
+      .filter((patternIndex) => patternIndex !== removed)
+      .map((patternIndex) => (patternIndex > removed ? patternIndex - 1 : patternIndex));
+    if (song.sequence.length === 0) song.sequence = [0];
+    currentPatternIndex = Math.min(currentPatternIndex, song.patterns.length - 1);
+    persist();
+    renderPatternList();
+    renderSequenceList();
+    renderGrid();
+  });
+
+  el<HTMLButtonElement>('sequence-add').addEventListener('click', () => {
+    if (song.sequence.length >= MAX_SEQUENCE) {
+      setStatus(`시퀀스는 최대 ${MAX_SEQUENCE}개까지 이어붙일 수 있습니다.`);
+      return;
+    }
+    song.sequence.push(currentPatternIndex);
+    persist();
+    renderSequenceList();
+  });
+
+  // ---------- 내보내기 · 가져오기 ----------
+
+  el<HTMLButtonElement>('export-wav').addEventListener('click', () => {
+    setStatus('');
+    const mixed = mixSong(song, masterVolume());
+    const blob = new Blob([encodeWav(mixed, SAMPLE_RATE)], { type: 'audio/wav' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = 'chiptune-song.wav';
+    anchor.click();
+    URL.revokeObjectURL(url);
+  });
+
+  el<HTMLButtonElement>('export-json').addEventListener('click', () => {
+    const blob = new Blob([JSON.stringify(song, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = 'chiptune-song.json';
+    anchor.click();
+    URL.revokeObjectURL(url);
+  });
+
+  el<HTMLButtonElement>('import-json').addEventListener('click', () => importInput.click());
+
+  importInput.addEventListener('change', async () => {
+    const file = importInput.files?.[0];
+    importInput.value = '';
+    if (!file) return;
+    try {
+      const restored = normalizeSong(JSON.parse(await file.text()));
+      if (!restored) throw new Error('곡 형식이 아닙니다');
+      stopPlayback();
+      song = restored;
+      currentPatternIndex = 0;
+      currentChannelIndex = 0;
+      persist();
+      renderAll();
+      setStatus('');
+    } catch (e) {
+      setStatus(`곡을 가져오지 못했습니다: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  });
+
+  el<HTMLButtonElement>('load-demo').addEventListener('click', async () => {
+    if (!confirm('현재 곡을 예시 곡(자체 제작 · CC0)으로 교체할까요?')) return;
+    try {
+      const response = await fetch('/songs/demo.json');
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const demo = normalizeSong(await response.json());
+      if (!demo) throw new Error('곡 형식이 아닙니다');
+      stopPlayback();
+      song = demo;
+      currentPatternIndex = 0;
+      currentChannelIndex = 0;
+      persist();
+      renderAll();
+      setStatus('');
+      // 버튼 클릭 = 사용자 제스처이므로 바로 곡 전체를 들려준다
+      playMode = 'song';
+      modePatternButton.setAttribute('aria-pressed', 'false');
+      modeSongButton.setAttribute('aria-pressed', 'true');
+      startPlayback();
+    } catch (e) {
+      setStatus(`예시 곡을 불러오지 못했습니다: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  });
+
+  el<HTMLButtonElement>('reset-song').addEventListener('click', () => {
+    if (!confirm('현재 곡을 지우고 새로 시작할까요? (되돌릴 수 없습니다)')) return;
+    stopPlayback();
+    song = defaultSong();
+    currentPatternIndex = 0;
+    currentChannelIndex = 0;
+    persist();
+    renderAll();
+  });
+
+  // ---------- 초기화 ----------
+
+  function renderAll() {
+    bpmInput.value = String(song.bpm);
+    renderChannelTabs();
+    renderInstrumentOptions();
+    renderChannelControls();
+    renderPatternList();
+    renderSequenceList();
+    renderGrid();
+  }
+
+  buildGrid();
+  renderAll();
+
+  // 다른 탭의 SFX 페이지에서 보관함에 저장하고 돌아오면 악기 목록을 갱신한다
+  window.addEventListener('focus', () => {
+    renderInstrumentOptions();
+    renderChannelControls();
+  });
+
+  // 페이지를 떠나면 재생을 정리한다
+  window.addEventListener('pagehide', stopPlayback);
+</script>
+
+<style>
+  main {
+    max-width: 1080px;
+    margin: 0 auto;
+    padding: 2.5rem 1.5rem 4rem;
+    /* 채널 고유 색 — 탭·노트·고스트 점이 함께 쓴다 */
+    --channel-0: #4263eb;
+    --channel-1: #0ca678;
+    --channel-2: #e8590c;
+    --channel-3: #d6336c;
+  }
+
+  .top a {
+    color: var(--text-dim);
+    text-decoration: none;
+  }
+
+  .top a:hover {
+    color: var(--accent);
+  }
+
+  .intro h1 {
+    margin: 1rem 0 0.6rem;
+  }
+
+  .intro p {
+    color: var(--text-dim);
+    line-height: 1.6;
+    margin: 0;
+  }
+
+  .intro a {
+    color: var(--accent);
+  }
+
+  .toolbar,
+  .channels,
+  .patterns,
+  .exports {
+    display: grid;
+    gap: 0.7rem;
+    margin-top: 1rem;
+  }
+
+  .toolbar {
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+    flex-wrap: wrap;
+  }
+
+  .field-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+
+  .demo-row {
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+    flex-wrap: wrap;
+    margin-top: 0.7rem;
+  }
+
+  .demo-button {
+    border-color: var(--accent);
+    background: light-dark(rgba(66, 99, 235, 0.08), rgba(66, 99, 235, 0.18));
+    color: var(--accent);
+  }
+
+  .demo-button:hover {
+    background: var(--accent);
+    color: #fff;
+  }
+
+  .row-label {
+    color: var(--text-dim);
+    font-size: 0.85rem;
+    font-weight: 600;
+  }
+
+  .mono-value {
+    font-family: Consolas, 'Courier New', monospace;
+    font-size: 0.84rem;
+    color: var(--text-dim);
+    min-width: 2.8rem;
+  }
+
+  .num-field {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    color: var(--text-dim);
+    font-size: 0.85rem;
+    font-weight: 600;
+  }
+
+  .num-field input,
+  .num-field select {
+    border: 1px solid var(--border);
+    background: var(--bg-soft);
+    color: var(--text);
+    font: inherit;
+    font-size: 0.85rem;
+    padding: 0.3rem 0.5rem;
+    border-radius: 0.5rem;
+  }
+
+  .num-field input[type='number'] {
+    width: 4.6rem;
+  }
+
+  .num-field input:focus,
+  .num-field select:focus {
+    outline: 2px solid var(--accent);
+    border-color: var(--accent);
+  }
+
+  .check-field {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    color: var(--text-dim);
+    font-size: 0.85rem;
+    cursor: pointer;
+  }
+
+  .chip-row {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    flex-wrap: wrap;
+  }
+
+  /* ---------- 피아노롤 ---------- */
+
+  .roll {
+    margin-top: 1rem;
+    overflow-x: auto;
+    border: 1px solid var(--border);
+    border-radius: 0.9rem;
+    background: var(--bg-soft);
+  }
+
+  .roll-grid {
+    display: grid;
+    grid-template-columns: 3.2rem repeat(32, minmax(1.35rem, 1fr));
+    min-width: 780px;
+    padding: 0.4rem 0.5rem 0.4rem 0;
+  }
+
+  :global(.roll-label) {
+    font-family: Consolas, 'Courier New', monospace;
+    font-size: 0.62rem;
+    color: var(--text-dim);
+    text-align: right;
+    padding-right: 0.45rem;
+    line-height: 1.15rem;
+    user-select: none;
+  }
+
+  :global(.cell) {
+    appearance: none;
+    border: none;
+    border-left: 1px solid var(--border);
+    border-bottom: 1px solid
+      light-dark(rgba(28, 35, 51, 0.06), rgba(255, 255, 255, 0.05));
+    background: transparent;
+    height: 1.15rem;
+    padding: 0;
+    cursor: pointer;
+  }
+
+  :global(.cell.black) {
+    background: light-dark(rgba(28, 35, 51, 0.05), rgba(255, 255, 255, 0.035));
+  }
+
+  :global(.cell.beat) {
+    border-left: 2px solid light-dark(rgba(28, 35, 51, 0.28), rgba(255, 255, 255, 0.22));
+  }
+
+  :global(.cell.octave-top),
+  :global(.roll-label.octave-top) {
+    border-top: 1px solid light-dark(rgba(28, 35, 51, 0.22), rgba(255, 255, 255, 0.18));
+  }
+
+  :global(.cell:hover) {
+    background: light-dark(rgba(66, 99, 235, 0.22), rgba(66, 99, 235, 0.3));
+  }
+
+  :global(.cell.ghost-0),
+  :global(.cell.ghost-1),
+  :global(.cell.ghost-2),
+  :global(.cell.ghost-3) {
+    background-image: radial-gradient(
+      circle at center,
+      color-mix(in srgb, var(--ghost-color) 70%, transparent) 0 22%,
+      transparent 26%
+    );
+  }
+
+  :global(.cell.ghost-0) {
+    --ghost-color: var(--channel-0);
+  }
+
+  :global(.cell.ghost-1) {
+    --ghost-color: var(--channel-1);
+  }
+
+  :global(.cell.ghost-2) {
+    --ghost-color: var(--channel-2);
+  }
+
+  :global(.cell.ghost-3) {
+    --ghost-color: var(--channel-3);
+  }
+
+  :global(.cell.active) {
+    background: var(--accent);
+    border-radius: 0.25rem;
+  }
+
+  .roll-grid.ch-0 :global(.cell.active) {
+    background: var(--channel-0);
+  }
+
+  .roll-grid.ch-1 :global(.cell.active) {
+    background: var(--channel-1);
+  }
+
+  .roll-grid.ch-2 :global(.cell.active) {
+    background: var(--channel-2);
+  }
+
+  .roll-grid.ch-3 :global(.cell.active) {
+    background: var(--channel-3);
+  }
+
+  :global(.cell.playing) {
+    box-shadow: inset 0 0 0 100px light-dark(rgba(66, 99, 235, 0.14), rgba(255, 255, 255, 0.09));
+  }
+
+  :global(.cell.active.playing) {
+    filter: brightness(1.35);
+  }
+
+  /* ---------- 패턴 · 시퀀스 ---------- */
+
+  :global(.pattern-chip[aria-pressed='true']),
+  .mode[aria-pressed='true'] {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+  }
+
+  :global(.seq-chip) {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.15rem;
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+    background: var(--surface);
+    padding: 0.15rem 0.35rem;
+    font-size: 0.82rem;
+    font-weight: 600;
+  }
+
+  :global(.seq-chip button) {
+    appearance: none;
+    border: none;
+    background: none;
+    color: var(--text-dim);
+    font-size: 0.75rem;
+    cursor: pointer;
+    padding: 0.1rem 0.15rem;
+  }
+
+  :global(.seq-chip button:hover:not(:disabled)) {
+    color: var(--accent);
+  }
+
+  :global(.seq-chip button:disabled) {
+    opacity: 0.3;
+    cursor: default;
+  }
+
+  .hint {
+    color: var(--text-dim);
+    font-size: 0.82rem;
+    margin: 0;
+  }
+
+  /* ---------- 공용 프리미티브 (페이지 스코프 복제) ---------- */
+
+  .btn,
+  :global(.channel-tab),
+  :global(.pattern-chip) {
+    appearance: none;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    font: inherit;
+    font-weight: 600;
+    padding: 0.5rem 1rem;
+    border-radius: 0.7rem;
+    cursor: pointer;
+  }
+
+  .btn:hover,
+  :global(.pattern-chip:hover) {
+    border-color: var(--accent);
+  }
+
+  .btn-primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+  }
+
+  .btn-primary:hover {
+    filter: brightness(1.1);
+  }
+
+  .btn-small,
+  :global(.channel-tab),
+  :global(.pattern-chip) {
+    padding: 0.3rem 0.7rem;
+    font-size: 0.82rem;
+  }
+
+  .status {
+    min-height: 1.2em;
+    margin: 0.8rem 0 0;
+    font-size: 0.88rem;
+    color: var(--danger);
+    overflow-wrap: anywhere;
+  }
+
+  /* ---------- 채널 고유 색 (공용 버튼 규칙보다 뒤에 두어 우선 적용) ---------- */
+
+  :global(.channel-tab.ch-0) {
+    --tab-color: var(--channel-0);
+  }
+
+  :global(.channel-tab.ch-1) {
+    --tab-color: var(--channel-1);
+  }
+
+  :global(.channel-tab.ch-2) {
+    --tab-color: var(--channel-2);
+  }
+
+  :global(.channel-tab.ch-3) {
+    --tab-color: var(--channel-3);
+  }
+
+  :global(.channel-tab) {
+    border-color: color-mix(in srgb, var(--tab-color) 45%, var(--border));
+  }
+
+  :global(.channel-tab:hover) {
+    border-color: var(--tab-color);
+  }
+
+  :global(.channel-tab[aria-pressed='true']) {
+    background: var(--tab-color);
+    border-color: var(--tab-color);
+    color: #fff;
+  }
+</style>

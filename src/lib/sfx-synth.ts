@@ -8,9 +8,11 @@
 
 export const SAMPLE_RATE = 44100;
 
-export type WaveType = 'square' | 'sawtooth' | 'sine' | 'noise';
+export type WaveType = 'square' | 'sawtooth' | 'sine' | 'noise' | 'triangle';
 
-export const WAVE_TYPES: WaveType[] = ['square', 'sawtooth', 'sine', 'noise'];
+// 앞 4개는 sfxr 원본 순서 — 프리셋/랜덤의 정수 매핑이 이 순서에 의존한다.
+// triangle은 Bfxr가 추가한 파형으로 맨 뒤에 확장 (부드러운 저음, 패미컴 베이스 채널).
+export const WAVE_TYPES: WaveType[] = ['square', 'sawtooth', 'sine', 'noise', 'triangle'];
 
 export interface SfxParams {
   waveType: WaveType;
@@ -299,6 +301,9 @@ export function synthesize(params: SfxParams): Float32Array {
           break;
         case 'noise':
           sample = noiseBuffer[Math.floor(phaseRatio * 32)];
+          break;
+        case 'triangle':
+          sample = 1 - Math.abs(phaseRatio * 4 - 2);
           break;
       }
 

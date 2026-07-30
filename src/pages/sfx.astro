@@ -9,6 +9,7 @@ const WAVES = [
   { value: 'square', label: '⬜ 사각파' },
   { value: 'sawtooth', label: '📐 톱니파' },
   { value: 'sine', label: '〰️ 사인파' },
+  { value: 'triangle', label: '🔺 삼각파' },
   { value: 'noise', label: '🌫️ 노이즈' },
 ];
 
@@ -113,6 +114,18 @@ const PRESETS = [
         <span class="param-value" id="volume-value">80%</span>
         <button id="export-wav" class="btn btn-small" type="button">💾 WAV 다운로드</button>
       </div>
+      <div class="field-row">
+        <span class="row-label">보관함</span>
+        <input id="sound-name" class="name-input" type="text" placeholder="소리 이름" />
+        <button id="save-sound" class="btn btn-small" type="button">🎹 보관함에 저장</button>
+        <select id="stored-select" aria-label="저장된 소리"></select>
+        <button id="load-sound" class="btn btn-small" type="button">불러오기</button>
+        <button id="delete-sound" class="btn btn-small" type="button">삭제</button>
+      </div>
+      <p class="hint">
+        저장한 소리는 <a href="/composer/">칩튠 작곡기</a>에서 악기로 쓸 수 있어요. (이
+        브라우저에만 저장됩니다)
+      </p>
     </section>
 
     <section class="params">
@@ -164,6 +177,7 @@ const PRESETS = [
     type WaveType,
   } from '../lib/sfx-synth';
   import { encodeWav } from '../lib/wav-encode';
+  import { deleteSound, listSounds, saveSound } from '../lib/sfx-store';
 
   const el = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
   const waveCanvas = el<HTMLCanvasElement>('wave-canvas');
@@ -361,6 +375,62 @@ const PRESETS = [
     URL.revokeObjectURL(url);
   });
 
+  // ---------- 보관함 ----------
+
+  const soundNameInput = el<HTMLInputElement>('sound-name');
+  const storedSelect = el<HTMLSelectElement>('stored-select');
+  const loadButton = el<HTMLButtonElement>('load-sound');
+  const deleteButton = el<HTMLButtonElement>('delete-sound');
+
+  function refreshStoredList(selectedId?: string) {
+    const sounds = listSounds();
+    storedSelect.innerHTML = '';
+    if (sounds.length === 0) {
+      const option = document.createElement('option');
+      option.textContent = '(저장된 소리 없음)';
+      option.value = '';
+      storedSelect.append(option);
+    } else {
+      for (const sound of sounds) {
+        const option = document.createElement('option');
+        option.value = sound.id;
+        option.textContent = sound.name;
+        storedSelect.append(option);
+      }
+      if (selectedId) storedSelect.value = selectedId;
+    }
+    storedSelect.disabled = sounds.length === 0;
+    loadButton.disabled = sounds.length === 0;
+    deleteButton.disabled = sounds.length === 0;
+  }
+
+  el<HTMLButtonElement>('save-sound').addEventListener('click', () => {
+    const name = soundNameInput.value.trim() || `${soundKind}-${listSounds().length + 1}`;
+    const sound = saveSound(name, params);
+    soundNameInput.value = '';
+    refreshStoredList(sound.id);
+    status.textContent = '';
+    soundIndicator.textContent = `"${name}" 저장됨`;
+  });
+
+  loadButton.addEventListener('click', () => {
+    const sound = listSounds().find((item) => item.id === storedSelect.value);
+    if (!sound) return;
+    params = { ...sound.params };
+    soundKind = 'custom';
+    syncInputsFromParams();
+    regenerate(true);
+  });
+
+  deleteButton.addEventListener('click', () => {
+    const sound = listSounds().find((item) => item.id === storedSelect.value);
+    if (!sound) return;
+    deleteSound(sound.id);
+    refreshStoredList();
+  });
+
+  refreshStoredList();
+
   // 테마 전환 시 파형 색을 다시 읽는다
   new MutationObserver(() => drawWaveform()).observe(document.documentElement, {
     attributes: true,
@@ -473,6 +543,43 @@ const PRESETS = [
     color: var(--text-dim);
     font-size: 0.85rem;
     cursor: pointer;
+  }
+
+  .name-input,
+  #stored-select {
+    border: 1px solid var(--border);
+    background: var(--bg-soft);
+    color: var(--text);
+    font: inherit;
+    font-size: 0.85rem;
+    padding: 0.3rem 0.5rem;
+    border-radius: 0.5rem;
+  }
+
+  .name-input {
+    width: 9rem;
+  }
+
+  .name-input:focus,
+  #stored-select:focus {
+    outline: 2px solid var(--accent);
+    border-color: var(--accent);
+  }
+
+  #stored-select:disabled,
+  .btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
+  .hint {
+    color: var(--text-dim);
+    font-size: 0.82rem;
+    margin: 0;
+  }
+
+  .hint a {
+    color: var(--accent);
   }
 
   /* ---------- 파라미터 슬라이더 ---------- */
