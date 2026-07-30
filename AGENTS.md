@@ -190,6 +190,36 @@
 - 구글 공개 STUN만 사용, TURN 없음 — 대칭 NAT 등에서 연결 불가를 페이지에
   명시할 것. DataChannel 'chat'은 offer 쪽이 생성한다.
 - 통화 종료는 상태가 많아 location.reload()로 초기화한다.
+- **1:1 전용으로 유지한다.** 다자 화상은 브라우저가 미디어를 중계(SFU)할 수
+  없어 메시(전원 상호 연결)만 가능한데, 수동 시그널링에서는 코드 교환이
+  N(N-1)/2쌍×2회로 조합 폭발하고(3인=6회, 4인=12회) 업로드 대역폭도 인원수
+  배로 늘어난다. 다자 화상이 필요하면 서버(SFU)가 있어야 하므로 이 사이트
+  범위 밖이다.
+
+### 공동 메모장 (`src/pages/note.astro`)
+
+- CRDT(Yjs) 메모장 + 수동 시그널링 P2P 공동 편집. 연결 로직은
+  `src/lib/p2p-session.ts`(피어 생성·ICE 대기·초대/응답 코드)를 사용한다 —
+  통화 페이지(call.astro)와 같은 코드 포맷(kc1:)이며, call.astro의 인라인
+  로직도 추후 이 모듈로 통합할 수 있다.
+- 동기화 프로토콜: DataChannel로 연결 직후 서로 state vector를 보내고
+  차분 update를 회신, 이후 로컬 변경(origin === 'local')만 update로 전송.
+  origin 규칙이 루프 방지의 핵심이므로 transact/applyUpdate의 origin을
+  바꾸지 말 것.
+- textarea 바인딩: 로컬 입력은 공통 앞/뒤 제외 구간만 delete/insert,
+  원격 변경은 delta로 커서를 보정. **한글 조합(composition) 중에는 원격
+  반영을 미뤘다가 compositionend에 적용**한다 (조합 깨짐 방지).
+- 영속성은 y-indexeddb(`killterm-note-v1`), 브라우저에만 저장.
+- 원격 커서 표시: 닉네임(기본 User 1/2, localStorage `killterm-note-name`)과
+  커서 인덱스를 'cur' 메시지로 전송(80ms 스로틀). 좌표 계산은 textarea와 같은
+  레이아웃의 숨긴 미러 div로 하며, 텍스트 변경 시 delta로 상대 커서 인덱스를
+  이동시킨다 — 미러 CSS는 textarea와 폰트·패딩·줄바꿈이 정확히 일치해야 한다.
+- 현재 1:1이지만 **3인 이상은 호스트-스타 구조로 확장 가능**: 새 참가자는
+  호스트와만 코드를 교환하고(참가자당 2회), 호스트가 Yjs 업데이트를 다른
+  채널로 중계하면 된다 — CRDT 업데이트는 멱등이라 중계가 안전하고 텍스트라
+  대역폭 부담이 없다. 단점은 호스트 이탈 시 세션 종료(로컬 사본은 남고
+  재연결 시 병합되므로 데이터 손실은 없음). 화상 통화와 달리 확장 가치가
+  있는 이유다.
 
 ### 만다라트 페이지 (`src/pages/mandalart.astro`)
 

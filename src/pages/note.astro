@@ -1,0 +1,704 @@
+---
+import Layout from '../layouts/Layout.astro';
+---
+
+<Layout
+  title="공동 메모장 — Killterm"
+  description="서버 없이 P2P로 공동 편집하는 실시간 협업 편집기(collaborative real-time editor). CRDT 기반으로 오프라인 편집 후 재연결하면 자동 병합됩니다."
+>
+  <main>
+    <nav class="top">
+      <a href="/">← 홈으로</a>
+    </nav>
+
+    <header class="intro">
+      <h1>📝 공동 메모장</h1>
+      <p>
+        CRDT(Yjs) 기반 <b>실시간 협업 편집기(collaborative real-time editor)</b>입니다. 혼자 쓰면 이
+        브라우저에 자동 저장되는 메모장이고, 아래에서 상대와 연결하면
+        <b> 서버 없이 P2P로 실시간 공동 편집</b>이 됩니다. 연결이 끊긴 동안 각자
+        수정해도 재연결하면 충돌 없이 병합됩니다.
+      </p>
+      <p class="hint">
+        내용은 브라우저(IndexedDB)에만 저장되고, 연결 시 상대에게 직접 전송됩니다.
+        연결 코드 교환 방식과 네트워크 제약은 P2P 화상 통화 페이지와 같습니다.
+      </p>
+    </header>
+
+    <!-- 에디터 -->
+    <section class="editor-section">
+      <div class="editor-head">
+        <span class="conn" id="conn-state">오프라인 (혼자 편집 중)</span>
+        <label class="name-field">
+          닉네임
+          <input id="user-name" type="text" maxlength="20" placeholder="User 1" />
+        </label>
+        <button id="doc-export" class="btn btn-small" type="button">.md 내보내기</button>
+        <button id="doc-clear" class="btn btn-small" type="button">전체 지우기</button>
+      </div>
+      <div class="editor-wrap">
+        <textarea id="doc-editor" rows="16" spellcheck="false" placeholder="여기에 입력하세요. 자동 저장됩니다."></textarea>
+        <div class="cursor-mirror" id="cursor-mirror" aria-hidden="true"></div>
+        <div class="remote-caret" id="remote-caret" hidden>
+          <span class="remote-name" id="remote-name"></span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 연결 -->
+    <section class="connect" id="connect-section">
+      <h2>상대와 연결하기</h2>
+      <div class="role-row" id="step-role">
+        <button id="role-host" class="btn" type="button">📞 방 만들기 (초대하는 쪽)</button>
+        <button id="role-guest" class="btn" type="button">📩 초대 코드가 있어요 (받는 쪽)</button>
+      </div>
+
+      <div class="exchange" id="step-exchange" hidden>
+        <div class="code-box" id="box-mine" hidden>
+          <h3 id="mine-title">내 초대 코드</h3>
+          <p class="hint" id="mine-hint"></p>
+          <textarea id="code-mine" rows="4" readonly spellcheck="false"></textarea>
+          <div class="row">
+            <button class="btn btn-small copy" data-target="code-mine" type="button">복사</button>
+          </div>
+          <canvas id="qr-mine" class="qr" hidden></canvas>
+        </div>
+
+        <div class="code-box" id="box-theirs">
+          <h3 id="theirs-title">상대 코드 붙여넣기</h3>
+          <p class="hint" id="theirs-hint"></p>
+          <textarea id="code-theirs" rows="4" spellcheck="false" placeholder="kc1:…"></textarea>
+          <div class="row">
+            <button id="exchange-action" class="btn btn-primary" type="button">연결</button>
+          </div>
+        </div>
+      </div>
+
+      <p id="connect-status" class="status" role="status"></p>
+    </section>
+  </main>
+</Layout>
+
+<script>
+  import * as Y from 'yjs';
+  import { IndexeddbPersistence } from 'y-indexeddb';
+  import QRCode from 'qrcode';
+  import {
+    createDataPeer,
+    createOfferCode,
+    acceptOfferCode,
+    acceptAnswerCode,
+  } from '../lib/p2p-session';
+  import { setupCopyButtons } from '../lib/copy-buttons';
+
+  setupCopyButtons();
+
+  const el = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+  const editor = el<HTMLTextAreaElement>('doc-editor');
+  const connStateOut = el<HTMLSpanElement>('conn-state');
+  const stepRole = el<HTMLDivElement>('step-role');
+  const stepExchange = el<HTMLDivElement>('step-exchange');
+  const boxMine = el<HTMLDivElement>('box-mine');
+  const mineTitle = el<HTMLHeadingElement>('mine-title');
+  const mineHint = el<HTMLParagraphElement>('mine-hint');
+  const theirsTitle = el<HTMLHeadingElement>('theirs-title');
+  const theirsHint = el<HTMLParagraphElement>('theirs-hint');
+  const codeMine = el<HTMLTextAreaElement>('code-mine');
+  const codeTheirs = el<HTMLTextAreaElement>('code-theirs');
+  const qrMine = el<HTMLCanvasElement>('qr-mine');
+  const exchangeAction = el<HTMLButtonElement>('exchange-action');
+  const status = el<HTMLParagraphElement>('connect-status');
+
+  const setStatus = (message: string) => {
+    status.textContent = message;
+  };
+
+  // ---------- CRDT 문서 + 로컬 영속성 ----------
+
+  const doc = new Y.Doc();
+  const ytext = doc.getText('content');
+  const persistence = new IndexeddbPersistence('killterm-note-v1', doc);
+  persistence.whenSynced.then(() => {
+    editor.value = ytext.toString();
+  });
+
+  // ---------- textarea ↔ Y.Text 바인딩 ----------
+  // 로컬 입력은 공통 앞/뒤를 제외한 구간만 delete/insert로 반영하고,
+  // 원격 변경은 delta로 커서 위치를 보정하며 textarea에 반영한다.
+
+  let composing = false;
+  let pendingRemote = false;
+
+  function syncFromTextarea() {
+    const oldText = ytext.toString();
+    const newText = editor.value;
+    if (oldText === newText) return;
+    let start = 0;
+    while (start < oldText.length && start < newText.length && oldText[start] === newText[start]) {
+      start++;
+    }
+    let endOld = oldText.length;
+    let endNew = newText.length;
+    while (endOld > start && endNew > start && oldText[endOld - 1] === newText[endNew - 1]) {
+      endOld--;
+      endNew--;
+    }
+    doc.transact(() => {
+      if (endOld > start) ytext.delete(start, endOld - start);
+      if (endNew > start) ytext.insert(start, newText.slice(start, endNew));
+    }, 'local');
+  }
+
+  type TextDelta = { retain?: number; insert?: unknown; delete?: number }[];
+
+  // delta(retain/insert/delete)를 따라가며 특정 인덱스가 어디로 밀리는지 계산
+  function shiftIndexByDelta(index: number, delta: TextDelta): number {
+    let shifted = index;
+    let position = 0;
+    for (const op of delta) {
+      if (op.retain) {
+        position += op.retain;
+      } else if (typeof op.insert === 'string') {
+        if (position <= shifted) shifted += op.insert.length;
+        position += op.insert.length;
+      } else if (op.delete) {
+        if (position < shifted) shifted -= Math.min(op.delete, shifted - position);
+      }
+    }
+    return shifted;
+  }
+
+  function applyRemoteToTextarea(delta: TextDelta) {
+    const cursor = shiftIndexByDelta(editor.selectionStart, delta);
+    editor.value = ytext.toString();
+    editor.setSelectionRange(cursor, cursor);
+  }
+
+  ytext.observe((event, transaction) => {
+    // 텍스트가 바뀌면 상대 커서 위치도 delta만큼 이동시킨다 (로컬/원격 공통)
+    if (remoteCursor) {
+      remoteCursor.index = shiftIndexByDelta(remoteCursor.index, event.delta as never);
+      positionRemoteCaret();
+    }
+    if (transaction.origin === 'local') return;
+    // 한글 조합 중에는 반영을 미뤄 조합이 깨지지 않게 한다
+    if (composing) {
+      pendingRemote = true;
+      return;
+    }
+    applyRemoteToTextarea(event.delta as never);
+  });
+
+  editor.addEventListener('input', () => {
+    if (!composing) syncFromTextarea();
+  });
+  editor.addEventListener('compositionstart', () => {
+    composing = true;
+  });
+  editor.addEventListener('compositionend', () => {
+    composing = false;
+    syncFromTextarea();
+    if (pendingRemote) {
+      pendingRemote = false;
+      const cursor = editor.selectionStart;
+      editor.value = ytext.toString();
+      editor.setSelectionRange(cursor, cursor);
+    }
+  });
+
+  // ---------- 문서 조작 ----------
+
+  el<HTMLButtonElement>('doc-export').addEventListener('click', () => {
+    const blob = new Blob([ytext.toString()], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = 'note.md';
+    anchor.click();
+    URL.revokeObjectURL(url);
+  });
+
+  el<HTMLButtonElement>('doc-clear').addEventListener('click', () => {
+    if (!confirm('메모 전체를 지울까요? 연결된 상대에게도 반영됩니다.')) return;
+    doc.transact(() => ytext.delete(0, ytext.length), 'local');
+    editor.value = '';
+  });
+
+  // ---------- 닉네임 + 원격 커서 표시 ----------
+
+  const nameInput = el<HTMLInputElement>('user-name');
+  const mirror = el<HTMLDivElement>('cursor-mirror');
+  const remoteCaret = el<HTMLDivElement>('remote-caret');
+  const remoteNameOut = el<HTMLSpanElement>('remote-name');
+
+  const NAME_KEY = 'killterm-note-name';
+  let remoteCursor: { name: string; index: number } | null = null;
+
+  nameInput.value = localStorage.getItem(NAME_KEY) ?? '';
+
+  // 역할이 정해질 때 닉네임이 비어 있으면 기본값 User 1/2를 채운다
+  function defaultName(forRole: 'host' | 'guest') {
+    if (nameInput.value.trim() === '') {
+      nameInput.value = forRole === 'host' ? 'User 1' : 'User 2';
+    }
+  }
+
+  const myName = () => nameInput.value.trim() || 'User';
+
+  nameInput.addEventListener('input', () => {
+    localStorage.setItem(NAME_KEY, nameInput.value);
+    sendCursor();
+  });
+
+  // textarea와 같은 레이아웃의 미러로 인덱스 → 화면 좌표를 계산한다
+  function positionRemoteCaret() {
+    if (!remoteCursor) {
+      remoteCaret.hidden = true;
+      return;
+    }
+    const text = ytext.toString();
+    const index = Math.min(remoteCursor.index, text.length);
+    mirror.textContent = text.slice(0, index);
+    const marker = document.createElement('span');
+    marker.textContent = '​';
+    mirror.appendChild(marker);
+    remoteCaret.style.left = `${marker.offsetLeft - editor.scrollLeft}px`;
+    remoteCaret.style.top = `${marker.offsetTop - editor.scrollTop}px`;
+    remoteNameOut.textContent = remoteCursor.name;
+    remoteCaret.hidden = false;
+  }
+
+  editor.addEventListener('scroll', positionRemoteCaret);
+
+  // 내 커서 위치 전송 (짧게 스로틀)
+  let cursorTimer: ReturnType<typeof setTimeout> | null = null;
+  function sendCursor() {
+    if (channel?.readyState !== 'open') return;
+    if (cursorTimer !== null) return;
+    cursorTimer = setTimeout(() => {
+      cursorTimer = null;
+      if (channel?.readyState !== 'open') return;
+      channel.send(JSON.stringify({ t: 'cur', n: myName(), i: editor.selectionStart }));
+    }, 80);
+  }
+
+  for (const eventName of ['input', 'click', 'keyup', 'select'] as const) {
+    editor.addEventListener(eventName, sendCursor);
+  }
+
+  // ---------- DataChannel 동기화 프로토콜 ----------
+  // 연결 직후 서로 state vector를 보내고, 상대가 모르는 부분만 update로 회신.
+  // 이후 로컬 변경은 그대로 update로 흘린다.
+
+  let channel: RTCDataChannel | null = null;
+
+  const bytesToBase64 = (bytes: Uint8Array) => {
+    let binary = '';
+    for (const byte of bytes) binary += String.fromCharCode(byte);
+    return btoa(binary);
+  };
+  const base64ToBytes = (text: string) => {
+    const binary = atob(text);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return bytes;
+  };
+
+  function wireChannel(dataChannel: RTCDataChannel) {
+    channel = dataChannel;
+    dataChannel.addEventListener('open', () => {
+      connStateOut.textContent = '연결됨 ✅ 실시간 공동 편집 중';
+      stepExchange.hidden = true;
+      setStatus('');
+      dataChannel.send(JSON.stringify({ t: 'sv', d: bytesToBase64(Y.encodeStateVector(doc)) }));
+      sendCursor();
+    });
+    dataChannel.addEventListener('close', () => {
+      connStateOut.textContent = '연결 끊김 — 오프라인 편집 중 (재연결 시 병합)';
+      channel = null;
+      remoteCursor = null;
+      positionRemoteCaret();
+    });
+    dataChannel.addEventListener('message', (e) => {
+      try {
+        const message = JSON.parse(String(e.data)) as { t: string; d?: string; n?: string; i?: number };
+        if (message.t === 'sv' && message.d) {
+          const diff = Y.encodeStateAsUpdate(doc, base64ToBytes(message.d));
+          dataChannel.send(JSON.stringify({ t: 'up', d: bytesToBase64(diff) }));
+        } else if (message.t === 'up' && message.d) {
+          Y.applyUpdate(doc, base64ToBytes(message.d), 'remote');
+        } else if (message.t === 'cur' && typeof message.i === 'number') {
+          remoteCursor = { name: message.n || '상대', index: message.i };
+          positionRemoteCaret();
+        }
+      } catch {
+        /* 알 수 없는 메시지는 무시 */
+      }
+    });
+  }
+
+  doc.on('update', (update: Uint8Array, origin: unknown) => {
+    if (origin === 'local' && channel?.readyState === 'open') {
+      channel.send(JSON.stringify({ t: 'up', d: bytesToBase64(update) }));
+    }
+  });
+
+  // ---------- 연결 흐름 (수동 시그널링) ----------
+
+  let pc: RTCPeerConnection | null = null;
+  let role: 'host' | 'guest' = 'host';
+
+  async function showMyCode(code: string) {
+    codeMine.value = code;
+    boxMine.hidden = false;
+    try {
+      await QRCode.toCanvas(qrMine, code, { errorCorrectionLevel: 'L', margin: 1, width: 220 });
+      qrMine.hidden = false;
+    } catch {
+      qrMine.hidden = true;
+    }
+  }
+
+  function watchConnection(peer: RTCPeerConnection) {
+    peer.addEventListener('connectionstatechange', () => {
+      if (peer.connectionState === 'failed') {
+        setStatus('연결에 실패했습니다. 양쪽 네트워크가 P2P를 허용하지 않을 수 있습니다 (TURN 서버 없음).');
+        stepExchange.hidden = false;
+      }
+    });
+  }
+
+  el<HTMLButtonElement>('role-host').addEventListener('click', async () => {
+    role = 'host';
+    defaultName('host');
+    stepRole.hidden = true;
+    stepExchange.hidden = false;
+    mineTitle.textContent = '① 내 초대 코드';
+    mineHint.textContent = '이 코드를 메신저로 상대에게 보내세요.';
+    theirsTitle.textContent = '② 상대의 응답 코드 붙여넣기';
+    theirsHint.textContent = '상대가 돌려준 응답 코드를 붙여넣고 [연결]을 누르세요.';
+    exchangeAction.textContent = '연결';
+    setStatus('초대 코드를 만드는 중…');
+    pc = createDataPeer();
+    watchConnection(pc);
+    wireChannel(pc.createDataChannel('doc'));
+    await showMyCode(await createOfferCode(pc));
+    setStatus('');
+  });
+
+  el<HTMLButtonElement>('role-guest').addEventListener('click', () => {
+    role = 'guest';
+    defaultName('guest');
+    stepRole.hidden = true;
+    stepExchange.hidden = false;
+    stepExchange.classList.add('guest');
+    theirsTitle.textContent = '① 받은 초대 코드 붙여넣기';
+    theirsHint.textContent = '상대가 보낸 초대 코드를 붙여넣고 [응답 코드 만들기]를 누르세요.';
+    mineTitle.textContent = '② 내 응답 코드';
+    mineHint.textContent = '이 코드를 상대에게 돌려보내면 연결이 시작됩니다.';
+    exchangeAction.textContent = '응답 코드 만들기';
+  });
+
+  exchangeAction.addEventListener('click', async () => {
+    setStatus('');
+    try {
+      if (role === 'host') {
+        await acceptAnswerCode(pc!, codeTheirs.value);
+        setStatus('연결 중…');
+      } else {
+        setStatus('응답 코드를 만드는 중…');
+        pc = createDataPeer();
+        watchConnection(pc);
+        pc.addEventListener('datachannel', (e) => wireChannel(e.channel));
+        await showMyCode(await acceptOfferCode(pc, codeTheirs.value));
+        setStatus('응답 코드를 상대에게 보내면 곧 연결됩니다.');
+      }
+    } catch (e) {
+      setStatus(e instanceof Error ? e.message : String(e));
+    }
+  });
+
+  window.addEventListener('pagehide', () => {
+    channel?.close();
+    pc?.close();
+  });
+</script>
+
+<style>
+  main {
+    max-width: 860px;
+    margin: 0 auto;
+    padding: 2.5rem 1.5rem 4rem;
+  }
+
+  .top a {
+    color: var(--text-dim);
+    text-decoration: none;
+    font-size: 0.9rem;
+  }
+
+  .top a:hover {
+    color: var(--accent);
+  }
+
+  .intro h1 {
+    margin: 1rem 0 0.5rem;
+    font-size: clamp(1.6rem, 4vw, 2.2rem);
+    letter-spacing: -0.02em;
+  }
+
+  .intro p {
+    color: var(--text-dim);
+    margin: 0 0 0.6rem;
+  }
+
+  .intro b {
+    color: var(--text);
+  }
+
+  /* ---------- 에디터 ---------- */
+
+  .editor-section {
+    margin-top: 1.2rem;
+    display: grid;
+    gap: 0.5rem;
+  }
+
+  .editor-head {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+  }
+
+  .conn {
+    font-size: 0.88rem;
+    font-weight: 700;
+    margin-right: auto;
+  }
+
+  .name-field {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    color: var(--text-dim);
+    font-size: 0.85rem;
+    font-weight: 600;
+  }
+
+  .name-field input {
+    width: 8rem;
+    border: 1px solid var(--border);
+    background: var(--bg-soft);
+    color: var(--text);
+    font: inherit;
+    font-size: 0.85rem;
+    padding: 0.3rem 0.5rem;
+    border-radius: 0.5rem;
+  }
+
+  .name-field input:focus {
+    outline: 2px solid var(--accent);
+    border-color: var(--accent);
+  }
+
+  .editor-wrap {
+    position: relative;
+    overflow: hidden;
+  }
+
+  #doc-editor {
+    width: 100%;
+    resize: vertical;
+    border: 1px solid var(--border);
+    background: var(--bg-soft);
+    color: var(--text);
+    font: inherit;
+    font-size: 1rem;
+    line-height: 1.7;
+    padding: 0.9rem 1rem;
+    border-radius: 0.8rem;
+    display: block;
+  }
+
+  #doc-editor:focus {
+    outline: 2px solid var(--accent);
+    border-color: var(--accent);
+  }
+
+  /* 인덱스 → 좌표 계산용 미러: textarea와 동일한 텍스트 레이아웃, 보이지 않음 */
+  .cursor-mirror {
+    position: absolute;
+    inset: 0;
+    visibility: hidden;
+    pointer-events: none;
+    overflow: hidden;
+    border: 1px solid transparent;
+    font: inherit;
+    font-size: 1rem;
+    line-height: 1.7;
+    padding: 0.9rem 1rem;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+  }
+
+  /* 상대 커서: 색 캐럿 + 이름표 */
+  .remote-caret {
+    position: absolute;
+    width: 2px;
+    height: 1.7em;
+    background: #f59f00;
+    pointer-events: none;
+    transition:
+      left 0.08s linear,
+      top 0.08s linear;
+  }
+
+  .remote-caret[hidden] {
+    display: none;
+  }
+
+  .remote-name {
+    position: absolute;
+    bottom: 100%;
+    left: -2px;
+    background: #f59f00;
+    color: #1c2333;
+    font-size: 0.68rem;
+    font-weight: 700;
+    padding: 0.05rem 0.35rem;
+    border-radius: 4px 4px 4px 0;
+    white-space: nowrap;
+  }
+
+  /* ---------- 연결 ---------- */
+
+  .connect {
+    margin-top: 2rem;
+    display: grid;
+    gap: 0.9rem;
+  }
+
+  .connect h2 {
+    margin: 0;
+    font-size: 1.05rem;
+  }
+
+  .role-row {
+    display: flex;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+  }
+
+  .role-row[hidden] {
+    display: none;
+  }
+
+  .exchange {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .exchange[hidden] {
+    display: none;
+  }
+
+  .exchange.guest #box-theirs {
+    order: -1;
+  }
+
+  .code-box {
+    display: grid;
+    gap: 0.5rem;
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    border-radius: 0.9rem;
+    padding: 1rem 1.2rem;
+  }
+
+  .code-box h3 {
+    margin: 0;
+    font-size: 0.95rem;
+  }
+
+  .code-box textarea {
+    width: 100%;
+    resize: vertical;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    font-family: Consolas, 'Courier New', monospace;
+    font-size: 0.8rem;
+    line-height: 1.4;
+    padding: 0.6rem 0.75rem;
+    border-radius: 0.6rem;
+    overflow-wrap: anywhere;
+  }
+
+  .code-box textarea:focus {
+    outline: 2px solid var(--accent);
+    border-color: var(--accent);
+  }
+
+  .qr {
+    justify-self: start;
+    border-radius: 0.5rem;
+    background: #fff;
+    padding: 6px;
+  }
+
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+  }
+
+  /* ---------- 공용 ---------- */
+
+  .btn {
+    appearance: none;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    font: inherit;
+    font-weight: 600;
+    padding: 0.5rem 1rem;
+    border-radius: 0.7rem;
+    cursor: pointer;
+  }
+
+  .btn:hover {
+    border-color: var(--accent);
+  }
+
+  .btn-primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+  }
+
+  .btn-primary:hover {
+    filter: brightness(1.1);
+  }
+
+  .btn-small {
+    padding: 0.3rem 0.7rem;
+    font-size: 0.82rem;
+  }
+
+  .hint {
+    color: var(--text-dim);
+    font-size: 0.82rem;
+    margin: 0;
+  }
+
+  .status {
+    min-height: 1.2em;
+    margin: 0;
+    font-size: 0.88rem;
+    color: var(--danger);
+    overflow-wrap: anywhere;
+  }
+</style>
