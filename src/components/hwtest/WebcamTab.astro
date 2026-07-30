@@ -6,7 +6,9 @@
   <div class="wc-row">
     <button id="wc-start" class="btn btn-primary" type="button">카메라 시작</button>
     <button id="wc-stop" class="btn" type="button" hidden>정지</button>
-    <select id="wc-device" class="wc-select" aria-label="카메라 선택" hidden></select>
+    <select id="wc-device" class="wc-select" aria-label="카메라 선택" disabled>
+      <option>카메라 시작 후 선택 가능</option>
+    </select>
     <label class="wc-mirror" id="wc-mirror-label" hidden>
       <input type="checkbox" id="wc-mirror" checked />
       좌우 반전
@@ -67,7 +69,7 @@
   async function refreshDeviceList() {
     const devices = await navigator.mediaDevices.enumerateDevices();
     const cameras = devices.filter((d) => d.kind === 'videoinput');
-    if (cameras.length < 2) return;
+    if (cameras.length === 0) return;
     const current = stream?.getVideoTracks()[0]?.getSettings().deviceId;
     deviceSelect.innerHTML = '';
     for (const [i, camera] of cameras.entries()) {
@@ -77,7 +79,8 @@
       option.selected = camera.deviceId === current;
       deviceSelect.appendChild(option);
     }
-    deviceSelect.hidden = false;
+    // 1대뿐이면 고를 게 없으므로 목록은 보여주되 비활성화한다
+    deviceSelect.disabled = cameras.length < 2;
   }
 
   async function start(deviceId?: string) {
@@ -142,6 +145,11 @@
     padding: 0.4rem 0.6rem;
     border-radius: 0.6rem;
     max-width: 260px;
+  }
+
+  .wc-select:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
   }
 
   .wc-mirror {

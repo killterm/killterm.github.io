@@ -6,7 +6,9 @@
   <div class="mic-row">
     <button id="mic-start" class="btn btn-primary" type="button">마이크 시작</button>
     <button id="mic-stop" class="btn" type="button" hidden>정지</button>
-    <select id="mic-device" class="mic-select" aria-label="마이크 선택" hidden></select>
+    <select id="mic-device" class="mic-select" aria-label="마이크 선택" disabled>
+      <option>마이크 시작 후 선택 가능</option>
+    </select>
     <label class="mic-monitor" id="mic-monitor-label" hidden>
       <input type="checkbox" id="mic-monitor" />
       모니터링 (내 목소리 듣기)
@@ -117,7 +119,7 @@
   async function refreshDeviceList() {
     const devices = await navigator.mediaDevices.enumerateDevices();
     const mics = devices.filter((d) => d.kind === 'audioinput');
-    if (mics.length < 2) return;
+    if (mics.length === 0) return;
     const current = stream?.getAudioTracks()[0]?.getSettings().deviceId;
     deviceSelect.innerHTML = '';
     for (const [i, mic] of mics.entries()) {
@@ -127,7 +129,8 @@
       option.selected = mic.deviceId === current;
       deviceSelect.appendChild(option);
     }
-    deviceSelect.hidden = false;
+    // 1대뿐이면 고를 게 없으므로 목록은 보여주되 비활성화한다
+    deviceSelect.disabled = mics.length < 2;
   }
 
   async function start(deviceId?: string) {
@@ -200,6 +203,11 @@
     padding: 0.4rem 0.6rem;
     border-radius: 0.6rem;
     max-width: 260px;
+  }
+
+  .mic-select:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
   }
 
   .mic-monitor {
