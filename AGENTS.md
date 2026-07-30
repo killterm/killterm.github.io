@@ -127,11 +127,18 @@
 - 위치: Geolocation API + permissions.query로 권한 상태 표시. 지도(OSM 임베드)는
   좌표가 외부로 전달되므로 반드시 명시적 버튼으로만 연다.
 
-### GLB 뷰어 (`src/pages/glb.astro`)
+### 3D 뷰어 (`src/pages/3d.astro`)
 
-- three.js 기반 GLB/GLTF 뷰어. 파일은 로컬에서 `URL.createObjectURL`로만 읽고
-  서버 업로드 없음(안내 문구 유지). three는 이 페이지에서만 import되어
-  다른 페이지 번들에 영향 없다.
+- three.js 기반 3D 모델 뷰어(GLB·GLTF·OBJ·STL·FBX). 파일은 로컬에서
+  `URL.createObjectURL`로만 읽고 서버 업로드 없음(안내 문구 유지).
+  three는 이 페이지에서만 import되어 다른 페이지 번들에 영향 없다.
+- 원래 GLB 뷰어(`/glb/`)였다가 OBJ/STL/FBX 로더를 추가하며 `/3d/`로 개명.
+  옛 링크 호환을 위해 `src/pages/glb.astro`는 `/3d/` 리다이렉트로 남겨 둔다.
+- 확장자별 로더 분기는 `parseByExtension()` 하나로 모으고 결과를
+  `{ scene, animations }`로 통일한다. OBJ는 .mtl 등 외부 파일을 지원하지
+  않아 기본 재질로 표시(안내 문구 있음), STL은 geometry만 오므로 직접
+  Mesh(MeshStandardMaterial)로 감싸고 normal이 없으면 계산한다.
+  FBX는 애니메이션 클립까지 지원.
 - DRACO 압축 지원: 디코더는 `public/draco/`에 커밋되어 있다
   (three 패키지의 `examples/jsm/libs/draco/gltf/`에서 복사, CDN 의존 없음).
   three 업그레이드 시 함께 갱신할 것.
