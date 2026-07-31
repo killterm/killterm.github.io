@@ -1,0 +1,17 @@
+---
+import ToolPage from '../../components/ToolPage.astro';
+import MindmapTab from '../../components/thinking/MindmapTab.astro';
+import { thinking } from '../../lib/tool-tabs';
+---
+
+<ToolPage
+  title="마인드맵 — Killterm"
+  description="중심 주제에서 가지를 뻗어 내용을 계층적으로 정리하는 마인드맵 도구"
+  heading={thinking.heading}
+  intro={thinking.intro}
+  tabs={thinking.tabs}
+  active="/thinking/mindmap/"
+  wide
+>
+  <MindmapTab />
+</ToolPage>

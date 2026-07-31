@@ -1,0 +1,17 @@
+---
+import ToolPage from '../../components/ToolPage.astro';
+import MandalartTab from '../../components/thinking/MandalartTab.astro';
+import { thinking } from '../../lib/tool-tabs';
+---
+
+<ToolPage
+  title="만다라트 만들기 — Killterm"
+  description="가운데 주제부터 채워 나가는 9×9 만다라트를 작성하고 이미지로 저장하세요."
+  heading={thinking.heading}
+  intro={thinking.intro}
+  tabs={thinking.tabs}
+  active="/thinking/mandalart/"
+  wide
+>
+  <MandalartTab />
+</ToolPage>

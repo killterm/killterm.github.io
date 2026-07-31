@@ -1,0 +1,349 @@
+---
+// 인코딩 변환 탭. (원래 /encode/ 단독 페이지였다가 개발 도구 그룹으로 옮겼다)
+//
+// 입력/출력 형식 선택지. 변환 로직의 codecs와 id가 일치해야 한다.
+// outputOnly(해시처럼 되돌릴 수 없는 형식)는 출력 셀렉트에만 나타난다.
+const formats = [
+  { id: 'text', label: '텍스트 (UTF-8)', outputOnly: false },
+  { id: 'euckr', label: '텍스트 (EUC-KR)', outputOnly: false },
+  { id: 'base64', label: 'Base64', outputOnly: false },
+  { id: 'url', label: 'URL (%)', outputOnly: false },
+  { id: 'hex', label: '16진수 바이트', outputOnly: false },
+  { id: 'sha1', label: 'SHA-1 해시', outputOnly: true },
+  { id: 'sha256', label: 'SHA-256 해시', outputOnly: true },
+];
+const inputFormats = formats.filter((f) => !f.outputOnly);
+---
+
+<div class="encode">
+  <section class="panes">
+    <div class="pane">
+      <div class="pane-head">
+        <label for="input">입력</label>
+        <button class="btn btn-small copy" data-target="input" type="button">복사</button>
+      </div>
+      <div class="format-group" role="radiogroup" aria-label="입력 형식">
+        {
+          inputFormats.map((f) => (
+            <label class="format">
+              <input type="radio" name="input-format" value={f.id} checked={f.id === 'text'} />
+              <span>{f.label}</span>
+            </label>
+          ))
+        }
+      </div>
+      <textarea id="input" rows="7" spellcheck="false"></textarea>
+    </div>
+
+    <div class="middle">
+      <button id="convert" class="btn btn-primary" type="button">변환 ↓</button>
+      <button id="swap" class="btn" type="button">⇅ 맞바꾸기</button>
+      <button id="clear" class="btn" type="button">전체 지우기</button>
+    </div>
+
+    <div class="pane">
+      <div class="pane-head">
+        <label for="output">출력</label>
+        <button class="btn btn-small copy" data-target="output" type="button">복사</button>
+      </div>
+      <div class="format-group" role="radiogroup" aria-label="출력 형식">
+        {
+          formats.map((f) => (
+            <label class="format">
+              <input type="radio" name="output-format" value={f.id} checked={f.id === 'base64'} />
+              <span>{f.label}</span>
+            </label>
+          ))
+        }
+      </div>
+      <textarea id="output" rows="7" spellcheck="false"></textarea>
+    </div>
+  </section>
+
+  <p id="status" class="status" role="status"></p>
+</div>
+
+<script>
+  const inputArea = document.getElementById('input') as HTMLTextAreaElement;
+  const outputArea = document.getElementById('output') as HTMLTextAreaElement;
+  const status = document.getElementById('status') as HTMLParagraphElement;
+
+  // 입력/출력 형식 라디오 그룹(name: input-format / output-format)의 선택값 읽기·쓰기
+  const checkedFormat = (name: string) =>
+    (document.querySelector(`input[name="${name}"]:checked`) as HTMLInputElement).value;
+
+  const setCheckedFormat = (name: string, value: string) => {
+    const radio = document.querySelector(
+      `input[name="${name}"][value="${value}"]`,
+    ) as HTMLInputElement;
+    radio.checked = true;
+  };
+
+  // ---------- Base64 ----------
+
+  function bytesToBase64(bytes: Uint8Array): string {
+    let bin = '';
+    const CHUNK = 0x8000;
+    for (let i = 0; i < bytes.length; i += CHUNK) {
+      bin += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+    }
+    return btoa(bin);
+  }
+
+  function base64ToBytes(b64: string): Uint8Array {
+    const bin = atob(b64.replace(/\s+/g, ''));
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return bytes;
+  }
+
+  // ---------- UTF-8 (16진수) ----------
+
+  function bytesToHex(bytes: Uint8Array): string {
+    return Array.from(bytes, (b) => b.toString(16).padStart(2, '0').toUpperCase()).join(' ');
+  }
+
+  function hexToBytes(hex: string): Uint8Array {
+    // "EA B0 80", "0xEA,0xB0", "\xEA\xB0", "eab080" 등 다양한 표기 허용
+    const cleaned = hex.replace(/0x|\\x/gi, '').replace(/[^0-9a-fA-F]/g, '');
+    if (cleaned.length === 0) throw new Error('16진수 바이트가 없습니다.');
+    if (cleaned.length % 2 !== 0) throw new Error('16진수 자릿수가 홀수입니다.');
+    const bytes = new Uint8Array(cleaned.length / 2);
+    for (let i = 0; i < bytes.length; i++) {
+      bytes[i] = parseInt(cleaned.slice(i * 2, i * 2 + 2), 16);
+    }
+    return bytes;
+  }
+
+  const utf8Encode = (s: string) => new TextEncoder().encode(s);
+  const utf8Decode = (b: Uint8Array) => new TextDecoder('utf-8', { fatal: true }).decode(b);
+
+  // ---------- EUC-KR ----------
+  // 브라우저는 EUC-KR 디코더(TextDecoder)만 제공하므로, 인코딩은 가능한 2바이트
+  // 조합을 전부 디코딩해 만든 역매핑 테이블로 처리한다. 첫 사용 시 한 번만 생성.
+
+  let euckrTable: Map<string, [number, number]> | null = null;
+
+  function buildEuckrTable(): Map<string, [number, number]> {
+    const pairs: [number, number][] = [];
+    for (let lead = 0x81; lead <= 0xfe; lead++) {
+      for (let trail = 0x41; trail <= 0xfe; trail++) {
+        pairs.push([lead, trail]);
+      }
+    }
+    // [lead, trail, 0x00]을 이어 붙여 한 번에 디코딩한 뒤 NUL로 잘라서
+    // 정확히 한 글자로 디코딩된 조합만 테이블에 담는다.
+    const buf = new Uint8Array(pairs.length * 3);
+    pairs.forEach(([lead, trail], i) => {
+      buf[i * 3] = lead;
+      buf[i * 3 + 1] = trail;
+    });
+    const chunks = new TextDecoder('euc-kr').decode(buf).split('\u0000');
+    const table = new Map<string, [number, number]>();
+    pairs.forEach((pair, i) => {
+      const ch = chunks[i];
+      if (ch.length === 1 && ch !== '�' && !table.has(ch)) {
+        table.set(ch, pair);
+      }
+    });
+    return table;
+  }
+
+  function euckrEncode(text: string): Uint8Array {
+    euckrTable ??= buildEuckrTable();
+    const out: number[] = [];
+    for (const ch of text) {
+      const code = ch.codePointAt(0)!;
+      if (code < 0x80) {
+        out.push(code);
+        continue;
+      }
+      const pair = euckrTable.get(ch);
+      if (!pair) {
+        throw new Error(`EUC-KR로 표현할 수 없는 문자입니다: ${ch}`);
+      }
+      out.push(pair[0], pair[1]);
+    }
+    return new Uint8Array(out);
+  }
+
+  const euckrDecode = (b: Uint8Array) => new TextDecoder('euc-kr', { fatal: true }).decode(b);
+
+  // ---------- 해시 ----------
+
+  async function digestToHex(algorithm: 'SHA-1' | 'SHA-256', bytes: Uint8Array): Promise<string> {
+    const hash = await crypto.subtle.digest(algorithm, bytes);
+    return Array.from(new Uint8Array(hash), (b) => b.toString(16).padStart(2, '0')).join('');
+  }
+
+  // ---------- 변환 ----------
+
+  // 형식별 코덱. 모든 변환은 bytes(Uint8Array)를 중간 표현으로 거쳐
+  // "입력 형식 → bytes → 출력 형식" 두 단계로 이루어진다.
+  // toBytes가 없는 형식(해시)은 출력 전용이다.
+  const codecs: Record<
+    string,
+    {
+      toBytes?: (s: string) => Uint8Array;
+      fromBytes: (b: Uint8Array) => string | Promise<string>;
+    }
+  > = {
+    text: { toBytes: utf8Encode, fromBytes: utf8Decode },
+    euckr: { toBytes: euckrEncode, fromBytes: euckrDecode },
+    base64: { toBytes: base64ToBytes, fromBytes: bytesToBase64 },
+    url: {
+      toBytes: (s) => utf8Encode(decodeURIComponent(s.replace(/\+/g, '%20'))),
+      fromBytes: (b) => encodeURIComponent(utf8Decode(b)),
+    },
+    hex: { toBytes: hexToBytes, fromBytes: bytesToHex },
+    sha1: { fromBytes: (b) => digestToHex('SHA-1', b) },
+    sha256: { fromBytes: (b) => digestToHex('SHA-256', b) },
+  };
+
+  document.getElementById('convert')!.addEventListener('click', async () => {
+    status.textContent = '';
+    try {
+      const toBytes = codecs[checkedFormat('input-format')].toBytes;
+      if (!toBytes) {
+        throw new Error('해시 형식은 입력으로 사용할 수 없습니다.');
+      }
+      const bytes = toBytes(inputArea.value);
+      outputArea.value = await codecs[checkedFormat('output-format')].fromBytes(bytes);
+    } catch (e) {
+      status.textContent = `변환 실패: ${e instanceof Error ? e.message : String(e)}`;
+    }
+  });
+
+  document.getElementById('swap')!.addEventListener('click', () => {
+    const inputValue = checkedFormat('input-format');
+    const outputValue = checkedFormat('output-format');
+    if (!codecs[outputValue].toBytes) {
+      status.textContent = '해시 형식은 입력으로 사용할 수 없어 맞바꿀 수 없습니다.';
+      return;
+    }
+    setCheckedFormat('input-format', outputValue);
+    setCheckedFormat('output-format', inputValue);
+    [inputArea.value, outputArea.value] = [outputArea.value, inputArea.value];
+    status.textContent = '';
+  });
+
+  document.getElementById('clear')!.addEventListener('click', () => {
+    inputArea.value = '';
+    outputArea.value = '';
+    status.textContent = '';
+    inputArea.focus();
+  });
+
+  // ---------- 복사 ----------
+
+  for (const btn of document.querySelectorAll<HTMLButtonElement>('.copy')) {
+    btn.addEventListener('click', async () => {
+      const target = document.getElementById(btn.dataset.target!) as HTMLTextAreaElement;
+      await navigator.clipboard.writeText(target.value);
+      const label = btn.textContent;
+      btn.textContent = '복사됨!';
+      setTimeout(() => (btn.textContent = label), 1200);
+    });
+  }
+</script>
+
+<style>
+  .panes {
+    display: grid;
+    gap: 0.9rem;
+  }
+
+  .pane-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.4rem;
+  }
+
+  .pane-head label {
+    color: var(--text-dim);
+    font-size: 0.85rem;
+    font-weight: 600;
+  }
+
+  .format-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    width: fit-content;
+    padding: 4px;
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    border-radius: 0.8rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .format input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .format span {
+    display: block;
+    padding: 0.35rem 0.8rem;
+    border-radius: 0.6rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text-dim);
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .format input:checked + span {
+    background: var(--accent);
+    color: #fff;
+  }
+
+  .format input:focus-visible + span {
+    outline: 2px solid var(--accent);
+  }
+
+  textarea {
+    width: 100%;
+    resize: vertical;
+    border: 1px solid var(--border);
+    background: var(--bg-soft);
+    color: var(--text);
+    font-family: Consolas, 'Courier New', monospace;
+    font-size: 0.92rem;
+    line-height: 1.5;
+    padding: 0.7rem 0.85rem;
+    border-radius: 0.7rem;
+  }
+
+  textarea:focus {
+    outline: 2px solid var(--accent);
+    border-color: var(--accent);
+  }
+
+  .middle {
+    display: flex;
+    gap: 0.6rem;
+    justify-content: center;
+  }
+
+  .btn:hover {
+    border-color: var(--accent);
+  }
+
+  .btn-primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+  }
+
+  .btn-primary:hover {
+    filter: brightness(1.1);
+  }
+
+  .btn-small {
+    padding: 0.25rem 0.7rem;
+    font-size: 0.8rem;
+  }
+</style>

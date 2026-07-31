@@ -4,15 +4,27 @@ export type ToolTab = { label: string; href: string };
 
 export const devtools = {
   heading: '🧰 개발 도구',
-  intro: '자주 쓰는 개발 유틸리티 모음입니다. 모든 처리는 브라우저 안에서만 이루어집니다.',
+  intro:
+    '자주 쓰는 개발 유틸리티 모음입니다. 모든 처리는 브라우저 안에서만 이루어집니다.',
   tabs: [
     { label: '타임스탬프', href: '/devtools/timestamp/' },
+    { label: '인코딩', href: '/devtools/encode/' },
     { label: 'JSON', href: '/devtools/json/' },
     { label: '정규식', href: '/devtools/regex/' },
     { label: 'Diff', href: '/devtools/diff/' },
     { label: '색상', href: '/devtools/color/' },
     { label: '랜덤', href: '/devtools/random/' },
     { label: 'Cron', href: '/devtools/cron/' },
+  ] satisfies ToolTab[],
+};
+
+export const thinking = {
+  heading: '🧠 생각 정리',
+  intro:
+    '생각을 눈에 보이는 구조로 정리하는 도구 모음입니다. 작업 내용은 이 브라우저에만 저장되며 서버로 전송되지 않습니다.',
+  tabs: [
+    { label: '만다라트', href: '/thinking/mandalart/' },
+    { label: '마인드맵', href: '/thinking/mindmap/' },
   ] satisfies ToolTab[],
 };
 

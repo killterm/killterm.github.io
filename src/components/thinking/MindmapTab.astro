@@ -1,0 +1,1046 @@
+---
+// 마인드맵 탭. (원래 /mindmap/ 단독 페이지였다가 생각 정리 그룹으로 옮겼다)
+---
+
+<div class="mindmap">
+  <section class="toolbar" aria-label="마인드맵 작업">
+    <button id="add-root-child" class="btn btn-primary" type="button">＋ 새 가지</button>
+    <button id="clear" class="btn" type="button">전체 지우기</button>
+    <button id="reset-layout" class="btn" type="button">자동 배치</button>
+    <button id="export" class="btn" type="button">JSON 내보내기</button>
+    <button id="import" class="btn" type="button">JSON 가져오기</button>
+    <input id="import-file" type="file" accept=".json,application/json" hidden />
+    <div class="view-controls" aria-label="화면 배율">
+      <button id="zoom-out" class="btn btn-square" type="button" aria-label="축소">−</button>
+      <span id="zoom-label">100%</span>
+      <button id="zoom-in" class="btn btn-square" type="button" aria-label="확대">＋</button>
+      <button id="fit-view" class="btn" type="button">전체 보기</button>
+    </div>
+    <span id="node-count" class="node-count" aria-live="polite"></span>
+  </section>
+
+  <section class="map-panel" aria-label="마인드맵 편집 영역">
+    <div id="mindmap" class="mindmap"></div>
+  </section>
+
+  <p class="save-note">
+    노드를 드래그해 배치하고, 빈 공간을 드래그해 이동하세요. 휠로 확대·축소할 수 있습니다.
+    작성 내용과 노드 위치는 이 브라우저에 자동 저장됩니다.
+  </p>
+</div>
+
+<script>
+  import {
+    setSubtreeChecked,
+    syncAncestors,
+    syncSubtreeFromLeaves,
+    type CheckTree,
+  } from '../../lib/check-tree';
+
+  type Direction = 'right' | 'left' | 'bottom' | 'top';
+
+  interface MindNode {
+    id: string;
+    text: string;
+    checked: boolean;
+    children: MindNode[];
+    direction?: Direction;
+    x?: number;
+    y?: number;
+  }
+
+  const STORAGE_KEY = 'killterm-mindmap-v1';
+  const JSON_FORMAT = 'killterm-mindmap';
+  const JSON_VERSION = 1;
+  const MAX_IMPORT_BYTES = 5 * 1024 * 1024;
+  const MAX_IMPORT_DEPTH = 30;
+  const MAX_IMPORT_NODES = 500;
+  const DIRECTIONS: readonly Direction[] = ['right', 'bottom', 'left', 'top'];
+  const CARD_WIDTH = 240;
+  const CARD_HEIGHT = 54;
+  const HORIZONTAL_GAP = 280;
+  const VERTICAL_GAP = 112;
+  const HORIZONTAL_SPACING = 90;
+  const VERTICAL_SPACING = 276;
+  const AUTO_LAYOUT_GAP = 32;
+  let fallbackId = 0;
+
+  const mindmap = document.getElementById('mindmap') as HTMLDivElement;
+  const nodeCount = document.getElementById('node-count') as HTMLSpanElement;
+  const nodes = new Map<string, MindNode>();
+  const parents = new Map<string, string>();
+
+  function createId() {
+    if (typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+    fallbackId += 1;
+    return `node-${Date.now()}-${fallbackId}`;
+  }
+
+  const createRoot = (): MindNode => ({
+    id: 'root',
+    text: '',
+    checked: false,
+    children: [],
+  });
+
+  function normalizeRoot(value: unknown): MindNode {
+    const used = new Set<string>();
+    let count = 0;
+
+    function normalizeNode(candidate: unknown, depth: number, root = false): MindNode | null {
+      if (
+        depth > MAX_IMPORT_DEPTH ||
+        count >= MAX_IMPORT_NODES ||
+        !candidate ||
+        typeof candidate !== 'object'
+      ) {
+        return null;
+      }
+      count += 1;
+      const data = candidate as Partial<MindNode>;
+      let id = root ? 'root' : typeof data.id === 'string' ? data.id : createId();
+      if (!id || used.has(id)) id = createId();
+      used.add(id);
+
+      const node: MindNode = {
+        id,
+        text: typeof data.text === 'string' ? data.text.slice(0, root ? 120 : 200) : '',
+        checked: data.checked === true,
+        children: [],
+      };
+      if (!root && DIRECTIONS.includes(data.direction as Direction)) {
+        node.direction = data.direction as Direction;
+      }
+      if (typeof data.x === 'number' && Number.isFinite(data.x)) node.x = data.x;
+      if (typeof data.y === 'number' && Number.isFinite(data.y)) node.y = data.y;
+      if (Array.isArray(data.children)) {
+        for (const child of data.children) {
+          const normalized = normalizeNode(child, depth + 1);
+          if (normalized) node.children.push(normalized);
+        }
+      }
+      return node;
+    }
+
+    return normalizeNode(value, 0, true) ?? createRoot();
+  }
+
+  function loadRoot() {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (!saved) return createRoot();
+      const data = JSON.parse(saved) as { root?: unknown };
+      return normalizeRoot(data.root);
+    } catch {
+      return createRoot();
+    }
+  }
+
+  let root = loadRoot();
+
+  function subtreeSize(node: MindNode): number {
+    return 1 + node.children.reduce((sum, child) => sum + subtreeSize(child), 0);
+  }
+
+  function nextRootDirection() {
+    const loads = new Map<Direction, number>(DIRECTIONS.map((direction) => [direction, 0]));
+    for (const child of root.children) {
+      if (child.direction) {
+        loads.set(child.direction, loads.get(child.direction)! + subtreeSize(child));
+      }
+    }
+    return DIRECTIONS.reduce((best, direction) =>
+      loads.get(direction)! < loads.get(best)! ? direction : best,
+    );
+  }
+
+  function ensureRootDirections() {
+    for (const child of root.children) {
+      if (!child.direction) child.direction = nextRootDirection();
+    }
+  }
+
+  function rebalanceRootDirections() {
+    const loads = new Map<Direction, number>(DIRECTIONS.map((direction) => [direction, 0]));
+    const largestFirst = [...root.children].sort(
+      (first, second) => subtreeSize(second) - subtreeSize(first),
+    );
+    for (const child of largestFirst) {
+      const direction = DIRECTIONS.reduce((best, candidate) =>
+        loads.get(candidate)! < loads.get(best)! ? candidate : best,
+      );
+      child.direction = direction;
+      loads.set(direction, loads.get(direction)! + subtreeSize(child));
+    }
+  }
+
+  function rebuildIndex() {
+    nodes.clear();
+    parents.clear();
+    const pending: Array<{ node: MindNode; parent?: string }> = [{ node: root }];
+    while (pending.length > 0) {
+      const { node, parent } = pending.pop()!;
+      nodes.set(node.id, node);
+      if (parent) parents.set(node.id, parent);
+      for (const child of node.children) {
+        pending.push({ node: child, parent: node.id });
+      }
+    }
+  }
+
+  const checkTree: CheckTree<string> = {
+    childrenOf: (id) => nodes.get(id)?.children.map((child) => child.id) ?? [],
+    parentOf: (id) => parents.get(id),
+    isChecked: (id) => nodes.get(id)?.checked === true,
+    setChecked(id, checked) {
+      const node = nodes.get(id);
+      if (node) node.checked = checked;
+    },
+  };
+
+  function save() {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ root }));
+  }
+
+  function addChild(parent: MindNode) {
+    const child: MindNode = {
+      id: createId(),
+      text: '',
+      checked: false,
+      children: [],
+      direction: parent.id === root.id ? nextRootDirection() : undefined,
+    };
+    parent.children.push(child);
+    rebuildIndex();
+    ensureNodePositions();
+    syncAncestors(checkTree, child.id);
+    save();
+    render(child.id);
+  }
+
+  function deleteNode(node: MindNode) {
+    const parentId = parents.get(node.id);
+    if (!parentId) return;
+    if (
+      (node.text.trim() || node.children.length > 0) &&
+      !confirm('이 항목과 모든 하위 항목을 삭제할까요?')
+    ) {
+      return;
+    }
+    const parent = nodes.get(parentId)!;
+    parent.children = parent.children.filter((child) => child.id !== node.id);
+    rebuildIndex();
+    syncSubtreeFromLeaves(checkTree, root.id);
+    save();
+    render();
+  }
+
+  function makeButton(label: string, className: string, text: string) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = className;
+    button.textContent = text;
+    button.setAttribute('aria-label', label);
+    return button;
+  }
+
+  interface NodePosition {
+    x: number;
+    y: number;
+    direction?: Direction;
+    depth?: number;
+  }
+
+  function calculateDefaultLayout() {
+    ensureRootDirections();
+    const unitCache = new Map<string, number>();
+    const depthCache = new Map<string, number>();
+    const groups: Record<Direction, MindNode[]> = {
+      right: [],
+      left: [],
+      bottom: [],
+      top: [],
+    };
+    for (const child of root.children) groups[child.direction!].push(child);
+
+    function subtreeUnits(node: MindNode): number {
+      const cached = unitCache.get(node.id);
+      if (cached) return cached;
+      const units =
+        node.children.length === 0
+          ? 1
+          : node.children.reduce((sum, child) => sum + subtreeUnits(child), 0);
+      unitCache.set(node.id, units);
+      return units;
+    }
+
+    function subtreeDepth(node: MindNode): number {
+      const cached = depthCache.get(node.id);
+      if (cached) return cached;
+      const depth =
+        1 +
+        (node.children.length === 0
+          ? 0
+          : Math.max(...node.children.map((child) => subtreeDepth(child))));
+      depthCache.set(node.id, depth);
+      return depth;
+    }
+
+    const totalUnits = (direction: Direction) =>
+      groups[direction].reduce((sum, node) => sum + subtreeUnits(node), 0);
+    const maxDepth = (directions: Direction[]) =>
+      Math.max(0, ...directions.flatMap((direction) => groups[direction].map(subtreeDepth)));
+
+    const horizontalLeaves = Math.max(1, totalUnits('right'), totalUnits('left'));
+    const verticalLeaves = Math.max(1, totalUnits('bottom'), totalUnits('top'));
+    const horizontalDepth = maxDepth(['right', 'left']);
+    const verticalDepth = maxDepth(['bottom', 'top']);
+    const horizontalExtent =
+      horizontalDepth === 0 ? 0 : horizontalDepth * HORIZONTAL_GAP;
+    const width = Math.max(
+      960,
+      horizontalExtent * 2 + CARD_WIDTH + 160,
+      verticalLeaves * VERTICAL_SPACING + CARD_WIDTH + 100,
+    );
+    const height = Math.max(
+      680,
+      verticalDepth * VERTICAL_GAP * 2 + CARD_HEIGHT + 160,
+      horizontalLeaves * HORIZONTAL_SPACING + CARD_HEIGHT + 160,
+    );
+    const centerX = width / 2;
+    const centerY = height / 2;
+    const positions = new Map<string, NodePosition>([
+      [root.id, { x: centerX, y: centerY, depth: 0 }],
+    ]);
+
+    function placeDirection(direction: Direction) {
+      const total = Math.max(1, totalUnits(direction));
+      let cursor = 0;
+
+      function place(node: MindNode, depth: number, start: number) {
+        const span = subtreeUnits(node);
+        const perpendicular = start + span / 2 - total / 2;
+        const horizontal = direction === 'right' || direction === 'left';
+        const sign = direction === 'right' || direction === 'bottom' ? 1 : -1;
+        positions.set(node.id, {
+          x: horizontal
+            ? centerX + sign * depth * HORIZONTAL_GAP
+            : centerX + perpendicular * VERTICAL_SPACING,
+          y: horizontal
+            ? centerY + perpendicular * HORIZONTAL_SPACING
+            : centerY + sign * depth * VERTICAL_GAP,
+          direction,
+          depth,
+        });
+
+        let childStart = start;
+        for (const child of node.children) {
+          place(child, depth + 1, childStart);
+          childStart += subtreeUnits(child);
+        }
+      }
+
+      for (const node of groups[direction]) {
+        place(node, 1, cursor);
+        cursor += subtreeUnits(node);
+      }
+    }
+
+    for (const direction of DIRECTIONS) placeDirection(direction);
+
+    const directionVector = (direction: Direction) => {
+      if (direction === 'right') return { x: 1, y: 0 };
+      if (direction === 'left') return { x: -1, y: 0 };
+      if (direction === 'bottom') return { x: 0, y: 1 };
+      return { x: 0, y: -1 };
+    };
+
+    const isAncestor = (ancestor: string, descendant: string) => {
+      let current = parents.get(descendant);
+      while (current) {
+        if (current === ancestor) return true;
+        current = parents.get(current);
+      }
+      return false;
+    };
+
+    const moveSubtree = (id: string, x: number, y: number) => {
+      const pending = [id];
+      while (pending.length > 0) {
+        const current = pending.pop()!;
+        const position = positions.get(current)!;
+        position.x += x;
+        position.y += y;
+        pending.push(...(nodes.get(current)?.children.map((child) => child.id) ?? []));
+      }
+    };
+
+    // 네 방향의 기본 배치는 유지하고, 실제로 겹치는 하위 트리만 바깥쪽으로 최소 이동한다.
+    const ids = Array.from(positions.keys());
+    const maxMoves = Math.min(10_000, ids.length * ids.length * 4);
+    for (let moveCount = 0; moveCount < maxMoves; moveCount += 1) {
+      let collision:
+        | {
+            first: string;
+            second: string;
+            overlapX: number;
+            overlapY: number;
+          }
+        | undefined;
+
+      findCollision: for (let i = 0; i < ids.length; i += 1) {
+        for (let j = i + 1; j < ids.length; j += 1) {
+          const first = positions.get(ids[i])!;
+          const second = positions.get(ids[j])!;
+          const overlapX = CARD_WIDTH + AUTO_LAYOUT_GAP - Math.abs(first.x - second.x);
+          const overlapY = CARD_HEIGHT + AUTO_LAYOUT_GAP - Math.abs(first.y - second.y);
+          if (overlapX > 0 && overlapY > 0) {
+            collision = { first: ids[i], second: ids[j], overlapX, overlapY };
+            break findCollision;
+          }
+        }
+      }
+      if (!collision) break;
+
+      const candidates = [collision.first, collision.second]
+        .filter((id) => id !== root.id)
+        .filter(
+          (id) =>
+            !isAncestor(id, id === collision.first ? collision.second : collision.first),
+        )
+        .map((id) => {
+          const other = id === collision.first ? collision.second : collision.first;
+          const position = positions.get(id)!;
+          const otherPosition = positions.get(other)!;
+          const vector = directionVector(position.direction!);
+          const movingAway =
+            vector.x !== 0
+              ? (position.x - otherPosition.x) * vector.x >= 0
+              : (position.y - otherPosition.y) * vector.y >= 0;
+          const distance = vector.x !== 0 ? collision.overlapX : collision.overlapY;
+          return { id, vector, distance, movingAway, depth: position.depth ?? 0 };
+        });
+
+      const movingAway = candidates
+        .filter((candidate) => candidate.movingAway)
+        .sort((a, b) => a.distance - b.distance || b.depth - a.depth);
+      const selected =
+        movingAway[0] ?? candidates.sort((a, b) => b.depth - a.depth || a.distance - b.distance)[0];
+      if (!selected) break;
+      moveSubtree(
+        selected.id,
+        selected.vector.x * (selected.distance + 1),
+        selected.vector.y * (selected.distance + 1),
+      );
+    }
+
+    return { positions, centerX, centerY };
+  }
+
+  function ensureNodePositions() {
+    const { positions, centerX, centerY } = calculateDefaultLayout();
+    root.x = 0;
+    root.y = 0;
+    for (const node of nodes.values()) {
+      if (node.id === root.id) continue;
+      const fallback = positions.get(node.id)!;
+      if (typeof node.x !== 'number') node.x = fallback.x - centerX;
+      if (typeof node.y !== 'number') node.y = fallback.y - centerY;
+    }
+  }
+
+  const cardElements = new Map<string, HTMLDivElement>();
+  const connectorElements = new Map<string, SVGPathElement>();
+  const camera = { x: 0, y: 0, zoom: 1 };
+  let mapWorld: HTMLDivElement | null = null;
+  let viewInitialized = false;
+
+  const positionOf = (node: MindNode): NodePosition => ({
+    x: node.x ?? 0,
+    y: node.y ?? 0,
+  });
+
+  function connectorPath(parent: NodePosition, child: NodePosition) {
+    const dx = child.x - parent.x;
+    const dy = child.y - parent.y;
+    if (Math.abs(dx) >= Math.abs(dy)) {
+      const sign = dx >= 0 ? 1 : -1;
+      const startX = parent.x + sign * (CARD_WIDTH / 2);
+      const endX = child.x - sign * (CARD_WIDTH / 2);
+      const controlX = (startX + endX) / 2;
+      return `M ${startX} ${parent.y} C ${controlX} ${parent.y}, ${controlX} ${child.y}, ${endX} ${child.y}`;
+    }
+    const sign = dy >= 0 ? 1 : -1;
+    const startY = parent.y + sign * (CARD_HEIGHT / 2);
+    const endY = child.y - sign * (CARD_HEIGHT / 2);
+    const controlY = (startY + endY) / 2;
+    return `M ${parent.x} ${startY} C ${parent.x} ${controlY}, ${child.x} ${controlY}, ${child.x} ${endY}`;
+  }
+
+  function updateGeometry() {
+    for (const [id, card] of cardElements) {
+      const node = nodes.get(id)!;
+      card.style.left = `${node.x ?? 0}px`;
+      card.style.top = `${node.y ?? 0}px`;
+    }
+    for (const [childId, path] of connectorElements) {
+      const child = nodes.get(childId)!;
+      const parent = nodes.get(parents.get(childId)!)!;
+      path.setAttribute('d', connectorPath(positionOf(parent), positionOf(child)));
+    }
+  }
+
+  function applyCamera() {
+    if (mapWorld) {
+      mapWorld.style.transform = `translate(${camera.x}px, ${camera.y}px) scale(${camera.zoom})`;
+    }
+    document.getElementById('zoom-label')!.textContent = `${Math.round(camera.zoom * 100)}%`;
+  }
+
+  function setZoom(next: number, anchorX = mindmap.clientWidth / 2, anchorY = mindmap.clientHeight / 2) {
+    const zoom = Math.min(2, Math.max(0.3, next));
+    const worldX = (anchorX - camera.x) / camera.zoom;
+    const worldY = (anchorY - camera.y) / camera.zoom;
+    camera.x = anchorX - worldX * zoom;
+    camera.y = anchorY - worldY * zoom;
+    camera.zoom = zoom;
+    applyCamera();
+  }
+
+  function fitView() {
+    const allNodes = Array.from(nodes.values());
+    const minX = Math.min(...allNodes.map((node) => node.x ?? 0)) - CARD_WIDTH / 2;
+    const maxX = Math.max(...allNodes.map((node) => node.x ?? 0)) + CARD_WIDTH / 2;
+    const minY = Math.min(...allNodes.map((node) => node.y ?? 0)) - CARD_HEIGHT / 2;
+    const maxY = Math.max(...allNodes.map((node) => node.y ?? 0)) + CARD_HEIGHT / 2;
+    const width = Math.max(CARD_WIDTH, maxX - minX);
+    const height = Math.max(CARD_HEIGHT, maxY - minY);
+    camera.zoom = Math.min(
+      1.25,
+      Math.max(0.3, Math.min((mindmap.clientWidth - 80) / width, (mindmap.clientHeight - 80) / height)),
+    );
+    camera.x = mindmap.clientWidth / 2 - ((minX + maxX) / 2) * camera.zoom;
+    camera.y = mindmap.clientHeight / 2 - ((minY + maxY) / 2) * camera.zoom;
+    viewInitialized = true;
+    applyCamera();
+  }
+
+  function createNodeCard(node: MindNode, position: NodePosition, rootNode = false) {
+    const card = document.createElement('div');
+    card.className = `node-card${rootNode ? ' node-root' : ''}${node.checked ? ' checked' : ''}`;
+    card.dataset.nodeId = node.id;
+    card.style.left = `${position.x}px`;
+    card.style.top = `${position.y}px`;
+
+    const check = makeButton(
+      rootNode ? '전체 체크' : '이 항목 체크',
+      'check-button',
+      node.checked ? '✓' : '',
+    );
+    check.setAttribute('aria-pressed', String(node.checked));
+    check.addEventListener('click', () => {
+      setSubtreeChecked(checkTree, node.id, !node.checked);
+      syncAncestors(checkTree, node.id);
+      save();
+      render();
+    });
+
+    const input = document.createElement('input');
+    input.className = 'node-input';
+    input.type = 'text';
+    input.value = node.text;
+    input.maxLength = rootNode ? 120 : 200;
+    input.placeholder = rootNode ? '중심 주제' : '내용 입력';
+    input.setAttribute('aria-label', rootNode ? '중심 주제' : '마인드맵 항목');
+    input.addEventListener('input', () => {
+      node.text = input.value;
+      save();
+    });
+
+    const actions = document.createElement('div');
+    actions.className = 'node-actions';
+    const add = makeButton('하위 항목 추가', 'node-action', '＋');
+    add.addEventListener('click', () => addChild(node));
+    actions.appendChild(add);
+
+    if (!rootNode) {
+      const remove = makeButton('이 항목 삭제', 'node-action node-delete', '×');
+      remove.addEventListener('click', () => deleteNode(node));
+      actions.appendChild(remove);
+    }
+
+    card.append(check, input, actions);
+    if (!rootNode) {
+      card.addEventListener('pointerdown', (event) => {
+        if ((event.target as Element).closest('button, input')) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const startX = event.clientX;
+        const startY = event.clientY;
+        const nodeX = node.x ?? 0;
+        const nodeY = node.y ?? 0;
+        card.classList.add('dragging');
+        card.setPointerCapture(event.pointerId);
+
+        const move = (moveEvent: PointerEvent) => {
+          node.x = nodeX + (moveEvent.clientX - startX) / camera.zoom;
+          node.y = nodeY + (moveEvent.clientY - startY) / camera.zoom;
+          updateGeometry();
+        };
+        const end = (endEvent: PointerEvent) => {
+          card.releasePointerCapture(endEvent.pointerId);
+          card.classList.remove('dragging');
+          card.removeEventListener('pointermove', move);
+          card.removeEventListener('pointerup', end);
+          card.removeEventListener('pointercancel', end);
+          save();
+        };
+        card.addEventListener('pointermove', move);
+        card.addEventListener('pointerup', end);
+        card.addEventListener('pointercancel', end);
+      });
+    }
+    return card;
+  }
+
+  function createConnector(
+    childId: string,
+    parent: NodePosition,
+    child: NodePosition,
+    checked: boolean,
+  ) {
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', connectorPath(parent, child));
+    path.setAttribute('class', `connector${checked ? ' checked' : ''}`);
+    connectorElements.set(childId, path);
+    return path;
+  }
+
+  function render(focusId?: string) {
+    ensureNodePositions();
+    cardElements.clear();
+    connectorElements.clear();
+    const world = document.createElement('div');
+    world.className = 'map-world';
+    mapWorld = world;
+
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('class', 'connectors');
+    svg.setAttribute('width', '1');
+    svg.setAttribute('height', '1');
+    svg.setAttribute('aria-hidden', 'true');
+
+    for (const node of nodes.values()) {
+      if (node.id === root.id) continue;
+      const parentId = parents.get(node.id)!;
+      svg.appendChild(
+        createConnector(
+          node.id,
+          positionOf(nodes.get(parentId)!),
+          positionOf(node),
+          node.checked,
+        ),
+      );
+    }
+
+    const cards = Array.from(nodes.values(), (node) => {
+      const card = createNodeCard(node, positionOf(node), node.id === root.id);
+      cardElements.set(node.id, card);
+      return card;
+    });
+    world.append(svg, ...cards);
+    mindmap.replaceChildren(world);
+    applyCamera();
+    nodeCount.textContent = `${nodes.size}개 항목`;
+    if (!viewInitialized) requestAnimationFrame(fitView);
+    if (focusId) {
+      const input = mindmap.querySelector<HTMLInputElement>(
+        `[data-node-id="${CSS.escape(focusId)}"] .node-input`,
+      );
+      input?.focus();
+    }
+  }
+
+  document.getElementById('add-root-child')!.addEventListener('click', () => addChild(root));
+
+  mindmap.addEventListener('pointerdown', (event) => {
+    if ((event.target as Element).closest('.node-card')) return;
+    event.preventDefault();
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const cameraX = camera.x;
+    const cameraY = camera.y;
+    mindmap.classList.add('panning');
+    mindmap.setPointerCapture(event.pointerId);
+
+    const move = (moveEvent: PointerEvent) => {
+      camera.x = cameraX + moveEvent.clientX - startX;
+      camera.y = cameraY + moveEvent.clientY - startY;
+      applyCamera();
+    };
+    const end = (endEvent: PointerEvent) => {
+      mindmap.releasePointerCapture(endEvent.pointerId);
+      mindmap.classList.remove('panning');
+      mindmap.removeEventListener('pointermove', move);
+      mindmap.removeEventListener('pointerup', end);
+      mindmap.removeEventListener('pointercancel', end);
+    };
+    mindmap.addEventListener('pointermove', move);
+    mindmap.addEventListener('pointerup', end);
+    mindmap.addEventListener('pointercancel', end);
+  });
+
+  mindmap.addEventListener(
+    'wheel',
+    (event) => {
+      event.preventDefault();
+      const rect = mindmap.getBoundingClientRect();
+      setZoom(
+        camera.zoom * (event.deltaY < 0 ? 1.1 : 0.9),
+        event.clientX - rect.left,
+        event.clientY - rect.top,
+      );
+    },
+    { passive: false },
+  );
+
+  document.getElementById('zoom-out')!.addEventListener('click', () => setZoom(camera.zoom / 1.2));
+  document.getElementById('zoom-in')!.addEventListener('click', () => setZoom(camera.zoom * 1.2));
+  document.getElementById('fit-view')!.addEventListener('click', fitView);
+
+  document.getElementById('export')!.addEventListener('click', () => {
+    const data = {
+      format: JSON_FORMAT,
+      version: JSON_VERSION,
+      root,
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'mindmap.json';
+    link.click();
+    URL.revokeObjectURL(url);
+  });
+
+  const importFile = document.getElementById('import-file') as HTMLInputElement;
+  document.getElementById('import')!.addEventListener('click', () => importFile.click());
+
+  importFile.addEventListener('change', async () => {
+    const file = importFile.files?.[0];
+    if (!file) return;
+    try {
+      if (file.size > MAX_IMPORT_BYTES) {
+        throw new Error('파일 크기는 5MB 이하여야 합니다.');
+      }
+      const data = JSON.parse(await file.text()) as {
+        format?: unknown;
+        version?: unknown;
+        root?: unknown;
+        children?: unknown;
+      };
+
+      let candidate: unknown;
+      if (data?.format === JSON_FORMAT) {
+        if (data.version !== JSON_VERSION) {
+          throw new Error('지원하지 않는 마인드맵 JSON 버전입니다.');
+        }
+        candidate = data.root;
+      } else if (data && typeof data === 'object' && 'root' in data) {
+        // localStorage와 같은 {root} 형식도 가져올 수 있다.
+        candidate = data.root;
+      } else {
+        // 루트 노드 하나만 담은 예전·간소화 형식도 허용한다.
+        candidate = data;
+      }
+
+      if (
+        !candidate ||
+        typeof candidate !== 'object' ||
+        !Array.isArray((candidate as Partial<MindNode>).children)
+      ) {
+        throw new Error('올바른 마인드맵 JSON 형식이 아닙니다.');
+      }
+      const hasContent = nodes.size > 1 || root.text.trim();
+      if (hasContent && !confirm('현재 마인드맵을 가져온 내용으로 덮어쓸까요?')) return;
+
+      root = normalizeRoot(candidate);
+      ensureRootDirections();
+      rebuildIndex();
+      ensureNodePositions();
+      syncSubtreeFromLeaves(checkTree, root.id);
+      save();
+      viewInitialized = false;
+      render();
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'JSON 파일을 가져오지 못했습니다.');
+    } finally {
+      importFile.value = '';
+    }
+  });
+
+  document.getElementById('reset-layout')!.addEventListener('click', () => {
+    rebalanceRootDirections();
+    for (const node of nodes.values()) {
+      node.x = undefined;
+      node.y = undefined;
+    }
+    ensureNodePositions();
+    save();
+    render();
+    requestAnimationFrame(fitView);
+  });
+
+  document.getElementById('clear')!.addEventListener('click', () => {
+    const hasContent = nodes.size > 1 || root.text.trim();
+    if (hasContent && !confirm('마인드맵의 모든 내용을 지울까요?')) return;
+    root = createRoot();
+    rebuildIndex();
+    ensureNodePositions();
+    viewInitialized = false;
+    save();
+    render();
+  });
+
+  ensureRootDirections();
+  rebuildIndex();
+  ensureNodePositions();
+  syncSubtreeFromLeaves(checkTree, root.id);
+  save();
+  render();
+</script>
+
+<style is:global>
+  h1 {
+    margin: 0.8rem 0 0.25rem;
+    font-size: clamp(2rem, 5vw, 2.8rem);
+  }
+
+  .page-header p,
+  .save-note {
+    color: var(--text-dim);
+    margin: 0;
+  }
+
+  .toolbar {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    flex-wrap: wrap;
+    margin-bottom: 1rem;
+  }
+
+  .btn:hover,
+  .btn:focus-visible {
+    border-color: var(--accent);
+  }
+
+  .btn-primary {
+    border-color: var(--accent);
+    background: var(--accent);
+    color: white;
+  }
+
+  .node-count {
+    color: var(--text-dim);
+    font-size: 0.88rem;
+    margin-left: auto;
+  }
+
+  .view-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+
+  .btn-square {
+    width: 2.25rem;
+    padding-inline: 0;
+  }
+
+  #zoom-label {
+    min-width: 3.25rem;
+    color: var(--text-dim);
+    text-align: center;
+    font-size: 0.85rem;
+  }
+
+  .map-panel {
+    min-height: 620px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: 1rem;
+    background:
+      radial-gradient(circle at 20% 15%, rgba(108, 140, 255, 0.08), transparent 32%),
+      var(--bg-soft);
+  }
+
+  .mindmap {
+    position: relative;
+    width: 100%;
+    height: 620px;
+    overflow: hidden;
+    cursor: grab;
+    touch-action: none;
+    user-select: none;
+  }
+
+  .mindmap.panning {
+    cursor: grabbing;
+  }
+
+  .map-world {
+    position: absolute;
+    top: 0;
+    left: 0;
+    transform-origin: 0 0;
+  }
+
+  .connectors {
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 0;
+    overflow: visible;
+    pointer-events: none;
+  }
+
+  .connector {
+    fill: none;
+    stroke: #495166;
+    stroke-width: 2;
+    stroke-linecap: round;
+  }
+
+  .connector.checked {
+    stroke: #37b24d;
+  }
+
+  .node-card {
+    position: absolute;
+    z-index: 1;
+    width: 240px;
+    min-height: 54px;
+    transform: translate(-50%, -50%);
+    display: grid;
+    grid-template-columns: 2rem minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 0.65rem;
+    padding: 0.65rem;
+    border: 1px solid var(--border);
+    border-radius: 0.8rem;
+    background: var(--surface);
+    cursor: grab;
+    touch-action: none;
+    transition:
+      border-color 0.15s ease,
+      background 0.15s ease;
+  }
+
+  .node-card.dragging {
+    z-index: 2;
+    cursor: grabbing;
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.32);
+  }
+
+  .node-root {
+    border-color: rgba(108, 140, 255, 0.75);
+    background: linear-gradient(135deg, rgba(66, 99, 235, 0.35), rgba(112, 72, 232, 0.3));
+  }
+
+  .node-card.checked {
+    border-color: #37b24d;
+    background: rgba(55, 178, 77, 0.16);
+  }
+
+  .node-root.checked {
+    background: linear-gradient(135deg, rgba(55, 178, 77, 0.4), rgba(12, 166, 120, 0.35));
+  }
+
+  .check-button {
+    width: 2rem;
+    height: 2rem;
+    border: 1px solid var(--border);
+    border-radius: 0.55rem;
+    background: var(--bg-soft);
+    color: white;
+    font: inherit;
+    font-weight: 800;
+    cursor: pointer;
+  }
+
+  .checked .check-button {
+    border-color: #37b24d;
+    background: #2f9e44;
+  }
+
+  .node-input {
+    width: 100%;
+    min-width: 0;
+    border: 0;
+    border-bottom: 1px solid transparent;
+    outline: 0;
+    background: transparent;
+    color: var(--text);
+    font: inherit;
+    font-weight: 600;
+    padding: 0.3rem 0.15rem;
+    user-select: text;
+  }
+
+  .node-input:focus {
+    border-bottom-color: var(--accent);
+  }
+
+  .node-input::placeholder {
+    color: var(--text-dim);
+  }
+
+  .node-actions {
+    display: flex;
+    gap: 0.3rem;
+  }
+
+  .node-action {
+    width: 2rem;
+    height: 2rem;
+    border: 1px solid var(--border);
+    border-radius: 0.55rem;
+    background: var(--bg-soft);
+    color: var(--text);
+    font: inherit;
+    font-size: 1.1rem;
+    line-height: 1;
+    cursor: pointer;
+  }
+
+  .node-action:hover,
+  .node-action:focus-visible {
+    border-color: var(--accent);
+  }
+
+  .node-delete:hover,
+  .node-delete:focus-visible {
+    border-color: #fa5252;
+    color: var(--danger);
+  }
+
+  .save-note {
+    margin-top: 0.8rem;
+    font-size: 0.85rem;
+  }
+
+  @media (max-width: 640px) {
+    main {
+      padding: 1.5rem 0.75rem 3rem;
+    }
+
+    .map-panel {
+      min-height: 540px;
+    }
+
+    .mindmap {
+      height: 540px;
+    }
+  }
+</style>

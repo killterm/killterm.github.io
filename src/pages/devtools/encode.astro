@@ -1,0 +1,16 @@
+---
+import ToolPage from '../../components/ToolPage.astro';
+import EncodeTab from '../../components/devtools/EncodeTab.astro';
+import { devtools } from '../../lib/tool-tabs';
+---
+
+<ToolPage
+  title="인코딩 변환 — Killterm"
+  description="입력과 출력의 형식을 골라 브라우저 안에서 서로 변환합니다."
+  heading={devtools.heading}
+  intro={devtools.intro}
+  tabs={devtools.tabs}
+  active="/devtools/encode/"
+>
+  <EncodeTab />
+</ToolPage>

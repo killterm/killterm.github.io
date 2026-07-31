@@ -11,13 +11,15 @@ interface Props {
   intro: string;
   tabs: ToolTab[];
   active: string;
+  /** 넓은 작업 화면이 필요한 그룹용 (만다라트 9×9, 마인드맵 캔버스 등) */
+  wide?: boolean;
 }
 
-const { title, description, heading, intro, tabs, active } = Astro.props;
+const { title, description, heading, intro, tabs, active, wide = false } = Astro.props;
 ---
 
 <Layout title={title} description={description}>
-  <main class="tool-main">
+  <main class:list={['tool-main', { wide }]}>
     <nav class="top">
       <a href="/">← 홈으로</a>
     </nav>
@@ -52,6 +54,10 @@ const { title, description, heading, intro, tabs, active } = Astro.props;
     max-width: 860px;
     margin: 0 auto;
     padding: 2.5rem 1.5rem 4rem;
+  }
+
+  main.wide {
+    max-width: 1100px;
   }
 
   .top a {

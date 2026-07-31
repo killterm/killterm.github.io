@@ -72,10 +72,11 @@
   UA 스타일시트의 `[hidden]` 규칙보다 우선한다 — 둘 다 이 저장소에서 실제로
   밟았던 함정이다 (만다라트 preview, glb anim-row 등).
 
-### 탭형 도구 페이지 공통 구조 (개발 도구 · 하드웨어 테스트 · 스테가노그래피)
+### 탭형 도구 페이지 공통 구조 (개발 도구 · 생각 정리 · 하드웨어 테스트 · 스테가노그래피)
 
 - 탭 하나가 곧 정적 페이지 하나다 (해시 대신 고유 URL 경로):
-  `/devtools/{timestamp,json,regex,diff,color,random,cron}/`,
+  `/devtools/{timestamp,encode,json,regex,diff,color,random,cron}/`,
+  `/thinking/{mandalart,mindmap}/`,
   `/hwtest/{keyboard,mouse,touch,monitor,reaction,sound,webcam,mic,geo,network}/`,
   `/steganography/{polyglot,metadata,image,dct,audio,audio-frequency,spectrogram,visual-crypto,text,analyze}/`.
 - 공용 셸은 `src/components/ToolPage.astro` — 홈 링크·소개·링크형 탭 바·본문
@@ -83,14 +84,28 @@
   여기의 `<style is:global>`에 `.tool-main` 프리픽스로 선언되어 있다.
 - 탭 목록·소개 문구는 `src/lib/tool-tabs.ts`에서 공유하고, 각 페이지는
   `active`로 자기 경로를 넘긴다. 탭 마크업·스크립트·스타일은
-  `src/components/{devtools,hwtest,steganography}/*Tab.astro`에 있다.
+  `src/components/{devtools,thinking,hwtest,steganography}/*Tab.astro`에 있다.
 - `/devtools/`·`/hwtest/` index는 옛 해시 링크(`/hwtest/#keyboard`) 호환용
-  리다이렉트 페이지다 (해시를 경로로 매핑). `/steganography/` index는 첫 탭으로 보낸다.
+  리다이렉트 페이지다 (해시를 경로로 매핑). `/steganography/`·`/thinking/` index는
+  첫 탭으로 보낸다.
+- ToolPage는 본문 폭 860px이 기본이고, `wide` prop을 주면 1100px이 된다 —
+  만다라트 9×9 표와 마인드맵 캔버스처럼 넓은 작업 화면이 필요한 그룹용이다.
+- **단독 페이지를 그룹으로 옮길 때**: 본문·스크립트·스타일을 `*Tab.astro`로
+  옮기고, ToolPage가 이미 주는 `main{}`·`.top a`·`.intro`·`.page-header`·
+  `.back`과 `.btn`/`.status`/`.hint` 기본형은 지운다(변형은 남긴다 — 스코프
+  CSS가 전역보다 특이도가 높아 그대로 이긴다). 옛 URL은 리다이렉트 페이지로
+  남긴다. 전례: 폴리글랏→스테가노그래피, 인코딩→개발 도구,
+  만다라트·마인드맵→생각 정리.
 - JS로 동적 생성하는 노드(키 로그 행, 매치 테이블 등)에는 scoped 해시가 안
   붙으므로 `:global()` 셀렉터로 스타일링한다.
 
 ### 개발 도구 (`src/pages/devtools/`)
 
+- 인코딩 변환(원래 `/encode/` 단독 페이지, 옛 경로는 리다이렉트 유지): 입력·출력
+  형식을 각각 버튼 그룹으로 고른다. 해시(SHA-1·SHA-256)는 역산이 불가능하므로
+  `outputOnly`로 표시해 출력 쪽에만 나타난다. 브라우저는 EUC-KR **디코더만**
+  제공하므로(TextDecoder) 인코딩은 2바이트 후보를 디코딩해 만든 역방향 표로
+  처리한다 — 표에 없는 글자는 명시적 에러를 낸다.
 - 타임스탬프 자동 감지: 정수부 10자리 이하 초, 11자리 이상 밀리초 (배지로 표시).
   [지금] 버튼은 밀리초를 넣는다.
 - JSON 에러 위치는 브라우저별 메시지(position/line·column)에서 추출하고,
@@ -408,7 +423,16 @@
   재연결 시 병합되므로 데이터 손실은 없음). 화상 통화와 달리 확장 가치가
   있는 이유다.
 
-### 만다라트 페이지 (`src/pages/mandalart.astro`)
+### 생각 정리 (`src/pages/thinking/`)
+
+- 만다라트와 마인드맵을 한 그룹으로 묶었다 — 둘 다 생각을 눈에 보이는 구조로
+  정리하는 도구이고, 런치패드 타일도 하나로 합쳤다. 둘 다 넓은 작업 화면이
+  필요해 ToolPage의 `wide`(1100px)를 쓴다. 옛 경로 `/mandalart/`·`/mindmap/`는
+  리다이렉트로 남아 있다.
+- 마인드맵 스타일은 `<style is:global>`이다 — 노드를 JS로 만들어 스코프 해시가
+  붙지 않기 때문이다. 컴포넌트로 옮긴 뒤에도 이 태그를 유지해야 한다.
+
+### 만다라트 (`src/components/thinking/MandalartTab.astro`)
 
 - **범용 도구로 유지한다.** 특정 용도(목표, 게임 장르 등)를 암시하는 문구·예시·
   placeholder를 넣지 않는다. 다음 조건을 유지한다:
@@ -436,7 +460,7 @@
   v2(checks 없음 → 전부 해제), v1(`{cells: string[81]}`), 배열-only 모두 허용한다.
 - 묶음 맞바꾸기 UI: 두 셀렉트로 묶음(1~8)을 골라 하위 주제 칸 + 바깥 블록 내용을
   통째로 교환. 셀렉트 옵션에는 현재 하위 주제 텍스트가 표시된다.
-- 프리셋: `src/presets/*.json` (JSON 내보내기 형식 그대로)을 mandalart.astro
+- 프리셋: `src/presets/*.json` (JSON 내보내기 형식 그대로)을 MandalartTab.astro
   frontmatter에서 import해 `presets` 배열에 등록하면 상단에 정사각 버튼이 생긴다.
   클릭 시 보드에 로드되며, 작성 중인 내용이 있으면 confirm으로 덮어쓰기 확인.
 - 생성 이미지 스타일 (여러 차례 조정 끝에 확정된 값이니 임의로 바꾸지 말 것):
