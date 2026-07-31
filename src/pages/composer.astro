@@ -1,6 +1,7 @@
 ---
 import Layout from '../layouts/Layout.astro';
 import GlassSlider from '../components/GlassSlider.astro';
+import { MAX_CHANNELS } from '../lib/composer-engine';
 ---
 
 <Layout
@@ -16,8 +17,8 @@ import GlassSlider from '../components/GlassSlider.astro';
       <h1>🎹 칩튠 작곡기</h1>
       <p>
         <a href="/sfx/">레트로 SFX 생성기</a>에서 보관함에 저장한 소리를 악기로 골라,
-        패턴에 노트를 찍고 순서를 이어붙여 곡을 만드세요. 채널은 4개(스텝당 한 음)이고,
-        작업 중인 곡은 이 브라우저에 자동 저장됩니다.
+        패턴에 노트를 찍고 순서를 이어붙여 곡을 만드세요. 채널은 최대 8개까지 늘릴 수 있고
+        (스텝당 한 음), 작업 중인 곡은 이 브라우저에 자동 저장됩니다.
       </p>
     </header>
 
@@ -45,20 +46,55 @@ import GlassSlider from '../components/GlassSlider.astro';
       <span class="hint">자체 제작 · CC0 — 처음이라면 눌러서 전체 흐름을 확인해보세요.</span>
     </div>
 
-    <section class="channels">
-      <div class="field-row" id="channel-tabs"></div>
+    <section class="channels" aria-label="채널 믹서">
+      {
+        Array.from({ length: MAX_CHANNELS }, (_, channelIndex) => (
+          <div class={`channel-row ch-${channelIndex}`} data-channel={channelIndex} hidden>
+            <button
+              class="channel-pick"
+              type="button"
+              data-pick={channelIndex}
+              aria-pressed={channelIndex === 0 ? 'true' : 'false'}
+            >
+              {channelIndex + 1}
+            </button>
+            <select
+              id={`instrument-select-${channelIndex}`}
+              class="instrument"
+              aria-label={`채널 ${channelIndex + 1} 악기`}
+            />
+            <GlassSlider
+              id={`channel-volume-${channelIndex}`}
+              min="0"
+              max="100"
+              step="1"
+              value="80"
+              aria-label={`채널 ${channelIndex + 1} 볼륨`}
+            />
+            <span class="mono-value" data-volume-for={channelIndex}>
+              80%
+            </span>
+            <label class="check-field">
+              <input type="checkbox" class="mute" data-mute={channelIndex} />
+              음소거
+            </label>
+            <button class="btn btn-small" type="button" data-clear-channel={channelIndex}>
+              비우기
+            </button>
+            <button
+              class="btn btn-small danger"
+              type="button"
+              data-remove-channel={channelIndex}
+              aria-label={`채널 ${channelIndex + 1} 제거`}
+            >
+              제거
+            </button>
+          </div>
+        ))
+      }
       <div class="field-row">
-        <label class="num-field">
-          악기
-          <select id="instrument-select" aria-label="채널 악기"></select>
-        </label>
-        <span class="row-label">채널 볼륨</span>
-        <GlassSlider id="channel-volume" min="0" max="100" step="1" value="80" aria-label="채널 볼륨" />
-        <span class="mono-value" id="channel-volume-value">80%</span>
-        <label class="check-field">
-          <input type="checkbox" id="mute-toggle" />
-          음소거
-        </label>
+        <button id="channel-add" class="btn btn-small" type="button">＋ 채널 추가</button>
+        <span class="hint" id="channel-count-hint"></span>
       </div>
     </section>
 
@@ -73,6 +109,8 @@ import GlassSlider from '../components/GlassSlider.astro';
         <button id="pattern-add" class="btn btn-small" type="button">＋ 추가</button>
         <button id="pattern-clone" class="btn btn-small" type="button">⧉ 복제</button>
         <button id="pattern-delete" class="btn btn-small" type="button">× 삭제</button>
+        <button id="pattern-clear" class="btn btn-small" type="button">이 패턴 비우기</button>
+        <button id="song-clear" class="btn btn-small" type="button">전체 비우기</button>
       </div>
       <div class="field-row">
         <span class="row-label">시퀀스</span>
@@ -96,20 +134,26 @@ import GlassSlider from '../components/GlassSlider.astro';
       <input id="import-input" type="file" accept=".json,application/json" hidden />
     </section>
 
-    <p id="status" class="status" role="status"></p>
+    <div class="status-row">
+      <p id="status" class="status" role="status"></p>
+      <button id="undo-action" class="btn btn-small" type="button" hidden>되돌리기</button>
+    </div>
   </main>
 </Layout>
 
 <script>
   import {
     BUILTIN_INSTRUMENTS,
-    CHANNEL_COUNT,
+    MAX_CHANNELS,
     MAX_PATTERNS,
     MAX_SEQUENCE,
     NOTE_COUNT,
     PATTERN_STEPS,
+    addChannel,
     cloneInstrument,
     defaultSong,
+    removeChannel,
+    restoreChannel,
     emptyPattern,
     isBlackKey,
     mixSong,
@@ -130,20 +174,45 @@ import GlassSlider from '../components/GlassSlider.astro';
   const bpmInput = el<HTMLInputElement>('bpm-input');
   const masterVolumeSlider = el<HTMLInputElement>('master-volume');
   const masterValue = el<HTMLSpanElement>('master-value');
-  const channelTabs = el<HTMLDivElement>('channel-tabs');
-  const instrumentSelect = el<HTMLSelectElement>('instrument-select');
-  const channelVolumeSlider = el<HTMLInputElement>('channel-volume');
-  const channelVolumeValue = el<HTMLSpanElement>('channel-volume-value');
-  const muteToggle = el<HTMLInputElement>('mute-toggle');
+  const channelRows = [...document.querySelectorAll<HTMLDivElement>('.channel-row')];
+  const pickButtons = [...document.querySelectorAll<HTMLButtonElement>('[data-pick]')];
+  const instrumentSelects = [...document.querySelectorAll<HTMLSelectElement>('.instrument')];
+  // 믹서 행은 MAX_CHANNELS개가 미리 렌더되어 있으므로 참조도 그 수만큼 모은다
+  // (4개로 하드코딩했다가 리스너를 걸 때 undefined로 초기화가 멈춘 적이 있다)
+  const volumeSliders = Array.from({ length: MAX_CHANNELS }, (_, i) =>
+    el<HTMLInputElement>(`channel-volume-${i}`),
+  );
+  const muteToggles = [...document.querySelectorAll<HTMLInputElement>('.mute')];
+  const clearChannelButtons = [...document.querySelectorAll<HTMLButtonElement>('[data-clear-channel]')];
+  const removeButtons = [...document.querySelectorAll<HTMLButtonElement>('[data-remove-channel]')];
+  const addChannelButton = el<HTMLButtonElement>('channel-add');
+  const channelCountHint = el<HTMLSpanElement>('channel-count-hint');
   const rollGrid = el<HTMLDivElement>('roll-grid');
   const patternList = el<HTMLSpanElement>('pattern-list');
   const sequenceList = el<HTMLSpanElement>('sequence-list');
   const importInput = el<HTMLInputElement>('import-input');
   const status = el<HTMLParagraphElement>('status');
 
+  const undoButton = el<HTMLButtonElement>('undo-action');
+
   const setStatus = (message: string) => {
     status.textContent = message;
   };
+
+  // 브라우저가 반복된 네이티브 대화상자를 차단하면 confirm()이 항상 false를 돌려줘
+  // 삭제가 조용히 무시된다. 그래서 지우는 동작은 곧바로 실행하고 되돌리기를 준다.
+  let pendingUndo: { message: string; apply: () => void } | null = null;
+
+  function offerUndo(message: string, apply: () => void) {
+    pendingUndo = { message, apply };
+    setStatus(message);
+    undoButton.hidden = false;
+  }
+
+  function clearUndo() {
+    pendingUndo = null;
+    undoButton.hidden = true;
+  }
 
   // ---------- 상태 ----------
 
@@ -212,7 +281,8 @@ import GlassSlider from '../components/GlassSlider.astro';
     const source = context.createBufferSource();
     source.buffer = getAudioBuffer(samples);
     const gain = context.createGain();
-    // 0.5 = 4채널 중첩 헤드룸 (mixSong과 동일)
+    // 0.5 = 채널 중첩 헤드룸. mixSong(WAV 내보내기)과 같은 식을 써야 들은 것과
+    // 저장된 것이 일치한다. 채널을 많이 쓰면 마스터를 낮추는 쪽으로 조절한다.
     gain.gain.value = channel.volume * masterVolume() * 0.5;
     source.connect(gain).connect(context.destination);
     source.start(time);
@@ -232,10 +302,10 @@ import GlassSlider from '../components/GlassSlider.astro';
     const pattern = song.patterns[patternIndexAtStep(step)];
     if (!pattern) return;
     const stepInPattern = step % PATTERN_STEPS;
-    for (let channelIndex = 0; channelIndex < CHANNEL_COUNT; channelIndex++) {
+    for (let channelIndex = 0; channelIndex < song.channels.length; channelIndex++) {
       const channel = song.channels[channelIndex];
       if (channel.muted || channel.volume === 0) continue;
-      const note = pattern.notes[channelIndex][stepInPattern];
+      const note = pattern.notes[channelIndex]?.[stepInPattern] ?? null;
       if (note !== null) playNoteAt(channelIndex, note, time);
     }
   }
@@ -355,6 +425,7 @@ import GlassSlider from '../components/GlassSlider.astro';
   }
 
   function onCellClick(noteIndex: number, step: number) {
+    clearUndo();
     const notes = song.patterns[currentPatternIndex].notes[currentChannelIndex];
     if (notes[step] === noteIndex) {
       notes[step] = null;
@@ -370,12 +441,12 @@ import GlassSlider from '../components/GlassSlider.astro';
   function renderGrid() {
     const pattern = song.patterns[currentPatternIndex];
     // 노트/고스트 색이 채널 색을 따라가도록 그리드에 현재 채널 클래스를 단다
-    for (let channelIndex = 0; channelIndex < CHANNEL_COUNT; channelIndex++) {
+    for (let channelIndex = 0; channelIndex < MAX_CHANNELS; channelIndex++) {
       rollGrid.classList.toggle(`ch-${channelIndex}`, channelIndex === currentChannelIndex);
     }
     // 다른 채널 노트는 그 채널 색의 흐린 점으로 겹쳐 보여준다
     const ghostChannels = new Map<string, number>();
-    for (let channelIndex = 0; channelIndex < CHANNEL_COUNT; channelIndex++) {
+    for (let channelIndex = 0; channelIndex < song.channels.length; channelIndex++) {
       if (channelIndex === currentChannelIndex) continue;
       pattern.notes[channelIndex].forEach((note, step) => {
         const key = `${note}:${step}`;
@@ -388,7 +459,7 @@ import GlassSlider from '../components/GlassSlider.astro';
         const cell = cells[noteIndex][step];
         const ghostChannel = ghostChannels.get(`${noteIndex}:${step}`);
         cell.classList.toggle('active', ownNotes[step] === noteIndex);
-        for (let channelIndex = 0; channelIndex < CHANNEL_COUNT; channelIndex++) {
+        for (let channelIndex = 0; channelIndex < MAX_CHANNELS; channelIndex++) {
           cell.classList.toggle(`ghost-${channelIndex}`, ghostChannel === channelIndex);
         }
       }
@@ -404,104 +475,190 @@ import GlassSlider from '../components/GlassSlider.astro';
     playingColumn = column;
   }
 
-  // ---------- 채널 ----------
-
-  function renderChannelTabs() {
-    channelTabs.innerHTML = '';
-    song.channels.forEach((channel, channelIndex) => {
-      const tab = document.createElement('button');
-      tab.type = 'button';
-      tab.className = `btn btn-small channel-tab ch-${channelIndex}`;
-      tab.setAttribute('aria-pressed', String(channelIndex === currentChannelIndex));
-      tab.textContent = `${channelIndex + 1}. ${channel.instrument.name}${channel.muted ? ' 🔇' : ''}`;
-      tab.addEventListener('click', () => {
-        currentChannelIndex = channelIndex;
-        renderChannelTabs();
-        renderChannelControls();
-        renderGrid();
-      });
-      channelTabs.append(tab);
-    });
-  }
+  // ---------- 채널 (믹서) ----------
+  //
+  // 채널마다 악기·볼륨·음소거를 항상 펼쳐 둔다 — 볼륨을 만지려고 탭을 먼저
+  // 고르지 않아도 되게 하기 위해서다. 번호 버튼은 피아노롤의 편집 대상만 정한다.
+  // GlassSlider가 Astro 컴포넌트라 JS로 만들 수 없어, 최대 채널 수만큼 미리
+  // 렌더해 두고 곡의 채널 수를 넘는 행은 hidden으로 감춘다.
 
   function renderInstrumentOptions() {
-    instrumentSelect.innerHTML = '';
-    const builtinGroup = document.createElement('optgroup');
-    builtinGroup.label = '내장 악기';
-    BUILTIN_INSTRUMENTS.forEach((instrument, index) => {
-      const option = document.createElement('option');
-      option.value = `builtin:${index}`;
-      option.textContent = instrument.name;
-      builtinGroup.append(option);
-    });
-    instrumentSelect.append(builtinGroup);
-
-    const sounds = listSounds();
-    if (sounds.length > 0) {
-      const storedGroup = document.createElement('optgroup');
-      storedGroup.label = 'SFX 보관함';
-      for (const sound of sounds) {
+    for (let channelIndex = 0; channelIndex < channelRows.length; channelIndex++) {
+      const select = instrumentSelects[channelIndex];
+      select.innerHTML = '';
+      const builtinGroup = document.createElement('optgroup');
+      builtinGroup.label = '내장 악기';
+      BUILTIN_INSTRUMENTS.forEach((instrument, index) => {
         const option = document.createElement('option');
-        option.value = `stored:${sound.id}`;
-        option.textContent = sound.name;
-        storedGroup.append(option);
-      }
-      instrumentSelect.append(storedGroup);
-    }
+        option.value = `builtin:${index}`;
+        option.textContent = instrument.name;
+        builtinGroup.append(option);
+      });
+      select.append(builtinGroup);
 
-    // 저장본과 일치하지 않는 악기(가져온 곡 등)를 위한 자리 표시
-    const currentOption = document.createElement('option');
-    currentOption.value = 'current';
-    currentOption.hidden = true;
-    instrumentSelect.append(currentOption);
+      const sounds = listSounds();
+      if (sounds.length > 0) {
+        const storedGroup = document.createElement('optgroup');
+        storedGroup.label = 'SFX 보관함';
+        for (const sound of sounds) {
+          const option = document.createElement('option');
+          option.value = `stored:${sound.id}`;
+          option.textContent = sound.name;
+          storedGroup.append(option);
+        }
+        select.append(storedGroup);
+      }
+
+      // 저장본과 일치하지 않는 악기(가져온 곡 등)를 위한 자리 표시
+      const currentOption = document.createElement('option');
+      currentOption.value = 'current';
+      currentOption.hidden = true;
+      select.append(currentOption);
+    }
   }
 
   function renderChannelControls() {
-    const channel = song.channels[currentChannelIndex];
-    const builtinIndex = BUILTIN_INSTRUMENTS.findIndex(
-      (instrument) => instrument.name === channel.instrument.name,
-    );
-    const stored = listSounds().find((sound) => sound.name === channel.instrument.name);
-    if (builtinIndex >= 0) {
-      instrumentSelect.value = `builtin:${builtinIndex}`;
-    } else if (stored) {
-      instrumentSelect.value = `stored:${stored.id}`;
-    } else {
-      const currentOption = instrumentSelect.querySelector<HTMLOptionElement>('[value="current"]')!;
-      currentOption.textContent = `(현재: ${channel.instrument.name})`;
-      instrumentSelect.value = 'current';
+    const stored = listSounds();
+    const count = song.channels.length;
+    for (let channelIndex = 0; channelIndex < channelRows.length; channelIndex++) {
+      channelRows[channelIndex].hidden = channelIndex >= count;
+      // 마지막 하나는 지울 수 없다
+      removeButtons[channelIndex].disabled = count <= 1;
     }
-    channelVolumeSlider.value = String(Math.round(channel.volume * 100));
-    channelVolumeValue.textContent = `${Math.round(channel.volume * 100)}%`;
-    muteToggle.checked = channel.muted;
+    addChannelButton.disabled = count >= MAX_CHANNELS;
+    channelCountHint.textContent =
+      count >= MAX_CHANNELS ? `채널 ${count}개 (최대)` : `채널 ${count}개 · 최대 ${MAX_CHANNELS}개`;
+
+    song.channels.forEach((channel, channelIndex) => {
+      const select = instrumentSelects[channelIndex];
+      const builtinIndex = BUILTIN_INSTRUMENTS.findIndex(
+        (instrument) => instrument.name === channel.instrument.name,
+      );
+      const storedSound = stored.find((sound) => sound.name === channel.instrument.name);
+      if (builtinIndex >= 0) {
+        select.value = `builtin:${builtinIndex}`;
+      } else if (storedSound) {
+        select.value = `stored:${storedSound.id}`;
+      } else {
+        const currentOption = select.querySelector<HTMLOptionElement>('[value="current"]')!;
+        currentOption.textContent = `(현재: ${channel.instrument.name})`;
+        select.value = 'current';
+      }
+
+      const percent = Math.round(channel.volume * 100);
+      volumeSliders[channelIndex].value = String(percent);
+      document.querySelector(`[data-volume-for="${channelIndex}"]`)!.textContent = `${percent}%`;
+      muteToggles[channelIndex].checked = channel.muted;
+
+      const row = channelRows[channelIndex];
+      row.classList.toggle('active', channelIndex === currentChannelIndex);
+      row.classList.toggle('muted', channel.muted);
+      pickButtons[channelIndex].setAttribute(
+        'aria-pressed',
+        String(channelIndex === currentChannelIndex),
+      );
+    });
   }
 
-  instrumentSelect.addEventListener('change', () => {
-    const value = instrumentSelect.value;
-    const channel = song.channels[currentChannelIndex];
-    if (value.startsWith('builtin:')) {
-      channel.instrument = cloneInstrument(BUILTIN_INSTRUMENTS[Number(value.slice(8))]);
-    } else if (value.startsWith('stored:')) {
-      const sound = listSounds().find((item) => item.id === value.slice(7));
-      if (sound) channel.instrument = { name: sound.name, params: { ...sound.params } };
+  function selectChannel(channelIndex: number) {
+    currentChannelIndex = channelIndex;
+    renderChannelControls();
+    renderGrid();
+  }
+
+  // 상수가 아니라 실제 행 수를 도는 것이 중요하다 — 둘이 어긋나면 undefined에
+  // 리스너를 걸다 초기화 전체가 멈춘다(한 번 겪은 버그)
+  for (let channelIndex = 0; channelIndex < channelRows.length; channelIndex++) {
+    pickButtons[channelIndex].addEventListener('click', () => selectChannel(channelIndex));
+
+    instrumentSelects[channelIndex].addEventListener('change', () => {
+      const value = instrumentSelects[channelIndex].value;
+      const channel = song.channels[channelIndex];
+      if (value.startsWith('builtin:')) {
+        channel.instrument = cloneInstrument(BUILTIN_INSTRUMENTS[Number(value.slice(8))]);
+      } else if (value.startsWith('stored:')) {
+        const sound = listSounds().find((item) => item.id === value.slice(7));
+        if (sound) channel.instrument = { name: sound.name, params: { ...sound.params } };
+      }
+      persist();
+      renderChannelControls();
+      // 바뀐 음색을 바로 들려준다
+      playNoteAt(channelIndex, 12, ensureAudioContext().currentTime);
+    });
+
+    volumeSliders[channelIndex].addEventListener('input', () => {
+      const percent = Number(volumeSliders[channelIndex].value);
+      song.channels[channelIndex].volume = percent / 100;
+      document.querySelector(`[data-volume-for="${channelIndex}"]`)!.textContent = `${percent}%`;
+      // 노트는 원샷이라 다음에 예약되는 소리부터 새 볼륨이 적용된다
+      persist();
+    });
+
+    muteToggles[channelIndex].addEventListener('change', () => {
+      song.channels[channelIndex].muted = muteToggles[channelIndex].checked;
+      persist();
+      renderChannelControls();
+    });
+
+    removeButtons[channelIndex].addEventListener('click', () => {
+      // 재생 중에도 그대로 제거한다 — 스케줄러는 스텝마다 song.channels를 다시 읽고,
+      // 이미 예약된 노트(최대 0.12초 앞)는 채널과 무관한 원샷이라 그냥 울리고 끝난다
+      const removed = removeChannel(song, channelIndex);
+      if (!removed) {
+        setStatus('마지막 채널은 지울 수 없습니다.');
+        return;
+      }
+      if (currentChannelIndex >= song.channels.length) {
+        currentChannelIndex = song.channels.length - 1;
+      }
+      persist();
+      renderChannelControls();
+      renderGrid();
+      offerUndo(`채널 ${channelIndex + 1}(${removed.channel.instrument.name})을 지웠습니다.`, () => {
+        restoreChannel(song, removed);
+        currentChannelIndex = removed.index;
+        persist();
+        renderChannelControls();
+        renderGrid();
+        setStatus(`채널 ${removed.index + 1}을 되살렸습니다.`);
+      });
+    });
+
+    clearChannelButtons[channelIndex].addEventListener('click', () => {
+      const notes = song.patterns[currentPatternIndex].notes[channelIndex];
+      if (notes.every((note) => note === null)) {
+        setStatus(`채널 ${channelIndex + 1}은 이미 비어 있습니다.`);
+        return;
+      }
+      const before = [...notes];
+      const patternIndex = currentPatternIndex;
+      notes.fill(null);
+      persist();
+      renderGrid();
+      offerUndo(`패턴 ${patternIndex + 1}의 채널 ${channelIndex + 1}을 비웠습니다.`, () => {
+        song.patterns[patternIndex].notes[channelIndex] = before;
+        persist();
+        renderGrid();
+        setStatus('되돌렸습니다.');
+      });
+    });
+  }
+
+  addChannelButton.addEventListener('click', () => {
+    // 새 채널의 악기는 아직 안 쓴 내장 악기 중에서 고른다
+    const used = new Set(song.channels.map((channel) => channel.instrument.name));
+    const fresh =
+      BUILTIN_INSTRUMENTS.find((instrument) => !used.has(instrument.name)) ?? BUILTIN_INSTRUMENTS[0];
+    if (!addChannel(song, fresh)) {
+      setStatus(`채널은 최대 ${MAX_CHANNELS}개까지 만들 수 있습니다.`);
+      return;
     }
+    currentChannelIndex = song.channels.length - 1;
     persist();
-    renderChannelTabs();
-    // 바뀐 음색을 바로 들려준다
-    playNoteAt(currentChannelIndex, 12, ensureAudioContext().currentTime);
-  });
-
-  channelVolumeSlider.addEventListener('input', () => {
-    const channel = song.channels[currentChannelIndex];
-    channel.volume = Number(channelVolumeSlider.value) / 100;
-    channelVolumeValue.textContent = `${channelVolumeSlider.value}%`;
-    persist();
-  });
-
-  muteToggle.addEventListener('change', () => {
-    song.channels[currentChannelIndex].muted = muteToggle.checked;
-    persist();
-    renderChannelTabs();
+    renderInstrumentOptions();
+    renderChannelControls();
+    renderGrid();
+    setStatus(`채널 ${song.channels.length}(${fresh.name})을 추가했습니다.`);
   });
 
   // ---------- 패턴 · 시퀀스 ----------
@@ -618,6 +775,44 @@ import GlassSlider from '../components/GlassSlider.astro';
     renderGrid();
   });
 
+  el<HTMLButtonElement>('pattern-clear').addEventListener('click', () => {
+    const patternIndex = currentPatternIndex;
+    const pattern = song.patterns[patternIndex];
+    if (pattern.notes.every((row) => row.every((note) => note === null))) {
+      setStatus('이미 비어 있는 패턴입니다.');
+      return;
+    }
+    const before = pattern.notes.map((row) => [...row]);
+    for (const row of pattern.notes) row.fill(null);
+    persist();
+    renderGrid();
+    offerUndo(`패턴 ${patternIndex + 1}의 모든 채널을 비웠습니다.`, () => {
+      song.patterns[patternIndex].notes = before;
+      persist();
+      renderGrid();
+      setStatus('되돌렸습니다.');
+    });
+  });
+
+  // 악기·볼륨·BPM은 그대로 두고 노트만 지운다 ("새 곡"과 다른 점)
+  el<HTMLButtonElement>('song-clear').addEventListener('click', () => {
+    stopPlayback();
+    const before = song.patterns.map((pattern) => pattern.notes.map((row) => [...row]));
+    for (const pattern of song.patterns) {
+      for (const row of pattern.notes) row.fill(null);
+    }
+    persist();
+    renderGrid();
+    offerUndo('모든 패턴을 비웠습니다.', () => {
+      song.patterns.forEach((pattern, patternIndex) => {
+        pattern.notes = before[patternIndex];
+      });
+      persist();
+      renderGrid();
+      setStatus('되돌렸습니다.');
+    });
+  });
+
   el<HTMLButtonElement>('sequence-add').addEventListener('click', () => {
     if (song.sequence.length >= MAX_SEQUENCE) {
       setStatus(`시퀀스는 최대 ${MAX_SEQUENCE}개까지 이어붙일 수 있습니다.`);
@@ -674,7 +869,7 @@ import GlassSlider from '../components/GlassSlider.astro';
   });
 
   el<HTMLButtonElement>('load-demo').addEventListener('click', async () => {
-    if (!confirm('현재 곡을 예시 곡(자체 제작 · CC0)으로 교체할까요?')) return;
+    const previous = JSON.stringify(song);
     try {
       const response = await fetch('/songs/demo.json');
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -692,26 +887,42 @@ import GlassSlider from '../components/GlassSlider.astro';
       modePatternButton.setAttribute('aria-pressed', 'false');
       modeSongButton.setAttribute('aria-pressed', 'true');
       startPlayback();
+      offerUndo('예시 곡을 불러왔습니다.', () => {
+        stopPlayback();
+        song = normalizeSong(JSON.parse(previous)) ?? defaultSong();
+        currentPatternIndex = 0;
+        currentChannelIndex = 0;
+        persist();
+        renderAll();
+        setStatus('이전 곡으로 되돌렸습니다.');
+      });
     } catch (e) {
       setStatus(`예시 곡을 불러오지 못했습니다: ${e instanceof Error ? e.message : String(e)}`);
     }
   });
 
   el<HTMLButtonElement>('reset-song').addEventListener('click', () => {
-    if (!confirm('현재 곡을 지우고 새로 시작할까요? (되돌릴 수 없습니다)')) return;
+    const previous = JSON.stringify(song);
     stopPlayback();
     song = defaultSong();
     currentPatternIndex = 0;
     currentChannelIndex = 0;
     persist();
     renderAll();
+    offerUndo('새 곡을 시작했습니다.', () => {
+      song = normalizeSong(JSON.parse(previous)) ?? defaultSong();
+      currentPatternIndex = 0;
+      currentChannelIndex = 0;
+      persist();
+      renderAll();
+      setStatus('이전 곡으로 되돌렸습니다.');
+    });
   });
 
   // ---------- 초기화 ----------
 
   function renderAll() {
     bpmInput.value = String(song.bpm);
-    renderChannelTabs();
     renderInstrumentOptions();
     renderChannelControls();
     renderPatternList();
@@ -721,6 +932,12 @@ import GlassSlider from '../components/GlassSlider.astro';
 
   buildGrid();
   renderAll();
+
+  undoButton.addEventListener('click', () => {
+    const undo = pendingUndo;
+    clearUndo();
+    undo?.apply();
+  });
 
   // 다른 탭의 SFX 페이지에서 보관함에 저장하고 돌아오면 악기 목록을 갱신한다
   window.addEventListener('focus', () => {
@@ -737,11 +954,15 @@ import GlassSlider from '../components/GlassSlider.astro';
     max-width: 1080px;
     margin: 0 auto;
     padding: 2.5rem 1.5rem 4rem;
-    /* 채널 고유 색 — 탭·노트·고스트 점이 함께 쓴다 */
+    /* 채널 고유 색 — 믹서 행·노트·고스트 점이 함께 쓴다 (최대 8채널) */
     --channel-0: #4263eb;
     --channel-1: #0ca678;
     --channel-2: #e8590c;
     --channel-3: #d6336c;
+    --channel-4: #7048e8;
+    --channel-5: #099268;
+    --channel-6: #f08c00;
+    --channel-7: #1098ad;
   }
 
   .top a {
@@ -768,12 +989,131 @@ import GlassSlider from '../components/GlassSlider.astro';
   }
 
   .toolbar,
-  .channels,
   .patterns,
   .exports {
     display: grid;
     gap: 0.7rem;
     margin-top: 1rem;
+  }
+
+  /* 채널 4개를 항상 펼쳐 두는 믹서 — 볼륨을 만지려고 탭을 고를 필요가 없다 */
+  .channels {
+    display: grid;
+    gap: 0.35rem;
+    margin-top: 1rem;
+  }
+
+  .channel-row {
+    display: grid;
+    grid-template-columns: 2rem minmax(7rem, 11rem) minmax(6rem, 1fr) 2.8rem auto auto auto;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.35rem 0.5rem;
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--row-color);
+    border-radius: 0.6rem;
+  }
+
+  .channel-row.active {
+    background: color-mix(in srgb, var(--row-color) 12%, transparent);
+    border-color: color-mix(in srgb, var(--row-color) 55%, var(--border));
+    border-left-color: var(--row-color);
+  }
+
+  .channel-row.muted {
+    opacity: 0.55;
+  }
+
+  .channel-row[hidden] {
+    display: none;
+  }
+
+  .channel-row .danger {
+    color: var(--danger);
+    font-weight: 600;
+  }
+
+  .channel-row .danger:hover:not(:disabled) {
+    border-color: var(--danger);
+  }
+
+  .channel-row .danger:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
+  .channel-row.ch-0 {
+    --row-color: var(--channel-0);
+  }
+
+  .channel-row.ch-1 {
+    --row-color: var(--channel-1);
+  }
+
+  .channel-row.ch-2 {
+    --row-color: var(--channel-2);
+  }
+
+  .channel-row.ch-3 {
+    --row-color: var(--channel-3);
+  }
+
+  .channel-row.ch-4 {
+    --row-color: var(--channel-4);
+  }
+
+  .channel-row.ch-5 {
+    --row-color: var(--channel-5);
+  }
+
+  .channel-row.ch-6 {
+    --row-color: var(--channel-6);
+  }
+
+  .channel-row.ch-7 {
+    --row-color: var(--channel-7);
+  }
+
+  .channel-pick {
+    appearance: none;
+    width: 2rem;
+    height: 1.8rem;
+    border: 1px solid color-mix(in srgb, var(--row-color) 45%, var(--border));
+    background: var(--surface);
+    color: var(--text);
+    font: inherit;
+    font-weight: 700;
+    border-radius: 0.5rem;
+    cursor: pointer;
+  }
+
+  .channel-pick[aria-pressed='true'] {
+    background: var(--row-color);
+    border-color: var(--row-color);
+    color: #fff;
+  }
+
+  .instrument {
+    width: 100%;
+    border: 1px solid var(--border);
+    background: var(--bg-soft);
+    color: var(--text);
+    font: inherit;
+    font-size: 0.85rem;
+    padding: 0.3rem 0.4rem;
+    border-radius: 0.5rem;
+  }
+
+  .instrument:focus {
+    outline: 2px solid var(--accent);
+    border-color: var(--accent);
+  }
+
+  @media (max-width: 720px) {
+    .channel-row {
+      grid-template-columns: 2rem 1fr auto;
+      row-gap: 0.35rem;
+    }
   }
 
   .toolbar {
@@ -927,7 +1267,11 @@ import GlassSlider from '../components/GlassSlider.astro';
   :global(.cell.ghost-0),
   :global(.cell.ghost-1),
   :global(.cell.ghost-2),
-  :global(.cell.ghost-3) {
+  :global(.cell.ghost-3),
+  :global(.cell.ghost-4),
+  :global(.cell.ghost-5),
+  :global(.cell.ghost-6),
+  :global(.cell.ghost-7) {
     background-image: radial-gradient(
       circle at center,
       color-mix(in srgb, var(--ghost-color) 70%, transparent) 0 22%,
@@ -951,6 +1295,22 @@ import GlassSlider from '../components/GlassSlider.astro';
     --ghost-color: var(--channel-3);
   }
 
+  :global(.cell.ghost-4) {
+    --ghost-color: var(--channel-4);
+  }
+
+  :global(.cell.ghost-5) {
+    --ghost-color: var(--channel-5);
+  }
+
+  :global(.cell.ghost-6) {
+    --ghost-color: var(--channel-6);
+  }
+
+  :global(.cell.ghost-7) {
+    --ghost-color: var(--channel-7);
+  }
+
   :global(.cell.active) {
     background: var(--accent);
     border-radius: 0.25rem;
@@ -970,6 +1330,22 @@ import GlassSlider from '../components/GlassSlider.astro';
 
   .roll-grid.ch-3 :global(.cell.active) {
     background: var(--channel-3);
+  }
+
+  .roll-grid.ch-4 :global(.cell.active) {
+    background: var(--channel-4);
+  }
+
+  .roll-grid.ch-5 :global(.cell.active) {
+    background: var(--channel-5);
+  }
+
+  .roll-grid.ch-6 :global(.cell.active) {
+    background: var(--channel-6);
+  }
+
+  .roll-grid.ch-7 :global(.cell.active) {
+    background: var(--channel-7);
   }
 
   :global(.cell.playing) {
@@ -1062,6 +1438,17 @@ import GlassSlider from '../components/GlassSlider.astro';
   :global(.pattern-chip) {
     padding: 0.3rem 0.7rem;
     font-size: 0.82rem;
+  }
+
+  .status-row {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    margin-top: 0.8rem;
+  }
+
+  .status-row .status {
+    margin-top: 0;
   }
 
   .status {

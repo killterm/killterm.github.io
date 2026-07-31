@@ -42,7 +42,11 @@ export function baseFreqForHz(hz: number): number {
 
 // ---------- 곡 구조 ----------
 
-export const CHANNEL_COUNT = 4;
+/** 새 곡의 기본 채널 수 */
+export const DEFAULT_CHANNEL_COUNT = 4;
+/** 채널 수 한계 — 8은 SNES(SPC700)와 같은 수로, 이 이상은 화면·귀 모두 감당이 어렵다 */
+export const MAX_CHANNELS = 8;
+export const MIN_CHANNELS = 1;
 /** 패턴 길이: 16분음표 × 2마디 */
 export const PATTERN_STEPS = 32;
 export const MAX_PATTERNS = 16;
@@ -73,12 +77,52 @@ export interface Song {
   sequence: number[];
 }
 
-export function emptyPattern(): Pattern {
+export function emptyPattern(channelCount = DEFAULT_CHANNEL_COUNT): Pattern {
   return {
-    notes: Array.from({ length: CHANNEL_COUNT }, () =>
+    notes: Array.from({ length: channelCount }, () =>
       Array.from({ length: PATTERN_STEPS }, () => null),
     ),
   };
+}
+
+/** 채널 하나를 곡 끝에 더한다. 모든 패턴에 빈 줄을 함께 넣어야 어긋나지 않는다. */
+export function addChannel(song: Song, instrument: Instrument): boolean {
+  if (song.channels.length >= MAX_CHANNELS) return false;
+  song.channels.push({ instrument: cloneInstrument(instrument), volume: 0.8, muted: false });
+  for (const pattern of song.patterns) {
+    pattern.notes.push(Array.from({ length: PATTERN_STEPS }, () => null));
+  }
+  return true;
+}
+
+/**
+ * 채널을 지운다. 모든 패턴에서 그 줄도 함께 빠지며, 되돌릴 수 있도록 지워진
+ * 채널과 노트 줄을 함께 돌려준다. 지울 수 없으면 null.
+ */
+export function removeChannel(song: Song, channelIndex: number): RemovedChannel | null {
+  if (song.channels.length <= MIN_CHANNELS) return null;
+  if (channelIndex < 0 || channelIndex >= song.channels.length) return null;
+  const [channel] = song.channels.splice(channelIndex, 1);
+  const noteRows = song.patterns.map((pattern) => pattern.notes.splice(channelIndex, 1)[0]);
+  return { index: channelIndex, channel, noteRows };
+}
+
+export interface RemovedChannel {
+  index: number;
+  channel: Channel;
+  /** 패턴 순서대로의 노트 줄 */
+  noteRows: (number | null)[][];
+}
+
+/** removeChannel의 결과를 그대로 되돌린다 */
+export function restoreChannel(song: Song, removed: RemovedChannel): void {
+  const index = Math.min(removed.index, song.channels.length);
+  song.channels.splice(index, 0, removed.channel);
+  song.patterns.forEach((pattern, patternIndex) => {
+    const row =
+      removed.noteRows[patternIndex] ?? Array.from({ length: PATTERN_STEPS }, () => null);
+    pattern.notes.splice(index, 0, row);
+  });
 }
 
 // ---------- 내장 악기 ----------
@@ -165,10 +209,21 @@ export function normalizeSong(raw: unknown): Song | null {
   const input = raw as Record<string, unknown>;
   if (!Array.isArray(input.patterns) || !Array.isArray(input.channels)) return null;
   const base = defaultSong();
+  const channelCount = Math.min(
+    MAX_CHANNELS,
+    Math.max(MIN_CHANNELS, (input.channels as unknown[]).length || DEFAULT_CHANNEL_COUNT),
+  );
   const song: Song = {
     version: 1,
     bpm: clampNumber(input.bpm, 60, 240, base.bpm),
-    channels: base.channels.map((fallback, channelIndex) => {
+    channels: Array.from({ length: channelCount }, (_, channelIndex) => {
+      const fallback =
+        base.channels[channelIndex] ??
+        ({
+          instrument: cloneInstrument(BUILTIN_INSTRUMENTS[channelIndex % BUILTIN_INSTRUMENTS.length]),
+          volume: 0.8,
+          muted: false,
+        } satisfies Channel);
       const channel = (input.channels as Record<string, unknown>[])[channelIndex];
       if (!channel || typeof channel !== 'object') return fallback;
       const instrument = channel.instrument as Record<string, unknown> | undefined;
@@ -185,10 +240,10 @@ export function normalizeSong(raw: unknown): Song | null {
       };
     }),
     patterns: (input.patterns as unknown[]).slice(0, MAX_PATTERNS).map((pattern) => {
-      const target = emptyPattern();
+      const target = emptyPattern(channelCount);
       const notes = (pattern as Record<string, unknown>)?.notes;
       if (Array.isArray(notes)) {
-        for (let channel = 0; channel < CHANNEL_COUNT; channel++) {
+        for (let channel = 0; channel < channelCount; channel++) {
           const row = notes[channel];
           if (!Array.isArray(row)) continue;
           for (let step = 0; step < PATTERN_STEPS; step++) {
@@ -203,7 +258,7 @@ export function normalizeSong(raw: unknown): Song | null {
     }),
     sequence: [],
   };
-  if (song.patterns.length === 0) song.patterns.push(emptyPattern());
+  if (song.patterns.length === 0) song.patterns.push(emptyPattern(channelCount));
   if (Array.isArray(input.sequence)) {
     song.sequence = (input.sequence as unknown[])
       .filter(
@@ -268,9 +323,10 @@ export function mixSong(song: Song, masterVolume = 1): Float32Array {
   sequence.forEach((patternIndex, sequencePosition) => {
     const pattern = song.patterns[patternIndex];
     if (!pattern) return;
-    for (let channelIndex = 0; channelIndex < CHANNEL_COUNT; channelIndex++) {
+    for (let channelIndex = 0; channelIndex < song.channels.length; channelIndex++) {
       const channel = song.channels[channelIndex];
       if (!channel || channel.muted || channel.volume === 0) continue;
+      if (!pattern.notes[channelIndex]) continue;
       for (let step = 0; step < PATTERN_STEPS; step++) {
         const note = pattern.notes[channelIndex][step];
         if (note === null) continue;
