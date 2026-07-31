@@ -201,7 +201,7 @@ const PRESETS = [
   // ---------- 상태 ----------
 
   let params = defaultParams();
-  let samples: Float32Array | null = null;
+  let samples: Float32Array<ArrayBuffer> | null = null;
   // 다운로드 파일명에 쓰는 현재 소리의 계열 (프리셋 id | random | custom)
   let soundKind = 'coin';
 

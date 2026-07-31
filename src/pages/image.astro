@@ -221,15 +221,20 @@ const textFonts = [
     isJpeg: boolean;
     thumb: string;
     /** 텍스트 레이어의 원본 속성 (수정 시 재베이크에 사용) */
-    text?: { content: string; size: number; color: string; font: string };
+    text?: TextValues;
   };
+
+  /** 텍스트 도구가 다루는 값 — 레이어에 보관하는 것과 같은 모양이어야 한다 */
+  type TextValues = { content: string; size: number; color: string; font: string };
+
+  type ToolName = 'move' | 'crop' | 'text';
 
   let layers: Layer[] = []; // index 0 = 맨 아래
   let activeLayerId: number | null = null;
   let layerCounter = 0;
   let docWidth = 0;
   let docHeight = 0;
-  let tool: 'move' | 'crop' | 'text' = 'move';
+  let tool: ToolName = 'move';
 
   const activeLayer = () => layers.find((l) => l.id === activeLayerId) ?? null;
 
@@ -567,7 +572,8 @@ const textFonts = [
   };
   const textOptions = el<HTMLDivElement>('text-options');
 
-  const TOOL_HINTS: Record<typeof tool, string> = {
+  // typeof tool은 초기값으로 좁혀져('move') crop·text가 빠지므로 유니온을 직접 쓴다
+  const TOOL_HINTS: Record<ToolName, string> = {
     move: '이동 도구: 드래그로 활성 레이어 이동 · 모서리 핸들로 크기 조정',
     crop: '자르기 도구: 드래그로 영역 선택 · 안쪽 드래그 이동 · 핸들로 조정',
     text: '텍스트 도구: 캔버스를 클릭해 그 자리에서 입력 (Enter 확정 · Shift+Enter 줄바꿈 · Esc 취소). 기존 텍스트를 클릭하면 수정합니다.',
@@ -666,7 +672,7 @@ const textFonts = [
     };
   }
 
-  function addTextLayer(point: { x: number; y: number }, values: { content: string; size: number; color: string }) {
+  function addTextLayer(point: { x: number; y: number }, values: TextValues) {
     pushHistory();
     const canvas = bakeTextCanvas(values.content, values.size, values.color, values.font);
     const layer: Layer = {

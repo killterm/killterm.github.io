@@ -12,7 +12,7 @@ function bytesToBase64Url(bytes: Uint8Array): string {
   return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
 }
 
-function base64UrlToBytes(text: string): Uint8Array {
+function base64UrlToBytes(text: string): Uint8Array<ArrayBuffer> {
   const base64 = text.replaceAll('-', '+').replaceAll('_', '/');
   const binary = atob(base64);
   const bytes = new Uint8Array(binary.length);

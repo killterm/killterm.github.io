@@ -19,7 +19,7 @@ function bitsOf(bytes: Uint8Array): number[] {
   return bits;
 }
 
-function bytesOf(bits: ArrayLike<number>, byteCount: number): Uint8Array {
+function bytesOf(bits: ArrayLike<number>, byteCount: number): Uint8Array<ArrayBuffer> {
   const output = new Uint8Array(byteCount);
   for (let i = 0; i < byteCount; i++) {
     let byte = 0;
@@ -49,7 +49,10 @@ export function phaseCapacityBytes(sampleCount: number): number {
 }
 
 /** 구간 하나가 비트 하나를 담는다 */
-export function phaseEmbed(samples: Float32Array, payload: StegPayload): Float32Array {
+export function phaseEmbed(
+  samples: Float32Array,
+  payload: StegPayload,
+): Float32Array<ArrayBuffer> {
   const frame = frameMessage(payload);
   const bits = bitsOf(frame);
   const segments = Math.floor(samples.length / PHASE_SEGMENT);
@@ -139,7 +142,7 @@ export function fskModulate(
   payload: StegPayload,
   preset: FskPreset,
   sampleRate: number,
-): Float32Array {
+): Float32Array<ArrayBuffer> {
   const bits = [...PREAMBLE_BITS, ...bitsOf(frameMessage(payload))];
   const symbolSamples = Math.round(preset.symbolSeconds * sampleRate);
   const output = new Float32Array(bits.length * symbolSamples);
@@ -234,7 +237,10 @@ export function echoCapacityBytes(sampleCount: number): number {
   return Math.floor(Math.floor(sampleCount / ECHO_SEGMENT) / 8);
 }
 
-export function echoEmbed(samples: Float32Array, payload: StegPayload): Float32Array {
+export function echoEmbed(
+  samples: Float32Array,
+  payload: StegPayload,
+): Float32Array<ArrayBuffer> {
   const frame = frameMessage(payload);
   const bits = bitsOf(frame);
   const segments = Math.floor(samples.length / ECHO_SEGMENT);

@@ -184,7 +184,12 @@ import '../../styles/steganography.css';
   wordInput.addEventListener('input', () => void updateSecretPreview());
   imageInput.addEventListener('change', () => void updateSecretPreview());
 
-  function paintShare(canvas: HTMLCanvasElement, data: Uint8ClampedArray, width: number, height: number) {
+  function paintShare(
+    canvas: HTMLCanvasElement,
+    data: Uint8ClampedArray<ArrayBuffer>,
+    width: number,
+    height: number,
+  ) {
     canvas.width = width;
     canvas.height = height;
     canvas.getContext('2d')!.putImageData(new ImageData(data, width, height), 0, 0);

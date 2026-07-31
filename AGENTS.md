@@ -11,6 +11,19 @@
 
 - UI 문구·주석·문서는 한국어를 기본으로 한다.
 - 변경 후에는 반드시 `npm run build`로 빌드가 깨지지 않는지 확인한다.
+- **`npm run check`도 함께 돌린다.** 세 가지를 순서대로 검사한다:
+  1. `astro check` — 타입 검사. Astro 빌드는 타입을 보지 않으므로 이게 없으면
+     `GainNode.value = x`처럼 **조용히 무시되는 코드**가 그대로 배포된다
+     (실제로 채널 볼륨이 0/1로만 동작한 버그의 원인이었다).
+  2. `scripts/check-audio-params.mjs` — AudioNode에 직접 `.value`를 대입하는
+     실수를 찾는다(올바른 것은 `node.gain.value`). 발견 시 종료 코드 1.
+  3. `scripts/check-undefined-calls.mjs` — 페이지 스크립트에서 정의도 import도
+     되지 않은 함수 호출을 찾는다(브라우저에서만 터지는 ReferenceError 예방).
+     거친 검사라 오탐 가능성이 있어 종료 코드는 0으로 두고 목록만 보고한다.
+- 타입 관련 관례: 바깥(Blob·crypto.subtle·Web Audio)으로 넘기는 배열은
+  `Uint8Array<ArrayBuffer>` / `Float32Array<ArrayBuffer>`로 **명시**한다.
+  TS 5.7부터 bare `Uint8Array`는 SharedArrayBuffer까지 포함해 표준 API가 거부한다.
+  `subarray()`·`slice()` 결과는 넓어지므로 라이브러리 경계에서 좁혀 내보낸다.
 - 커밋·push는 명시적으로 요청받았을 때만 한다.
 - 에이전트가 preview 서버를 띄웠다면 작업 후 정리한다.
 

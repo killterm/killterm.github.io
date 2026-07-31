@@ -1,7 +1,7 @@
 // WAV(RIFF) 인코더 — 의존성 없이 헤더 44바이트 + 16-bit PCM을 직접 쓴다.
 
 /** 모노 Float32 샘플([-1,1])을 16-bit PCM WAV 파일 바이트로 인코딩한다. */
-export function encodeWav(samples: Float32Array, sampleRate: number): Uint8Array {
+export function encodeWav(samples: Float32Array, sampleRate: number): Uint8Array<ArrayBuffer> {
   const bytesPerSample = 2;
   const dataSize = samples.length * bytesPerSample;
   const buffer = new ArrayBuffer(44 + dataSize);

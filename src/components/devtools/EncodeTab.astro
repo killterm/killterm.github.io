@@ -90,7 +90,7 @@ const inputFormats = formats.filter((f) => !f.outputOnly);
     return btoa(bin);
   }
 
-  function base64ToBytes(b64: string): Uint8Array {
+  function base64ToBytes(b64: string): Uint8Array<ArrayBuffer> {
     const bin = atob(b64.replace(/\s+/g, ''));
     const bytes = new Uint8Array(bin.length);
     for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
@@ -103,7 +103,7 @@ const inputFormats = formats.filter((f) => !f.outputOnly);
     return Array.from(bytes, (b) => b.toString(16).padStart(2, '0').toUpperCase()).join(' ');
   }
 
-  function hexToBytes(hex: string): Uint8Array {
+  function hexToBytes(hex: string): Uint8Array<ArrayBuffer> {
     // "EA B0 80", "0xEA,0xB0", "\xEA\xB0", "eab080" 등 다양한 표기 허용
     const cleaned = hex.replace(/0x|\\x/gi, '').replace(/[^0-9a-fA-F]/g, '');
     if (cleaned.length === 0) throw new Error('16진수 바이트가 없습니다.');
@@ -149,7 +149,7 @@ const inputFormats = formats.filter((f) => !f.outputOnly);
     return table;
   }
 
-  function euckrEncode(text: string): Uint8Array {
+  function euckrEncode(text: string): Uint8Array<ArrayBuffer> {
     euckrTable ??= buildEuckrTable();
     const out: number[] = [];
     for (const ch of text) {
@@ -171,7 +171,10 @@ const inputFormats = formats.filter((f) => !f.outputOnly);
 
   // ---------- 해시 ----------
 
-  async function digestToHex(algorithm: 'SHA-1' | 'SHA-256', bytes: Uint8Array): Promise<string> {
+  async function digestToHex(
+    algorithm: 'SHA-1' | 'SHA-256',
+    bytes: Uint8Array<ArrayBuffer>,
+  ): Promise<string> {
     const hash = await crypto.subtle.digest(algorithm, bytes);
     return Array.from(new Uint8Array(hash), (b) => b.toString(16).padStart(2, '0')).join('');
   }
@@ -184,8 +187,9 @@ const inputFormats = formats.filter((f) => !f.outputOnly);
   const codecs: Record<
     string,
     {
-      toBytes?: (s: string) => Uint8Array;
-      fromBytes: (b: Uint8Array) => string | Promise<string>;
+      toBytes?: (s: string) => Uint8Array<ArrayBuffer>;
+      // 해시(crypto.subtle)에 그대로 넘기므로 <ArrayBuffer>여야 한다
+      fromBytes: (b: Uint8Array<ArrayBuffer>) => string | Promise<string>;
     }
   > = {
     text: { toBytes: utf8Encode, fromBytes: utf8Decode },

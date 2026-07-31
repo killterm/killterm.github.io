@@ -287,10 +287,10 @@ export function stepDuration(bpm: number): number {
 // 캐시 키에 파라미터 전체(JSON)를 쓴다 — 악기가 바뀌면 자연히 다른 키가
 // 되므로 무효화가 필요 없다. 노이즈 파형은 Math.random 기반이라 렌더마다
 // 미세하게 다른데, 캐시 덕에 재생 중에는 같은 소리가 유지된다.
-const noteCache = new Map<string, Float32Array>();
+const noteCache = new Map<string, Float32Array<ArrayBuffer>>();
 const NOTE_CACHE_LIMIT = 512;
 
-export function renderNote(params: SfxParams, noteIndex: number): Float32Array {
+export function renderNote(params: SfxParams, noteIndex: number): Float32Array<ArrayBuffer> {
   const key = `${JSON.stringify(params)}|${noteIndex}`;
   let samples = noteCache.get(key);
   if (!samples) {
@@ -308,7 +308,7 @@ export function renderNote(params: SfxParams, noteIndex: number): Float32Array {
  * 채널 볼륨 × 마스터 × 0.5(4채널 중첩 헤드룸) 후 [-1,1] 클램프.
  * 마지막 노트의 엔벨로프 꼬리까지 포함한다.
  */
-export function mixSong(song: Song, masterVolume = 1): Float32Array {
+export function mixSong(song: Song, masterVolume = 1): Float32Array<ArrayBuffer> {
   const stepSamples = Math.round(stepDuration(song.bpm) * SAMPLE_RATE);
   const sequence = song.sequence.length > 0 ? song.sequence : [0];
 

@@ -10,9 +10,9 @@ export const MAX_LOOP_SECONDS = 60;
 
 export interface LoopTrack {
   /** 루프 1회 길이의 오디오. 비어 있으면 null. 오버더브는 복제 후 교체(변형 금지). */
-  buffer: Float32Array | null;
+  buffer: Float32Array<ArrayBuffer> | null;
   /** 실행취소용 직전 스냅숏 — hasSnapshot이 true일 때만 유효 (null = 빈 트랙이었음) */
-  previousBuffer: Float32Array | null;
+  previousBuffer: Float32Array<ArrayBuffer> | null;
   hasSnapshot: boolean;
   volume: number;
   muted: boolean;
@@ -53,12 +53,12 @@ export function addChunkIntoLoop(
 }
 
 /** 오버더브 시작: 기존 버퍼의 복제본(없으면 무음)을 작업 버퍼로 만든다 */
-export function beginOverdubBuffer(track: LoopTrack, loopLength: number): Float32Array {
+export function beginOverdubBuffer(track: LoopTrack, loopLength: number): Float32Array<ArrayBuffer> {
   return track.buffer ? track.buffer.slice(0) : new Float32Array(loopLength);
 }
 
 /** 오버더브 확정: 직전 상태를 스냅숏으로 남기고 작업 버퍼로 교체한다 */
-export function commitOverdub(track: LoopTrack, overdubBuffer: Float32Array): void {
+export function commitOverdub(track: LoopTrack, overdubBuffer: Float32Array<ArrayBuffer>): void {
   track.previousBuffer = track.buffer;
   track.hasSnapshot = true;
   track.buffer = overdubBuffer;
@@ -80,7 +80,7 @@ export function clearTrack(track: LoopTrack): void {
 }
 
 /** 녹음 청크들을 하나의 루프 버퍼로 잇는다 (첫 녹음 = 마스터 루프) */
-export function concatChunks(chunks: Float32Array[]): Float32Array {
+export function concatChunks(chunks: Float32Array[]): Float32Array<ArrayBuffer> {
   const total = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
   const output = new Float32Array(total);
   let offset = 0;
@@ -96,7 +96,7 @@ export function mixTracks(
   tracks: LoopTrack[],
   loopLength: number,
   masterVolume = 1,
-): Float32Array {
+): Float32Array<ArrayBuffer> {
   const output = new Float32Array(loopLength);
   for (const track of tracks) {
     if (!track.buffer || track.muted || track.volume === 0) continue;

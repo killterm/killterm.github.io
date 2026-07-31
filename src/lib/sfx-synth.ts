@@ -156,7 +156,7 @@ export function defaultParams(): SfxParams {
  * 파라미터로 모노 샘플(Float32Array, [-1,1])을 합성한다.
  * sfxr의 SynthSample을 그대로 옮긴 것으로, 내부적으로 8배 오버샘플링한다.
  */
-export function synthesize(params: SfxParams): Float32Array {
+export function synthesize(params: SfxParams): Float32Array<ArrayBuffer> {
   // 엔벨로프 3단계 길이(샘플). 0이면 스테이지 진행 나눗셈에서 NaN이 되므로 1로 바닥 처리.
   const envelopeLengths = [
     Math.max(1, Math.floor(params.attack ** 2 * 100000)),
@@ -336,7 +336,8 @@ export function synthesize(params: SfxParams): Float32Array {
     producedCount = i + 1;
   }
 
-  return output.subarray(0, producedCount);
+  // subarray는 ArrayBufferLike로 넓어지므로 좁혀서 내보낸다
+  return output.subarray(0, producedCount) as Float32Array<ArrayBuffer>;
 }
 
 // ---------- 프리셋 (sfxr 원본의 랜덤 범위) ----------

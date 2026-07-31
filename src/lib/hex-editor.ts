@@ -79,7 +79,7 @@ export function formatHexDump(bytes: Uint8Array, options: DumpOptions = {}): str
  * 공백·줄바꿈·`0x` 접두사·쉼표를 허용하고, xxd 덤프를 그대로 붙여넣어도
  * (오프셋 칸과 ASCII 칸을 걷어내고) 읽는다. 헥스 숫자가 없으면 null.
  */
-export function parseHexText(text: string): Uint8Array | null {
+export function parseHexText(text: string): Uint8Array<ArrayBuffer> | null {
   const digits: string[] = [];
   for (const rawLine of text.split('\n')) {
     let line = rawLine;
@@ -108,7 +108,7 @@ export function parseHexText(text: string): Uint8Array | null {
 }
 
 /** 검색어를 바이트 배열로 바꾼다. 형식이 틀리면 null. */
-export function parseQuery(text: string, mode: 'hex' | 'text'): Uint8Array | null {
+export function parseQuery(text: string, mode: 'hex' | 'text'): Uint8Array<ArrayBuffer> | null {
   if (text === '') return null;
   if (mode === 'text') return new TextEncoder().encode(text);
   return parseHexText(text);
@@ -191,7 +191,7 @@ export type EditOperation =
   | { type: 'delete'; offset: number; length: number };
 
 export interface EditResult {
-  bytes: Uint8Array;
+  bytes: Uint8Array<ArrayBuffer>;
   inverse: EditOperation;
 }
 

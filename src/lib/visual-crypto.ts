@@ -21,8 +21,8 @@ export interface Shares {
   width: number;
   height: number;
   /** RGBA 픽셀 (원본의 2배 크기) */
-  first: Uint8ClampedArray;
-  second: Uint8ClampedArray;
+  first: Uint8ClampedArray<ArrayBuffer>;
+  second: Uint8ClampedArray<ArrayBuffer>;
 }
 
 /**
@@ -79,7 +79,7 @@ export function splitShares(
 export function overlayShares(
   first: Uint8ClampedArray | Uint8Array,
   second: Uint8ClampedArray | Uint8Array,
-): Uint8ClampedArray | null {
+): Uint8ClampedArray<ArrayBuffer> | null {
   if (first.length !== second.length) return null;
   const output = new Uint8ClampedArray(first.length);
   for (let i = 0; i < first.length; i += 4) {
@@ -100,7 +100,7 @@ export function recoverFromOverlay(
   overlay: Uint8ClampedArray | Uint8Array,
   overlayWidth: number,
   overlayHeight: number,
-): { data: Uint8ClampedArray; width: number; height: number } {
+): { data: Uint8ClampedArray<ArrayBuffer>; width: number; height: number } {
   const width = Math.floor(overlayWidth / 2);
   const height = Math.floor(overlayHeight / 2);
   const data = new Uint8ClampedArray(width * height);

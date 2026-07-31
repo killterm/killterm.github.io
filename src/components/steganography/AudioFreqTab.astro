@@ -163,10 +163,10 @@ import '../../styles/steganography.css';
   }
   presetSelect.value = 'ultrasonic';
 
-  let carrierSamples: Float32Array | null = null;
+  let carrierSamples: Float32Array<ArrayBuffer> | null = null;
   let carrierSampleRate = 44100;
   let carrierName = '';
-  let generatedSamples: Float32Array | null = null;
+  let generatedSamples: Float32Array<ArrayBuffer> | null = null;
   let generatedSampleRate = 44100;
   let audioContext: AudioContext | null = null;
 

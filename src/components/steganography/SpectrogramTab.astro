@@ -118,7 +118,7 @@ import '../../styles/steganography.css';
   const SOURCE_WIDTH = 256;
   const SOURCE_HEIGHT = 128;
 
-  let generated: Float32Array | null = null;
+  let generated: Float32Array<ArrayBuffer> | null = null;
   let audioContext: AudioContext | null = null;
 
   const sourceMode = () =>

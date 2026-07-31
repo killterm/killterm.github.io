@@ -24,10 +24,10 @@ export interface StegPayload {
   kind: PayloadKind;
   /** 파일이면 파일명, 텍스트면 빈 문자열 */
   name: string;
-  data: Uint8Array;
+  data: Uint8Array<ArrayBuffer>;
 }
 
-export function frameMessage(payload: StegPayload): Uint8Array {
+export function frameMessage(payload: StegPayload): Uint8Array<ArrayBuffer> {
   const nameBytes = new TextEncoder().encode(payload.name);
   if (nameBytes.length > 255) throw new Error('파일 이름이 너무 깁니다 (255바이트 초과).');
   const frame = new Uint8Array(FIXED_HEADER_SIZE + nameBytes.length + payload.data.length);
@@ -122,7 +122,7 @@ export function lsbRead(
   container: LsbContainer,
   indices: ArrayLike<number>,
   byteCount: number,
-): Uint8Array {
+): Uint8Array<ArrayBuffer> {
   const available = capacityBytes(indices.length);
   const output = new Uint8Array(Math.min(byteCount, available));
   let slot = 0;

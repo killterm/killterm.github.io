@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "astro dev --host",
     "build": "astro build",
-    "preview": "astro preview"
+    "preview": "astro preview",
+    "check": "astro check && node scripts/check-audio-params.mjs && node scripts/check-undefined-calls.mjs"
   },
   "dependencies": {
     "astro": "^7.1.3",
@@ -17,7 +18,9 @@
     "yjs": "^13.6.31"
   },
   "devDependencies": {
+    "@astrojs/check": "^0.9.10",
     "@types/qrcode": "^1.5.6",
-    "@types/three": "^0.185.1"
+    "@types/three": "^0.185.1",
+    "typescript": "^6.0.3"
   }
 }

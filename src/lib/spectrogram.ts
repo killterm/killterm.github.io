@@ -36,7 +36,7 @@ export function imageToAudio(
   imageWidth: number,
   imageHeight: number,
   options: SpectrogramOptions = DEFAULT_OPTIONS,
-): Float32Array {
+): Float32Array<ArrayBuffer> {
   const { sampleRate, minFrequency, maxFrequency, seconds } = options;
   const totalSamples = Math.floor(seconds * sampleRate);
   const frameCount = Math.max(1, Math.ceil(totalSamples / HOP_SIZE));
@@ -75,17 +75,20 @@ export function imageToAudio(
     }
   }
 
-  // 창 중첩 보정 후 최대 진폭 기준 정규화
-  let peak = 0;
+  // 창 중첩 보정. 창 합이 거의 0인 양 끝(겹침이 모자란 구간)을 그대로 나누면
+  // 값이 폭발해 그 스파이크가 정규화를 지배하고 본 구간이 조용해진다 — 잘라낸다.
   for (let i = 0; i < output.length; i++) {
-    if (windowSum[i] > 1e-6) output[i] /= windowSum[i];
-    peak = Math.max(peak, Math.abs(output[i]));
+    if (windowSum[i] > 0.05) output[i] /= windowSum[i];
+    else output[i] = 0;
   }
+  // 정규화는 실제로 돌려줄 구간만 보고 계산한다 (꼬리는 잘려 나가므로)
+  let peak = 0;
+  for (let i = 0; i < totalSamples; i++) peak = Math.max(peak, Math.abs(output[i]));
   if (peak > 0) {
     const gain = 0.85 / peak;
     for (let i = 0; i < output.length; i++) output[i] *= gain;
   }
-  return output.subarray(0, totalSamples) as Float32Array;
+  return output.subarray(0, totalSamples) as Float32Array<ArrayBuffer>;
 }
 
 export interface SpectrogramData {

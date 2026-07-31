@@ -176,7 +176,7 @@ const TRACKS = [0, 1, 2, 3];
   let recordingMode: 'master' | 'overdub' | null = null;
   let masterChunks: Float32Array[] = [];
   let masterRecordedSamples = 0;
-  let overdubBuffer: Float32Array | null = null;
+  let overdubBuffer: Float32Array<ArrayBuffer> | null = null;
 
   // 트랙별 재생 노드 (음소거는 소스를 멈추지 않고 게인만 0 — 동기 유지)
   const playbackNodes: ({ source: AudioBufferSourceNode; gain: GainNode } | null)[] =

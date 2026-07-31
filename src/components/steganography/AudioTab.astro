@@ -119,7 +119,7 @@ import '../../styles/steganography.css';
   let carrierBytes: Uint8Array | null = null;
   let carrierName = '';
   let carrierCapacity = 0;
-  let secretBytes: Uint8Array | null = null;
+  let secretBytes: Uint8Array<ArrayBuffer> | null = null;
   let secretName = '';
   let foundFile: { name: string; data: Uint8Array } | null = null;
 

@@ -410,7 +410,7 @@ import { MAX_CHANNELS } from '../lib/composer-engine';
     });
   }
 
-  function getAudioBuffer(samples: Float32Array): AudioBuffer {
+  function getAudioBuffer(samples: Float32Array<ArrayBuffer>): AudioBuffer {
     let buffer = bufferCache.get(samples);
     if (!buffer) {
       buffer = ensureAudioContext().createBuffer(1, samples.length, SAMPLE_RATE);

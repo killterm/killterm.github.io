@@ -362,7 +362,7 @@
 
   // ---------- 파일 열기 ----------
 
-  function loadBytes(next: Uint8Array, name: string) {
+  function loadBytes(next: Uint8Array<ArrayBuffer>, name: string) {
     bytes = next;
     fileName = name;
     cursor = 0;
