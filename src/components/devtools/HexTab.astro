@@ -1,0 +1,1025 @@
+---
+// 헥스 편집기 — 가상 스크롤 + xxd 방식 색상.
+---
+
+<div class="hex">
+  <div class="bar">
+    <button id="hx-open" class="btn btn-primary" type="button">파일 열기</button>
+    <input id="hx-file" type="file" hidden />
+    <button id="hx-new" class="btn btn-small" type="button">새 버퍼</button>
+    <button id="hx-save" class="btn btn-small" type="button" disabled>저장</button>
+    <button id="hx-copy-dump" class="btn btn-small" type="button" disabled>xxd 덤프 복사</button>
+    <button id="hx-paste-hex" class="btn btn-small" type="button">헥스 붙여넣어 열기</button>
+    <span class="grow"></span>
+    <button id="hx-undo" class="btn btn-small" type="button" disabled title="Ctrl+Z">↩</button>
+    <button id="hx-redo" class="btn btn-small" type="button" title="Ctrl+Shift+Z" disabled>↪</button>
+  </div>
+
+  <div class="bar">
+    <span class="bar-label">색상</span>
+    <div class="chip-group" role="radiogroup" aria-label="색상 모드">
+      <label class="chip">
+        <input type="radio" name="hx-color" value="category" checked />
+        <span>바이트 종류</span>
+      </label>
+      <label class="chip">
+        <input type="radio" name="hx-color" value="entropy" />
+        <span>엔트로피</span>
+      </label>
+      <label class="chip">
+        <input type="radio" name="hx-color" value="modified" />
+        <span>수정한 곳</span>
+      </label>
+      <label class="chip">
+        <input type="radio" name="hx-color" value="none" />
+        <span>끄기</span>
+      </label>
+    </div>
+    <label class="num-field">
+      줄당
+      <select id="hx-per-row" aria-label="줄당 바이트">
+        <option value="8">8바이트</option>
+        <option value="16" selected>16바이트</option>
+        <option value="32">32바이트</option>
+      </select>
+    </label>
+    <label class="check-field">
+      <input type="checkbox" id="hx-upper" />
+      대문자
+    </label>
+  </div>
+
+  <div class="bar">
+    <input id="hx-search" type="text" placeholder="검색어" spellcheck="false" />
+    <div class="chip-group" role="radiogroup" aria-label="검색 방식">
+      <label class="chip">
+        <input type="radio" name="hx-search-mode" value="hex" checked />
+        <span>헥스</span>
+      </label>
+      <label class="chip">
+        <input type="radio" name="hx-search-mode" value="text" />
+        <span>텍스트</span>
+      </label>
+    </div>
+    <button id="hx-find-prev" class="btn btn-small" type="button">◀ 이전</button>
+    <button id="hx-find-next" class="btn btn-small" type="button">다음 ▶</button>
+    <span class="detect" id="hx-find-info"></span>
+    <span class="grow"></span>
+    <label class="num-field">
+      이동
+      <input id="hx-goto" type="text" placeholder="0x1000" spellcheck="false" />
+    </label>
+  </div>
+
+  <div class="workspace">
+    <div class="viewer" id="hx-viewer" tabindex="0" role="grid" aria-label="헥스 편집 영역">
+      <div class="spacer" id="hx-spacer"></div>
+      <div class="rows" id="hx-rows"></div>
+      <p class="empty" id="hx-empty">
+        파일을 열거나 여기에 드래그하세요. 붙여넣기(Ctrl+V)로도 열 수 있습니다.
+      </p>
+    </div>
+
+    <aside class="side">
+      <section class="panel">
+        <h3>파일</h3>
+        <dl class="info" id="hx-file-info"></dl>
+      </section>
+      <section class="panel">
+        <h3>
+          값 해석
+          <label class="check-field endian">
+            <input type="checkbox" id="hx-little" checked />
+            리틀엔디안
+          </label>
+        </h3>
+        <dl class="info" id="hx-inspector"></dl>
+      </section>
+      <section class="panel">
+        <h3>편집</h3>
+        <div class="edit-row">
+          <input id="hx-insert-count" type="number" min="1" max="4096" step="1" value="1" />
+          <button id="hx-insert" class="btn btn-small" type="button" disabled>바이트 삽입</button>
+        </div>
+        <button id="hx-delete" class="btn btn-small" type="button" disabled>선택 영역 삭제</button>
+        <p class="hint">
+          헥스 칸에서 16진수 두 자리를 입력하면 덮어쓰기, ASCII 칸에서는 글자를 직접 입력합니다.
+        </p>
+      </section>
+    </aside>
+  </div>
+
+  <p id="hx-status" class="status" role="status"></p>
+
+  <section class="notes">
+    <h2>참고</h2>
+    <ul>
+      <li>
+        <strong>색상은 <code>xxd -R</code>와 같은 갈래</strong>로 칠합니다 — 널 바이트(00),
+        출력 가능한 ASCII, 공백류, 0xFF, 그 밖의 제어·상위 바이트. 헤더·문자열·패딩이 한눈에
+        구분됩니다.
+      </li>
+      <li>
+        <strong>엔트로피 모드</strong>는 줄 단위로 정보량을 재서 칠합니다. 압축·암호화된 구간은
+        밝게, 같은 값이 반복되는 패딩은 어둡게 나타납니다.
+      </li>
+      <li>
+        파일 형식을 알아내면 형식이 끝나는 위치도 함께 계산합니다. 그 뒤에 데이터가 남아 있으면
+        <strong>덧붙은 데이터</strong>로 표시합니다 — <a href="/steganography/polyglot/"
+          >폴리글랏</a
+        > 파일에서 확인해보세요.
+      </li>
+      <li>
+        보이는 줄만 그리는 가상 스크롤이라 큰 파일도 열리지만, 편집은 배열 전체를 다시 만드는
+        방식이라 아주 큰 파일에서는 삽입·삭제가 느릴 수 있습니다.
+      </li>
+      <li>모든 처리는 브라우저 안에서만 이루어집니다.</li>
+    </ul>
+  </section>
+</div>
+
+<script>
+  import {
+    applyEdit,
+    asciiChar,
+    byteCategory,
+    findBytes,
+    findBytesBackward,
+    findAllBytes,
+    formatHexDump,
+    formatOffset,
+    interpretAt,
+    parseHexText,
+    parseQuery,
+    shannonEntropy,
+    toHex,
+    type EditOperation,
+  } from '../../lib/hex-editor';
+  import { detectCarrier } from '../../lib/polyglot';
+  import { downloadBytes, formatByteSize, readFileBytes } from '../../lib/file-io';
+
+  const el = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+  const viewer = el<HTMLDivElement>('hx-viewer');
+  const spacer = el<HTMLDivElement>('hx-spacer');
+  const rowsBox = el<HTMLDivElement>('hx-rows');
+  const emptyNote = el<HTMLParagraphElement>('hx-empty');
+  const fileInput = el<HTMLInputElement>('hx-file');
+  const saveButton = el<HTMLButtonElement>('hx-save');
+  const copyDumpButton = el<HTMLButtonElement>('hx-copy-dump');
+  const undoButton = el<HTMLButtonElement>('hx-undo');
+  const redoButton = el<HTMLButtonElement>('hx-redo');
+  const perRowSelect = el<HTMLSelectElement>('hx-per-row');
+  const upperToggle = el<HTMLInputElement>('hx-upper');
+  const searchInput = el<HTMLInputElement>('hx-search');
+  const findInfo = el<HTMLSpanElement>('hx-find-info');
+  const gotoInput = el<HTMLInputElement>('hx-goto');
+  const fileInfoList = el<HTMLDListElement>('hx-file-info');
+  const inspectorList = el<HTMLDListElement>('hx-inspector');
+  const littleToggle = el<HTMLInputElement>('hx-little');
+  const insertCount = el<HTMLInputElement>('hx-insert-count');
+  const insertButton = el<HTMLButtonElement>('hx-insert');
+  const deleteButton = el<HTMLButtonElement>('hx-delete');
+  const status = el<HTMLParagraphElement>('hx-status');
+
+  const ROW_HEIGHT = 20;
+  /** 화면 위아래로 더 그려 두는 줄 수 (스크롤 시 빈칸 방지) */
+  const OVERSCAN = 6;
+  const LARGE_FILE_BYTES = 32 * 1024 * 1024;
+
+  let bytes = new Uint8Array(0);
+  let fileName = 'buffer.bin';
+  let cursor = 0;
+  /** shift 선택의 기준점 */
+  let anchor = 0;
+  /** 수정된 오프셋 (색상 모드 '수정한 곳'과 정보 패널에 쓴다) */
+  let modified = new Set<number>();
+  let undoStack: EditOperation[] = [];
+  let redoStack: EditOperation[] = [];
+  /** 헥스 칸에서 두 자리를 입력하는 중이면 첫 자리를 담아 둔다 */
+  let pendingNibble: number | null = null;
+  let activePane: 'hex' | 'ascii' = 'hex';
+  let carrierEnd: number | null = null;
+  let entropyCache = new Map<number, number>();
+
+  const setStatus = (message: string, ok = false) => {
+    status.textContent = message;
+    status.classList.toggle('status-ok', ok && message !== '');
+  };
+
+  const bytesPerRow = () => Number(perRowSelect.value);
+  const rowCount = () => Math.max(1, Math.ceil(bytes.length / bytesPerRow()));
+  const colorMode = () =>
+    (document.querySelector('input[name="hx-color"]:checked') as HTMLInputElement).value;
+  const searchMode = () =>
+    (document.querySelector('input[name="hx-search-mode"]:checked') as HTMLInputElement)
+      .value as 'hex' | 'text';
+  const selectionStart = () => Math.min(cursor, anchor);
+  const selectionEnd = () => Math.max(cursor, anchor);
+
+  // ---------- 렌더링 (가상 스크롤) ----------
+
+  function rowEntropy(rowIndex: number): number {
+    let value = entropyCache.get(rowIndex);
+    if (value === undefined) {
+      value = shannonEntropy(bytes, rowIndex * bytesPerRow(), bytesPerRow());
+      entropyCache.set(rowIndex, value);
+    }
+    return value;
+  }
+
+  function render() {
+    const perRow = bytesPerRow();
+    const total = rowCount();
+    spacer.style.height = `${total * ROW_HEIGHT}px`;
+    emptyNote.hidden = bytes.length > 0;
+
+    const firstVisible = Math.max(0, Math.floor(viewer.scrollTop / ROW_HEIGHT) - OVERSCAN);
+    const visibleCount = Math.ceil(viewer.clientHeight / ROW_HEIGHT) + OVERSCAN * 2;
+    const lastVisible = Math.min(total, firstVisible + visibleCount);
+
+    const mode = colorMode();
+    const upper = upperToggle.checked;
+    const start = selectionStart();
+    const end = selectionEnd();
+
+    const fragment = document.createDocumentFragment();
+    for (let rowIndex = firstVisible; rowIndex < lastVisible; rowIndex++) {
+      const rowStart = rowIndex * perRow;
+      const row = document.createElement('div');
+      row.className = 'row';
+      row.style.top = `${rowIndex * ROW_HEIGHT}px`;
+
+      const offsetCell = document.createElement('span');
+      offsetCell.className = 'offset';
+      offsetCell.textContent = formatOffset(rowStart, upper);
+      row.append(offsetCell);
+
+      const hexCell = document.createElement('span');
+      hexCell.className = 'hex-cell';
+      const asciiCell = document.createElement('span');
+      asciiCell.className = 'ascii-cell';
+
+      for (let column = 0; column < perRow; column++) {
+        const offset = rowStart + column;
+        const exists = offset < bytes.length;
+        const byte = exists ? bytes[offset] : 0;
+
+        const hexByte = document.createElement('span');
+        hexByte.className = 'byte';
+        hexByte.textContent = exists ? toHex(byte, upper) : '  ';
+        const asciiByte = document.createElement('span');
+        asciiByte.className = 'byte';
+        asciiByte.textContent = exists ? asciiChar(byte) : ' ';
+
+        if (exists) {
+          hexByte.dataset.offset = String(offset);
+          asciiByte.dataset.offset = String(offset);
+          for (const node of [hexByte, asciiByte]) {
+            if (mode === 'category') node.classList.add(`c-${byteCategory(byte)}`);
+            else if (mode === 'modified' && modified.has(offset)) node.classList.add('c-modified');
+            if (offset >= start && offset <= end) node.classList.add('selected');
+            if (offset === cursor) node.classList.add('cursor');
+            if (carrierEnd !== null && offset >= carrierEnd) node.classList.add('trailing');
+          }
+          if (mode === 'entropy') {
+            const level = rowEntropy(rowIndex);
+            hexByte.style.backgroundColor = `color-mix(in srgb, var(--accent) ${Math.round(level * 70)}%, transparent)`;
+          }
+        }
+        // 묶음 사이 여백 (읽기 편하게 4바이트마다)
+        if (column > 0 && column % 4 === 0) hexByte.classList.add('gap');
+        hexCell.append(hexByte);
+        asciiCell.append(asciiByte);
+      }
+
+      row.append(hexCell, asciiCell);
+      fragment.append(row);
+    }
+    rowsBox.replaceChildren(fragment);
+  }
+
+  function renderFileInfo() {
+    const rows: [string, string][] = [];
+    if (bytes.length === 0) {
+      fileInfoList.replaceChildren();
+      return;
+    }
+    const carrier = detectCarrier(bytes);
+    rows.push(['형식', carrier.kind === 'unknown' ? '알 수 없음' : carrier.label]);
+    rows.push(['크기', `${formatByteSize(bytes.length)} (${bytes.length.toLocaleString()}바이트)`]);
+    if (carrierEnd !== null && carrierEnd < bytes.length) {
+      rows.push([
+        '덧붙은 데이터',
+        `${formatByteSize(bytes.length - carrierEnd)} @ ${formatOffset(carrierEnd)}`,
+      ]);
+    }
+    if (modified.size > 0) rows.push(['수정한 바이트', `${modified.size.toLocaleString()}개`]);
+    const start = selectionStart();
+    const end = selectionEnd();
+    if (end > start) {
+      rows.push(['선택', `${(end - start + 1).toLocaleString()}바이트`]);
+      rows.push(['선택 엔트로피', shannonEntropy(bytes, start, end - start + 1).toFixed(3)]);
+    }
+    renderRows(fileInfoList, rows);
+  }
+
+  function renderRows(list: HTMLDListElement, rows: [string, string][]) {
+    list.replaceChildren();
+    for (const [term, value] of rows) {
+      const dt = document.createElement('dt');
+      dt.textContent = term;
+      const dd = document.createElement('dd');
+      dd.textContent = value;
+      list.append(dt, dd);
+    }
+  }
+
+  function renderInspector() {
+    if (bytes.length === 0) {
+      inspectorList.replaceChildren();
+      return;
+    }
+    const rows: [string, string][] = [
+      ['오프셋', `${formatOffset(cursor)} (${cursor.toLocaleString()})`],
+      ...interpretAt(bytes, cursor, littleToggle.checked).map(
+        (row) => [row.label, row.value] as [string, string],
+      ),
+    ];
+    renderRows(inspectorList, rows);
+  }
+
+  function refresh() {
+    render();
+    renderFileInfo();
+    renderInspector();
+    saveButton.disabled = bytes.length === 0;
+    copyDumpButton.disabled = bytes.length === 0;
+    insertButton.disabled = bytes.length === 0 && cursor !== 0;
+    deleteButton.disabled = bytes.length === 0;
+    undoButton.disabled = undoStack.length === 0;
+    redoButton.disabled = redoStack.length === 0;
+  }
+
+  // ---------- 파일 열기 ----------
+
+  function loadBytes(next: Uint8Array, name: string) {
+    bytes = next;
+    fileName = name;
+    cursor = 0;
+    anchor = 0;
+    modified = new Set();
+    undoStack = [];
+    redoStack = [];
+    pendingNibble = null;
+    entropyCache = new Map();
+    const carrier = detectCarrier(bytes);
+    carrierEnd = carrier.dataEnd;
+    viewer.scrollTop = 0;
+    setStatus(
+      bytes.length > LARGE_FILE_BYTES
+        ? `${formatByteSize(bytes.length)} — 큰 파일이라 삽입·삭제가 느릴 수 있습니다.`
+        : '',
+    );
+    refresh();
+  }
+
+  el<HTMLButtonElement>('hx-open').addEventListener('click', () => fileInput.click());
+
+  fileInput.addEventListener('change', async () => {
+    const file = fileInput.files?.[0];
+    if (!file) return;
+    loadBytes(await readFileBytes(file), file.name);
+  });
+
+  el<HTMLButtonElement>('hx-new').addEventListener('click', () => {
+    loadBytes(new Uint8Array(16), 'buffer.bin');
+    setStatus('빈 버퍼 16바이트를 만들었습니다.', true);
+  });
+
+  el<HTMLButtonElement>('hx-paste-hex').addEventListener('click', async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      const parsed = parseHexText(text);
+      if (!parsed) {
+        setStatus('클립보드에서 헥스를 읽지 못했습니다.');
+        return;
+      }
+      loadBytes(parsed, 'pasted.bin');
+      setStatus(`${formatByteSize(parsed.length)}를 붙여넣었습니다.`, true);
+    } catch {
+      setStatus('클립보드를 읽을 수 없습니다. 붙여넣기(Ctrl+V)를 써보세요.');
+    }
+  });
+
+  viewer.addEventListener('dragover', (event) => {
+    event.preventDefault();
+    viewer.classList.add('dragging');
+  });
+  viewer.addEventListener('dragleave', () => viewer.classList.remove('dragging'));
+  viewer.addEventListener('drop', async (event) => {
+    event.preventDefault();
+    viewer.classList.remove('dragging');
+    const file = event.dataTransfer?.files?.[0];
+    if (file) loadBytes(await readFileBytes(file), file.name);
+  });
+
+  document.addEventListener('paste', async (event) => {
+    if (!viewer.contains(document.activeElement) && document.activeElement !== viewer) return;
+    const file = event.clipboardData?.files?.[0];
+    if (file) {
+      event.preventDefault();
+      loadBytes(await readFileBytes(file), file.name);
+      return;
+    }
+    const text = event.clipboardData?.getData('text');
+    if (text) {
+      const parsed = parseHexText(text);
+      if (parsed) {
+        event.preventDefault();
+        loadBytes(parsed, 'pasted.bin');
+      }
+    }
+  });
+
+  // ---------- 저장·복사 ----------
+
+  saveButton.addEventListener('click', () => downloadBytes(bytes, fileName));
+
+  copyDumpButton.addEventListener('click', async () => {
+    // 아주 큰 파일은 앞부분만 복사한다 (클립보드·메모리 보호)
+    const limit = 1024 * 256;
+    const slice = bytes.subarray(0, limit);
+    const dump = formatHexDump(slice, {
+      bytesPerRow: bytesPerRow(),
+      upper: upperToggle.checked,
+    });
+    await navigator.clipboard.writeText(dump);
+    setStatus(
+      bytes.length > limit
+        ? `앞 ${formatByteSize(limit)}만 덤프로 복사했습니다.`
+        : 'xxd 형식으로 복사했습니다.',
+      true,
+    );
+  });
+
+  // ---------- 편집 ----------
+
+  function runEdit(operation: EditOperation, markOffsets: number[] = []) {
+    const result = applyEdit(bytes, operation);
+    bytes = result.bytes;
+    undoStack.push(result.inverse);
+    redoStack = [];
+    for (const offset of markOffsets) modified.add(offset);
+    // 삽입·삭제는 뒤쪽 오프셋이 밀리므로 표시를 단순화한다
+    if (operation.type !== 'overwrite') {
+      modified = new Set();
+      carrierEnd = detectCarrier(bytes).dataEnd;
+    }
+    entropyCache = new Map();
+    refresh();
+  }
+
+  function undo() {
+    const operation = undoStack.pop();
+    if (!operation) return;
+    const result = applyEdit(bytes, operation);
+    bytes = result.bytes;
+    redoStack.push(result.inverse);
+    entropyCache = new Map();
+    carrierEnd = detectCarrier(bytes).dataEnd;
+    refresh();
+  }
+
+  function redo() {
+    const operation = redoStack.pop();
+    if (!operation) return;
+    const result = applyEdit(bytes, operation);
+    bytes = result.bytes;
+    undoStack.push(result.inverse);
+    entropyCache = new Map();
+    carrierEnd = detectCarrier(bytes).dataEnd;
+    refresh();
+  }
+
+  undoButton.addEventListener('click', undo);
+  redoButton.addEventListener('click', redo);
+
+  insertButton.addEventListener('click', () => {
+    const count = Math.min(4096, Math.max(1, Number(insertCount.value) || 1));
+    runEdit({ type: 'insert', offset: cursor, bytes: new Uint8Array(count) });
+    setStatus(`${count}바이트를 ${formatOffset(cursor)}에 넣었습니다.`, true);
+  });
+
+  deleteButton.addEventListener('click', () => {
+    if (bytes.length === 0) return;
+    const start = selectionStart();
+    const length = selectionEnd() - start + 1;
+    runEdit({ type: 'delete', offset: start, length });
+    cursor = Math.min(start, Math.max(0, bytes.length - 1));
+    anchor = cursor;
+    setStatus(`${length}바이트를 지웠습니다.`, true);
+    refresh();
+  });
+
+  function overwriteByte(offset: number, value: number) {
+    runEdit({ type: 'overwrite', offset, bytes: new Uint8Array([value]) }, [offset]);
+  }
+
+  // ---------- 커서·선택 ----------
+
+  function moveCursor(next: number, extend = false) {
+    cursor = Math.min(Math.max(0, next), Math.max(0, bytes.length - 1));
+    if (!extend) anchor = cursor;
+    pendingNibble = null;
+    scrollCursorIntoView();
+    refresh();
+  }
+
+  function scrollCursorIntoView() {
+    const row = Math.floor(cursor / bytesPerRow());
+    const top = row * ROW_HEIGHT;
+    if (top < viewer.scrollTop) viewer.scrollTop = top;
+    else if (top + ROW_HEIGHT > viewer.scrollTop + viewer.clientHeight) {
+      viewer.scrollTop = top + ROW_HEIGHT - viewer.clientHeight;
+    }
+  }
+
+  viewer.addEventListener('scroll', render);
+  window.addEventListener('resize', render);
+
+  viewer.addEventListener('mousedown', (event) => {
+    const target = (event.target as HTMLElement).closest<HTMLElement>('[data-offset]');
+    if (!target) return;
+    activePane = target.parentElement?.classList.contains('ascii-cell') ? 'ascii' : 'hex';
+    moveCursor(Number(target.dataset.offset), event.shiftKey);
+    viewer.focus();
+  });
+
+  viewer.addEventListener('keydown', (event) => {
+    if (bytes.length === 0) return;
+    const perRow = bytesPerRow();
+    const rowsPerPage = Math.max(1, Math.floor(viewer.clientHeight / ROW_HEIGHT) - 1);
+
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') {
+      event.preventDefault();
+      if (event.shiftKey) redo();
+      else undo();
+      return;
+    }
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'y') {
+      event.preventDefault();
+      redo();
+      return;
+    }
+    if (event.ctrlKey || event.metaKey || event.altKey) return;
+
+    const moves: Record<string, number> = {
+      ArrowLeft: -1,
+      ArrowRight: 1,
+      ArrowUp: -perRow,
+      ArrowDown: perRow,
+      PageUp: -perRow * rowsPerPage,
+      PageDown: perRow * rowsPerPage,
+    };
+    if (event.key in moves) {
+      event.preventDefault();
+      moveCursor(cursor + moves[event.key], event.shiftKey);
+      return;
+    }
+    if (event.key === 'Home') {
+      event.preventDefault();
+      moveCursor(event.ctrlKey ? 0 : cursor - (cursor % perRow), event.shiftKey);
+      return;
+    }
+    if (event.key === 'End') {
+      event.preventDefault();
+      moveCursor(cursor - (cursor % perRow) + perRow - 1, event.shiftKey);
+      return;
+    }
+    if (event.key === 'Tab') {
+      event.preventDefault();
+      activePane = activePane === 'hex' ? 'ascii' : 'hex';
+      pendingNibble = null;
+      setStatus(activePane === 'hex' ? '헥스 칸 입력' : 'ASCII 칸 입력');
+      return;
+    }
+
+    if (activePane === 'hex') {
+      const digit = Number.parseInt(event.key, 16);
+      if (event.key.length === 1 && !Number.isNaN(digit) && /^[0-9a-fA-F]$/.test(event.key)) {
+        event.preventDefault();
+        if (pendingNibble === null) {
+          // 첫 자리: 상위 4비트만 바꾸고 다음 입력을 기다린다
+          pendingNibble = digit;
+          overwriteByte(cursor, (digit << 4) | (bytes[cursor] & 0x0f));
+        } else {
+          overwriteByte(cursor, (pendingNibble << 4) | digit);
+          pendingNibble = null;
+          moveCursor(cursor + 1);
+        }
+      }
+      return;
+    }
+
+    if (event.key.length === 1) {
+      const code = event.key.charCodeAt(0);
+      if (code >= 0x20 && code <= 0x7e) {
+        event.preventDefault();
+        overwriteByte(cursor, code);
+        moveCursor(cursor + 1);
+      }
+    }
+  });
+
+  // ---------- 검색·이동 ----------
+
+  function currentQuery(): Uint8Array | null {
+    const query = parseQuery(searchInput.value.trim(), searchMode());
+    if (!query || query.length === 0) {
+      findInfo.textContent = searchInput.value.trim() === '' ? '' : '검색어 형식이 올바르지 않습니다';
+      return null;
+    }
+    return query;
+  }
+
+  function updateMatchCount(query: Uint8Array) {
+    const matches = findAllBytes(bytes, query, 1000);
+    findInfo.textContent =
+      matches.length === 0
+        ? '일치 없음'
+        : `${matches.length}${matches.length >= 1000 ? '+' : ''}개 일치`;
+  }
+
+  el<HTMLButtonElement>('hx-find-next').addEventListener('click', () => {
+    const query = currentQuery();
+    if (!query) return;
+    let found = findBytes(bytes, query, cursor + 1);
+    if (found < 0) found = findBytes(bytes, query, 0);
+    if (found < 0) {
+      findInfo.textContent = '일치 없음';
+      return;
+    }
+    updateMatchCount(query);
+    cursor = found;
+    anchor = found + query.length - 1;
+    scrollCursorIntoView();
+    refresh();
+  });
+
+  el<HTMLButtonElement>('hx-find-prev').addEventListener('click', () => {
+    const query = currentQuery();
+    if (!query) return;
+    let found = findBytesBackward(bytes, query, cursor - 1);
+    if (found < 0) found = findBytesBackward(bytes, query, bytes.length);
+    if (found < 0) {
+      findInfo.textContent = '일치 없음';
+      return;
+    }
+    updateMatchCount(query);
+    cursor = found;
+    anchor = found + query.length - 1;
+    scrollCursorIntoView();
+    refresh();
+  });
+
+  searchInput.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') el<HTMLButtonElement>('hx-find-next').click();
+  });
+
+  gotoInput.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter') return;
+    const text = gotoInput.value.trim();
+    const value = text.startsWith('0x') || text.startsWith('0X')
+      ? Number.parseInt(text.slice(2), 16)
+      : /^[0-9]+$/.test(text)
+        ? Number(text)
+        : Number.parseInt(text, 16);
+    if (Number.isNaN(value)) {
+      setStatus('이동할 오프셋을 읽지 못했습니다.');
+      return;
+    }
+    moveCursor(value);
+    setStatus(`${formatOffset(cursor)}로 이동했습니다.`, true);
+  });
+
+  // ---------- 표시 옵션 ----------
+
+  for (const radio of document.querySelectorAll<HTMLInputElement>('input[name="hx-color"]')) {
+    radio.addEventListener('change', render);
+  }
+  perRowSelect.addEventListener('change', () => {
+    entropyCache = new Map();
+    refresh();
+  });
+  upperToggle.addEventListener('change', render);
+  littleToggle.addEventListener('change', renderInspector);
+
+  refresh();
+</script>
+
+<style>
+  .hex {
+    display: grid;
+    gap: 0.6rem;
+  }
+
+  .bar {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+
+  .bar-label,
+  .detect {
+    color: var(--text-dim);
+    font-size: 0.85rem;
+    font-weight: 600;
+  }
+
+  .grow {
+    flex: 1 1 auto;
+  }
+
+  .num-field,
+  .check-field {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    color: var(--text-dim);
+    font-size: 0.85rem;
+    font-weight: 600;
+  }
+
+  .check-field {
+    cursor: pointer;
+  }
+
+  .num-field input,
+  .num-field select,
+  #hx-search {
+    border: 1px solid var(--border);
+    background: var(--bg-soft);
+    color: var(--text);
+    font: inherit;
+    font-size: 0.85rem;
+    padding: 0.3rem 0.5rem;
+    border-radius: 0.5rem;
+  }
+
+  #hx-search {
+    width: 14rem;
+    font-family: Consolas, 'Courier New', monospace;
+  }
+
+  #hx-goto,
+  #hx-insert-count {
+    width: 6rem;
+    font-family: Consolas, 'Courier New', monospace;
+  }
+
+  #hx-insert-count {
+    width: 4.5rem;
+  }
+
+  /* ---------- 작업 영역 ---------- */
+
+  .workspace {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 15rem;
+    gap: 0.8rem;
+    align-items: start;
+  }
+
+  @media (max-width: 860px) {
+    .workspace {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+
+  .viewer {
+    position: relative;
+    height: 60vh;
+    min-height: 320px;
+    overflow: auto;
+    border: 1px solid var(--border);
+    border-radius: 0.7rem;
+    /* --bg-soft보다 --bg가 양쪽 테마 모두에서 글자와 대비가 크다 */
+    background: var(--bg);
+    font-family: Consolas, 'Courier New', monospace;
+    font-size: 0.88rem;
+    line-height: 20px;
+  }
+
+  .viewer:focus-visible {
+    outline: 2px solid var(--accent);
+  }
+
+  .viewer.dragging {
+    border-color: var(--accent);
+  }
+
+  .spacer {
+    width: 1px;
+  }
+
+  .rows {
+    position: absolute;
+    inset: 0;
+    pointer-events: auto;
+  }
+
+  :global(.hex .row) {
+    position: absolute;
+    left: 0;
+    display: flex;
+    gap: 0.9rem;
+    height: 20px;
+    padding: 0 0.7rem;
+    white-space: pre;
+  }
+
+  /* 오프셋은 본문보다 한 톤 낮추되, 읽을 수 있을 만큼은 남긴다 */
+  :global(.hex .offset) {
+    color: light-dark(#5b6270, #8b93a7);
+    user-select: none;
+  }
+
+  :global(.hex .hex-cell),
+  :global(.hex .ascii-cell) {
+    display: flex;
+  }
+
+  :global(.hex .hex-cell .byte) {
+    width: 1.55em;
+    text-align: center;
+  }
+
+  :global(.hex .ascii-cell .byte) {
+    width: 0.62em;
+    text-align: center;
+  }
+
+  :global(.hex .byte.gap) {
+    margin-left: 0.4em;
+  }
+
+  :global(.hex .byte) {
+    cursor: pointer;
+    border-radius: 2px;
+    /* 분류 색이 없는 모드(끄기·엔트로피)에서는 본문 색을 그대로 쓴다 */
+    color: var(--text);
+    font-weight: 600;
+  }
+
+  /* xxd -R와 같은 갈래로 칠한다.
+     라이트에서는 최대한 진하게, 다크에서는 최대한 밝게 — 헥스는 글자가 작고
+     빽빽해서 중간 톤이면 흐려 보인다. 대비를 우선해 고른 값이다. */
+  :global(.hex .c-null) {
+    color: light-dark(#212529, #dee2e6);
+  }
+
+  :global(.hex .c-printable) {
+    color: light-dark(#0b5c22, #b2f2bb);
+  }
+
+  :global(.hex .c-whitespace) {
+    color: light-dark(#7a3d00, #ffec99);
+  }
+
+  :global(.hex .c-ff) {
+    color: light-dark(#06346e, #c5e2ff);
+  }
+
+  :global(.hex .c-other) {
+    color: light-dark(#8f1616, #ffc9c9);
+  }
+
+  :global(.hex .c-modified) {
+    color: light-dark(#7d1538, #fcc2d7);
+    font-weight: 700;
+  }
+
+  /* 형식이 끝난 뒤에 남아 있는 바이트 (폴리글랏 흔적) */
+  :global(.hex .byte.trailing) {
+    text-decoration: underline dotted;
+    text-underline-offset: 2px;
+  }
+
+  :global(.hex .byte.selected) {
+    background: light-dark(rgba(66, 99, 235, 0.18), rgba(66, 99, 235, 0.35));
+  }
+
+  :global(.hex .byte.cursor) {
+    outline: 1px solid var(--accent);
+    background: light-dark(rgba(66, 99, 235, 0.3), rgba(66, 99, 235, 0.55));
+  }
+
+  .empty {
+    position: sticky;
+    top: 40%;
+    margin: 0;
+    text-align: center;
+    color: var(--text-dim);
+    font-family: inherit;
+    font-size: 0.85rem;
+  }
+
+  .empty[hidden] {
+    display: none;
+  }
+
+  /* ---------- 사이드 패널 ---------- */
+
+  .side {
+    display: grid;
+    gap: 0.7rem;
+  }
+
+  .panel {
+    border: 1px solid var(--border);
+    border-radius: 0.7rem;
+    padding: 0.7rem 0.8rem;
+    display: grid;
+    gap: 0.45rem;
+  }
+
+  .panel h3 {
+    margin: 0;
+    font-size: 0.85rem;
+    color: var(--text-dim);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.4rem;
+  }
+
+  .endian {
+    font-weight: 500;
+    font-size: 0.75rem;
+  }
+
+  .info {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 0.2rem 0.6rem;
+    margin: 0;
+    font-size: 0.8rem;
+  }
+
+  :global(.hex .info dt) {
+    color: var(--text-dim);
+  }
+
+  :global(.hex .info dd) {
+    margin: 0;
+    font-family: Consolas, 'Courier New', monospace;
+    overflow-wrap: anywhere;
+  }
+
+  .edit-row {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+
+  .status.status-ok {
+    color: light-dark(#2f9e44, #51cf66);
+  }
+
+  .notes {
+    margin-top: 1rem;
+    border-top: 1px solid var(--border);
+    padding-top: 1.2rem;
+  }
+
+  .notes h2 {
+    font-size: 1rem;
+    margin: 0 0 0.75rem;
+  }
+
+  .notes ul {
+    margin: 0;
+    padding-left: 1.2rem;
+    color: var(--text-dim);
+    font-size: 0.86rem;
+    line-height: 1.7;
+  }
+
+  .notes strong {
+    color: var(--text);
+  }
+
+  .notes a {
+    color: var(--accent);
+  }
+
+  .notes code {
+    font-family: Consolas, 'Courier New', monospace;
+    font-size: 0.9em;
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    border-radius: 0.3rem;
+    padding: 0.05rem 0.3rem;
+  }
+</style>

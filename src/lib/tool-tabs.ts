@@ -9,6 +9,7 @@ export const devtools = {
   tabs: [
     { label: '타임스탬프', href: '/devtools/timestamp/' },
     { label: '인코딩', href: '/devtools/encode/' },
+    { label: '헥스', href: '/devtools/hex/' },
     { label: 'JSON', href: '/devtools/json/' },
     { label: '정규식', href: '/devtools/regex/' },
     { label: 'Diff', href: '/devtools/diff/' },

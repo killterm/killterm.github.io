@@ -1,0 +1,17 @@
+---
+import ToolPage from '../../components/ToolPage.astro';
+import HexTab from '../../components/devtools/HexTab.astro';
+import { devtools } from '../../lib/tool-tabs';
+---
+
+<ToolPage
+  title="헥스 편집기 — Killterm"
+  description="파일을 바이트 단위로 보고 고칩니다. xxd 방식 색상과 값 해석기를 제공합니다."
+  heading={devtools.heading}
+  intro={devtools.intro}
+  tabs={devtools.tabs}
+  active="/devtools/hex/"
+  wide
+>
+  <HexTab />
+</ToolPage>
