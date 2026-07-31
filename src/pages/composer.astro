@@ -39,11 +39,39 @@ import { MAX_CHANNELS } from '../lib/composer-engine';
       <span class="row-label">마스터</span>
       <GlassSlider id="master-volume" min="0" max="100" step="1" value="80" aria-label="마스터 볼륨" />
       <span class="mono-value" id="master-value">80%</span>
+      <span class="master-meter">
+        <canvas id="master-scope" width="220" height="52" aria-hidden="true"></canvas>
+        <span class="clip-flag" id="clip-flag" hidden>클리핑</span>
+      </span>
     </section>
 
     <div class="demo-row">
-      <button id="load-demo" class="btn demo-button" type="button">🎵 예시 곡 들어보기</button>
-      <span class="hint">자체 제작 · CC0 — 처음이라면 눌러서 전체 흐름을 확인해보세요.</span>
+      <span class="row-label">예시 곡</span>
+      <button
+        class="btn demo-button"
+        type="button"
+        data-demo="/songs/demo.json"
+        data-demo-name="밝은 행진 · C장조 4채널"
+      >
+        🎵 밝은 행진
+      </button>
+      <button
+        class="btn demo-button"
+        type="button"
+        data-demo="/songs/demo2.json"
+        data-demo-name="Am 아르페지오 · 7채널"
+      >
+        🎵 Am 아르페지오
+      </button>
+      <button
+        class="btn demo-button"
+        type="button"
+        data-demo="/songs/demo3.json"
+        data-demo-name="질주 · Em 168BPM 6채널"
+      >
+        🎵 질주
+      </button>
+      <span class="hint">AI 제작 · CC0 — 처음이라면 눌러서 전체 흐름을 확인해보세요.</span>
     </div>
 
     <section class="channels" aria-label="채널 믹서">
@@ -74,6 +102,12 @@ import { MAX_CHANNELS } from '../lib/composer-engine';
             <span class="mono-value" data-volume-for={channelIndex}>
               80%
             </span>
+            <canvas
+              class="scope"
+              data-scope={channelIndex}
+              width="180"
+              height="52"
+              aria-hidden="true"></canvas>
             <label class="check-field">
               <input type="checkbox" class="mute" data-mute={channelIndex} />
               음소거
@@ -257,10 +291,123 @@ import { MAX_CHANNELS } from '../lib/composer-engine';
   // renderNote가 캐시한 Float32Array를 그대로 키로 쓴다
   const bufferCache = new WeakMap<Float32Array, AudioBuffer>();
 
+  // 채널마다 게인 + 분석 노드를 하나씩 둔다.
+  //  · 볼륨을 노드에 담으면 재생 중 조절이 즉시 반영된다(예전에는 다음 노트부터).
+  //  · 분석 노드에서 파형을 뽑아 채널별 미터를 그린다.
+  // 노드 풀은 MAX_CHANNELS개로 고정해 두고 인덱스를 재사용한다 — 채널을 지워도
+  // 노드를 다시 만들지 않으므로 재생 중 제거가 계속 안전하다.
+  interface ChannelNodes {
+    /** 노트가 연결되는 입력 게인 노드 — 볼륨은 input.gain.value로 넣어야 한다
+        (노드 자체의 .value에 쓰면 조용히 무시된다) */
+    input: GainNode;
+    analyser: AnalyserNode;
+  }
+  let channelNodes: ChannelNodes[] = [];
+  let masterGain: GainNode | null = null;
+  let masterAnalyser: AnalyserNode | null = null;
+
   function ensureAudioContext(): AudioContext {
     audioContext ??= new AudioContext();
     if (audioContext.state === 'suspended') void audioContext.resume();
+    if (channelNodes.length === 0) {
+      const context = audioContext;
+      masterGain = context.createGain();
+      masterAnalyser = context.createAnalyser();
+      masterAnalyser.fftSize = 1024;
+      masterGain.connect(masterAnalyser).connect(context.destination);
+      channelNodes = Array.from({ length: MAX_CHANNELS }, () => {
+        const input = context.createGain();
+        const analyser = context.createAnalyser();
+        analyser.fftSize = 512;
+        input.connect(analyser).connect(masterGain!);
+        return { input, analyser };
+      });
+      applyGains();
+      requestAnimationFrame(drawMeters);
+    }
     return audioContext;
+  }
+
+  /** 마지막으로 노트를 예약한 시각 — 소리가 잦아들면 미터 그리기를 멈춘다 */
+  let lastNoteTime = 0;
+  const scopeCanvases = [...document.querySelectorAll<HTMLCanvasElement>('[data-scope]')];
+  const masterScope = el<HTMLCanvasElement>('master-scope');
+  const clipFlag = el<HTMLSpanElement>('clip-flag');
+  /** 클립이 뜬 시각 — 잠깐 켜 두었다 끈다 */
+  let lastClipTime = 0;
+
+  /**
+   * 채널·마스터 파형을 실시간으로 그린다.
+   * 파형이 위아래 벽에 닿으면(±1 근처) 그 채널이 넘치고 있다는 뜻이라, 사용자가
+   * 볼륨을 얼마나 내려야 하는지 눈으로 판단할 수 있다.
+   */
+  function drawScope(canvas: HTMLCanvasElement, analyser: AnalyserNode, accent: string): number {
+    const context = canvas.getContext('2d')!;
+    const width = canvas.width;
+    const height = canvas.height;
+    const data = new Uint8Array(analyser.fftSize);
+    analyser.getByteTimeDomainData(data);
+
+    context.clearRect(0, 0, width, height);
+    // 가운데 기준선
+    context.strokeStyle = 'rgba(128, 128, 128, 0.35)';
+    context.lineWidth = 1;
+    context.beginPath();
+    context.moveTo(0, height / 2);
+    context.lineTo(width, height / 2);
+    context.stroke();
+
+    let peak = 0;
+    context.strokeStyle = accent;
+    context.lineWidth = 1.5;
+    context.beginPath();
+    for (let x = 0; x < width; x++) {
+      const value = (data[Math.floor((x / width) * data.length)] - 128) / 128;
+      peak = Math.max(peak, Math.abs(value));
+      const y = height / 2 - value * (height / 2 - 1);
+      if (x === 0) context.moveTo(x, y);
+      else context.lineTo(x, y);
+    }
+    context.stroke();
+    return peak;
+  }
+
+  function drawMeters() {
+    if (!audioContext || channelNodes.length === 0) return;
+    // 재생이 멈추고 소리가 잦아들면 그리기를 쉰다 (배터리·CPU 절약)
+    const idle = !playing && audioContext.currentTime - lastNoteTime > 1.5;
+    if (!idle) {
+      const styles = getComputedStyle(document.documentElement);
+      for (let channelIndex = 0; channelIndex < scopeCanvases.length; channelIndex++) {
+        const canvas = scopeCanvases[channelIndex];
+        if (canvas.closest('.channel-row')?.hasAttribute('hidden')) continue;
+        const color =
+          styles.getPropertyValue(`--channel-${channelIndex}`).trim() || 'currentColor';
+        const peak = drawScope(canvas, channelNodes[channelIndex].analyser, color);
+        canvas.classList.toggle('hot', peak >= 0.98);
+      }
+      const masterPeak = drawScope(
+        masterScope,
+        masterAnalyser!,
+        styles.getPropertyValue('--accent').trim() || 'currentColor',
+      );
+      // 마스터에서 벽에 닿으면 실제로 잘려 나가는 중이다
+      if (masterPeak >= 0.99) lastClipTime = audioContext.currentTime;
+      clipFlag.hidden = audioContext.currentTime - lastClipTime > 1;
+      masterScope.classList.toggle('hot', !clipFlag.hidden);
+    }
+    requestAnimationFrame(drawMeters);
+  }
+
+  /** 게인 노드 값을 곡 상태에서 다시 읽는다 (볼륨·음소거·마스터 변경 시) */
+  function applyGains() {
+    if (!masterGain) return;
+    masterGain.gain.value = masterVolume();
+    channelNodes.forEach((nodes, channelIndex) => {
+      const channel = song.channels[channelIndex];
+      // 0.5 = 채널 중첩 헤드룸 (mixSong의 WAV 내보내기와 같은 식)
+      nodes.input.gain.value = !channel || channel.muted ? 0 : channel.volume * 0.5;
+    });
   }
 
   function getAudioBuffer(samples: Float32Array): AudioBuffer {
@@ -280,12 +427,10 @@ import { MAX_CHANNELS } from '../lib/composer-engine';
     const context = ensureAudioContext();
     const source = context.createBufferSource();
     source.buffer = getAudioBuffer(samples);
-    const gain = context.createGain();
-    // 0.5 = 채널 중첩 헤드룸. mixSong(WAV 내보내기)과 같은 식을 써야 들은 것과
-    // 저장된 것이 일치한다. 채널을 많이 쓰면 마스터를 낮추는 쪽으로 조절한다.
-    gain.gain.value = channel.volume * masterVolume() * 0.5;
-    source.connect(gain).connect(context.destination);
+    // 볼륨·음소거·마스터는 채널 게인 노드가 담당한다
+    source.connect(channelNodes[channelIndex].input);
     source.start(time);
+    lastNoteTime = context.currentTime;
     activeSources.add(source);
     source.addEventListener('ended', () => activeSources.delete(source));
   }
@@ -394,6 +539,7 @@ import { MAX_CHANNELS } from '../lib/composer-engine';
 
   masterVolumeSlider.addEventListener('input', () => {
     masterValue.textContent = `${masterVolumeSlider.value}%`;
+    applyGains();
   });
 
   // ---------- 피아노롤 ----------
@@ -590,12 +736,13 @@ import { MAX_CHANNELS } from '../lib/composer-engine';
       const percent = Number(volumeSliders[channelIndex].value);
       song.channels[channelIndex].volume = percent / 100;
       document.querySelector(`[data-volume-for="${channelIndex}"]`)!.textContent = `${percent}%`;
-      // 노트는 원샷이라 다음에 예약되는 소리부터 새 볼륨이 적용된다
+      applyGains();
       persist();
     });
 
     muteToggles[channelIndex].addEventListener('change', () => {
       song.channels[channelIndex].muted = muteToggles[channelIndex].checked;
+      applyGains();
       persist();
       renderChannelControls();
     });
@@ -868,10 +1015,16 @@ import { MAX_CHANNELS } from '../lib/composer-engine';
     }
   });
 
-  el<HTMLButtonElement>('load-demo').addEventListener('click', async () => {
+  for (const demoButton of document.querySelectorAll<HTMLButtonElement>('[data-demo]')) {
+    demoButton.addEventListener('click', () => void loadDemo(demoButton));
+  }
+
+  async function loadDemo(button: HTMLButtonElement) {
+    const source = button.dataset.demo!;
+    const name = button.dataset.demoName ?? '예시 곡';
     const previous = JSON.stringify(song);
     try {
-      const response = await fetch('/songs/demo.json');
+      const response = await fetch(source);
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const demo = normalizeSong(await response.json());
       if (!demo) throw new Error('곡 형식이 아닙니다');
@@ -887,7 +1040,7 @@ import { MAX_CHANNELS } from '../lib/composer-engine';
       modePatternButton.setAttribute('aria-pressed', 'false');
       modeSongButton.setAttribute('aria-pressed', 'true');
       startPlayback();
-      offerUndo('예시 곡을 불러왔습니다.', () => {
+      offerUndo(`예시 곡 "${name}"을 불러왔습니다.`, () => {
         stopPlayback();
         song = normalizeSong(JSON.parse(previous)) ?? defaultSong();
         currentPatternIndex = 0;
@@ -899,7 +1052,7 @@ import { MAX_CHANNELS } from '../lib/composer-engine';
     } catch (e) {
       setStatus(`예시 곡을 불러오지 못했습니다: ${e instanceof Error ? e.message : String(e)}`);
     }
-  });
+  }
 
   el<HTMLButtonElement>('reset-song').addEventListener('click', () => {
     const previous = JSON.stringify(song);
@@ -1005,7 +1158,9 @@ import { MAX_CHANNELS } from '../lib/composer-engine';
 
   .channel-row {
     display: grid;
-    grid-template-columns: 2rem minmax(7rem, 11rem) minmax(6rem, 1fr) 2.8rem auto auto auto;
+    grid-template-columns:
+      2rem minmax(6.5rem, 10rem) minmax(5rem, 1fr) 2.8rem minmax(3rem, 6rem)
+      auto auto auto;
     align-items: center;
     gap: 0.5rem;
     padding: 0.35rem 0.5rem;
@@ -1025,6 +1180,48 @@ import { MAX_CHANNELS } from '../lib/composer-engine';
   }
 
   .channel-row[hidden] {
+    display: none;
+  }
+
+  .scope {
+    width: 100%;
+    max-width: 6rem;
+    height: 26px;
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    border-radius: 0.35rem;
+  }
+
+  /* 파형이 위아래 벽에 닿는 중 — 이 채널이 넘치고 있다는 신호 */
+  .scope.hot,
+  #master-scope.hot {
+    border-color: var(--danger);
+  }
+
+  .master-meter {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+  }
+
+  #master-scope {
+    width: 7rem;
+    height: 26px;
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    border-radius: 0.35rem;
+  }
+
+  .clip-flag {
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--danger);
+    border: 1px solid var(--danger);
+    border-radius: 0.3rem;
+    padding: 0.05rem 0.3rem;
+  }
+
+  .clip-flag[hidden] {
     display: none;
   }
 
