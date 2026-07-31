@@ -182,6 +182,112 @@ export const BUILTIN_INSTRUMENTS: Instrument[] = [
       hpfCutoff: 0.6,
     }),
   },
+  // 아래는 나중에 덧붙인 악기들. **순서를 바꾸지 말 것** — defaultSong과
+  // 예시 곡 생성 스크립트가 앞쪽 인덱스를 그대로 참조한다.
+  {
+    name: '벨',
+    params: instrumentParams({
+      waveType: 'sine',
+      sustain: 0.05,
+      decay: 0.55,
+      punch: 0.5,
+      // 배음이 살짝 흔들려 금속성이 난다
+      vibratoDepth: 0.12,
+      vibratoSpeed: 0.35,
+    }),
+  },
+  {
+    name: '패드',
+    params: instrumentParams({
+      waveType: 'triangle',
+      // 천천히 열리는 소리 — 긴 어택이 특징이다
+      attack: 0.35,
+      sustain: 0.4,
+      decay: 0.45,
+      vibratoDepth: 0.18,
+      vibratoSpeed: 0.18,
+      lpfCutoff: 0.55,
+    }),
+  },
+  {
+    name: '오르간',
+    params: instrumentParams({
+      waveType: 'square',
+      attack: 0.08,
+      sustain: 0.35,
+      decay: 0.2,
+      duty: 0.35,
+      dutySweep: 0.08,
+    }),
+  },
+  {
+    name: '플럭',
+    params: instrumentParams({
+      waveType: 'sawtooth',
+      sustain: 0.04,
+      decay: 0.16,
+      punch: 0.35,
+      lpfCutoff: 0.6,
+      lpfSweep: -0.25,
+    }),
+  },
+  {
+    name: '브라스',
+    params: instrumentParams({
+      waveType: 'square',
+      attack: 0.12,
+      sustain: 0.28,
+      decay: 0.22,
+      duty: 0.6,
+      dutySweep: -0.15,
+      lpfCutoff: 0.7,
+    }),
+  },
+  {
+    name: '아르페지오 벨',
+    params: instrumentParams({
+      waveType: 'square',
+      sustain: 0.06,
+      decay: 0.3,
+      punch: 0.3,
+      // 한 번 누르면 음이 위로 튀어 오른다 (동전 소리와 같은 원리)
+      arpMod: 0.45,
+      arpSpeed: 0.72,
+    }),
+  },
+  {
+    name: '톰',
+    params: instrumentParams({
+      waveType: 'sine',
+      sustain: 0.08,
+      decay: 0.26,
+      punch: 0.45,
+      freqSlide: -0.22,
+      lpfCutoff: 0.8,
+    }),
+  },
+  {
+    name: '크래시',
+    params: instrumentParams({
+      waveType: 'noise',
+      sustain: 0.06,
+      decay: 0.5,
+      punch: 0.3,
+      hpfCutoff: 0.35,
+      lpfSweep: -0.1,
+    }),
+  },
+  {
+    name: '노이즈 스윕',
+    params: instrumentParams({
+      waveType: 'noise',
+      sustain: 0.12,
+      decay: 0.3,
+      freqSlide: 0.25,
+      hpfCutoff: 0.2,
+      hpfSweep: 0.2,
+    }),
+  },
 ];
 
 export function defaultSong(): Song {
