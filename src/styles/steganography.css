@@ -1,0 +1,138 @@
+/* 스테가노그래피 탭들이 함께 쓰는 카드·참고 레이아웃.
+   탭 4개가 같은 구조를 쓰므로 스코프 스타일을 복제하지 않고 이 시트 하나로 모은다
+   (각 탭은 본문을 .steg로 감싸고 이 파일을 import한다). */
+
+.steganography .cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 1.25rem;
+  align-items: start;
+}
+
+.steganography .card {
+  background: var(--bg-soft);
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+.steganography .card h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.steganography .desc,
+.steganography .detect {
+  color: var(--text-dim);
+  font-size: 0.85rem;
+  margin: 0;
+  line-height: 1.5;
+}
+
+.steganography .detect.over {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.steganography .file-row {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.steganography .file-row[hidden] {
+  display: none;
+}
+
+.steganography .file-row > span {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-dim);
+}
+
+.steganography .file-row input[type='file'] {
+  font-size: 0.85rem;
+  color: var(--text-dim);
+}
+
+.steganography .file-row input[type='file']::file-selector-button {
+  appearance: none;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.82rem;
+  padding: 0.35rem 0.8rem;
+  border-radius: 0.5rem;
+  margin-right: 0.6rem;
+  cursor: pointer;
+}
+
+.steganography .card .btn {
+  align-self: start;
+}
+
+.steganography .result {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.35rem 0.9rem;
+  margin: 0;
+  font-size: 0.88rem;
+}
+
+.steganography .result[hidden] {
+  display: none;
+}
+
+.steganography .result dt {
+  color: var(--text-dim);
+}
+
+.steganography .result dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.steganography .status.status-ok {
+  color: light-dark(#2f9e44, #51cf66);
+}
+
+.steganography .preview {
+  max-width: 100%;
+  height: auto;
+  border: 1px solid var(--border);
+  border-radius: 0.7rem;
+}
+
+.steganography .preview[hidden] {
+  display: none;
+}
+
+.steganography .notes {
+  margin-top: 2rem;
+  border-top: 1px solid var(--border);
+  padding-top: 1.5rem;
+}
+
+.steganography .notes h2 {
+  font-size: 1rem;
+  margin: 0 0 0.75rem;
+}
+
+.steganography .notes ul {
+  margin: 0;
+  padding-left: 1.2rem;
+  color: var(--text-dim);
+  font-size: 0.86rem;
+  line-height: 1.7;
+}
+
+.steganography .notes strong {
+  color: var(--text);
+}
+
+.steganography .notes a {
+  color: var(--accent);
+}

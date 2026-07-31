@@ -1,0 +1,277 @@
+---
+// 오디오 LSB: 16-bit PCM WAV 샘플의 최하위 비트에 데이터를 숨긴다.
+import '../../styles/steganography.css';
+---
+
+<div class="steganography">
+  <div class="cards">
+    <section class="card" aria-labelledby="audio-hide-title">
+      <h2 id="audio-hide-title">숨기기</h2>
+      <p class="desc">
+        WAV 샘플의 최하위 비트에 데이터를 심습니다. 16-bit 값에서 1만큼의 변화라 귀로는 구분하기
+        어렵습니다.
+      </p>
+
+      <label class="file-row">
+        <span>캐리어 WAV</span>
+        <input id="audio-carrier" type="file" accept=".wav,audio/wav,audio/x-wav" />
+      </label>
+      <p class="detect" id="audio-capacity">
+        16-bit PCM WAV만 지원합니다. <a href="/sfx/">레트로 SFX</a>나 <a href="/looper/"
+          >루프 스테이션</a
+        >에서 내보낸 WAV를 그대로 쓸 수 있습니다.
+      </p>
+
+      <div class="chip-group" role="radiogroup" aria-label="숨길 대상">
+        <label class="chip">
+          <input type="radio" name="audio-mode" value="text" checked />
+          <span>텍스트</span>
+        </label>
+        <label class="chip">
+          <input type="radio" name="audio-mode" value="file" />
+          <span>파일</span>
+        </label>
+      </div>
+
+      <textarea id="audio-text" rows="4" placeholder="숨길 메시지를 입력하세요" spellcheck="false"
+      ></textarea>
+      <label class="file-row" id="audio-secret-row" hidden>
+        <span>숨길 파일</span>
+        <input id="audio-secret" type="file" />
+      </label>
+
+      <p class="detect" id="audio-need"></p>
+      <button id="audio-hide" class="btn btn-primary" type="button">WAV로 저장</button>
+      <p id="audio-hide-status" class="status" role="status"></p>
+    </section>
+
+    <section class="card" aria-labelledby="audio-find-title">
+      <h2 id="audio-find-title">찾기</h2>
+      <p class="desc">이 도구로 만든 WAV에서 숨긴 데이터를 꺼냅니다.</p>
+
+      <label class="file-row">
+        <span>검사할 WAV</span>
+        <input id="audio-find" type="file" accept=".wav,audio/wav,audio/x-wav" />
+      </label>
+
+      <dl id="audio-result" class="result" hidden></dl>
+      <textarea id="audio-found-text" rows="5" readonly hidden></textarea>
+      <button id="audio-save-found" class="btn" type="button" hidden>숨긴 파일 저장</button>
+      <p id="audio-find-status" class="status" role="status"></p>
+    </section>
+  </div>
+
+  <section class="notes">
+    <h2>참고</h2>
+    <ul>
+      <li>
+        <strong>무손실 형식만 유지됩니다</strong> — MP3·AAC·Ogg로 변환하면 최하위 비트가 사라집니다.
+        볼륨 조절이나 리샘플링도 마찬가지입니다.
+      </li>
+      <li>
+        원본 파일의 헤더와 나머지 청크는 그대로 두고 소리 데이터 영역만 고쳐 씁니다. 그래서 길이·
+        샘플레이트·채널 수가 바뀌지 않습니다.
+      </li>
+      <li>
+        아주 조용한 구간이 많은 파일은 최하위 비트 변화가 잡음으로 들릴 수 있습니다. 소리가 꽉 찬
+        구간이 많은 파일이 캐리어로 좋습니다.
+      </li>
+      <li>
+        <strong>LSB는 기밀 보호 수단이 아닙니다.</strong> 중요한 내용이라면 먼저 암호화한 파일을
+        숨기세요.
+      </li>
+    </ul>
+  </section>
+</div>
+
+<script>
+  import {
+    capacityBytes,
+    findWavDataChunk,
+    frameMessage,
+    frameOverhead,
+    lsbWrite,
+    readFrameFrom,
+    sequentialIndices,
+    wavSampleView,
+  } from '../../lib/steganography-frame';
+  import { downloadBytes, formatByteSize, readFileBytes } from '../../lib/file-io';
+
+  const el = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+  const carrierInput = el<HTMLInputElement>('audio-carrier');
+  const capacityInfo = el<HTMLParagraphElement>('audio-capacity');
+  const textArea = el<HTMLTextAreaElement>('audio-text');
+  const secretRow = el<HTMLLabelElement>('audio-secret-row');
+  const secretInput = el<HTMLInputElement>('audio-secret');
+  const needInfo = el<HTMLParagraphElement>('audio-need');
+  const hideStatus = el<HTMLParagraphElement>('audio-hide-status');
+  const findInput = el<HTMLInputElement>('audio-find');
+  const resultList = el<HTMLDListElement>('audio-result');
+  const foundText = el<HTMLTextAreaElement>('audio-found-text');
+  const saveFoundButton = el<HTMLButtonElement>('audio-save-found');
+  const findStatus = el<HTMLParagraphElement>('audio-find-status');
+
+  const setStatus = (node: HTMLElement, message: string, ok = false) => {
+    node.textContent = message;
+    node.classList.toggle('status-ok', ok && message !== '');
+  };
+
+  let carrierBytes: Uint8Array | null = null;
+  let carrierName = '';
+  let carrierCapacity = 0;
+  let secretBytes: Uint8Array | null = null;
+  let secretName = '';
+  let foundFile: { name: string; data: Uint8Array } | null = null;
+
+  const currentMode = () =>
+    (document.querySelector('input[name="audio-mode"]:checked') as HTMLInputElement).value;
+
+  function updateNeed() {
+    if (!carrierBytes) {
+      needInfo.textContent = '';
+      return;
+    }
+    const dataLength =
+      currentMode() === 'text'
+        ? new TextEncoder().encode(textArea.value).length
+        : (secretBytes?.length ?? 0);
+    const needed = dataLength + frameOverhead(currentMode() === 'file' ? secretName : '');
+    needInfo.textContent = `필요 ${formatByteSize(needed)} / 가능 ${formatByteSize(carrierCapacity)}`;
+    needInfo.classList.toggle('over', needed > carrierCapacity);
+  }
+
+  carrierInput.addEventListener('change', async () => {
+    const file = carrierInput.files?.[0];
+    setStatus(hideStatus, '');
+    carrierBytes = null;
+    if (!file) return;
+    try {
+      const bytes = await readFileBytes(file);
+      const chunk = findWavDataChunk(bytes);
+      carrierBytes = bytes;
+      carrierName = file.name.replace(/\.[^.]+$/, '');
+      carrierCapacity = capacityBytes(chunk.size / 2);
+      const seconds = chunk.size / 2 / chunk.channels / chunk.sampleRate;
+      capacityInfo.textContent = `${seconds.toFixed(2)}초 · ${chunk.sampleRate.toLocaleString()}Hz · ${chunk.channels === 1 ? '모노' : `${chunk.channels}채널`} · 최대 ${formatByteSize(carrierCapacity)}까지 숨길 수 있습니다.`;
+      updateNeed();
+    } catch (e) {
+      setStatus(hideStatus, e instanceof Error ? e.message : String(e));
+    }
+  });
+
+  for (const radio of document.querySelectorAll<HTMLInputElement>('input[name="audio-mode"]')) {
+    radio.addEventListener('change', () => {
+      const isText = currentMode() === 'text';
+      textArea.hidden = !isText;
+      secretRow.hidden = isText;
+      updateNeed();
+    });
+  }
+
+  textArea.addEventListener('input', updateNeed);
+
+  secretInput.addEventListener('change', async () => {
+    const file = secretInput.files?.[0];
+    if (!file) {
+      secretBytes = null;
+      secretName = '';
+    } else {
+      secretBytes = await readFileBytes(file);
+      secretName = file.name;
+    }
+    updateNeed();
+  });
+
+  el<HTMLButtonElement>('audio-hide').addEventListener('click', () => {
+    setStatus(hideStatus, '');
+    if (!carrierBytes) {
+      setStatus(hideStatus, '먼저 캐리어 WAV를 선택하세요.');
+      return;
+    }
+    const isText = currentMode() === 'text';
+    if (isText && textArea.value === '') {
+      setStatus(hideStatus, '숨길 메시지를 입력하세요.');
+      return;
+    }
+    if (!isText && !secretBytes) {
+      setStatus(hideStatus, '숨길 파일을 선택하세요.');
+      return;
+    }
+
+    // 원본은 그대로 두고 복제본의 data 청크만 고쳐 쓴다 (재시도 시 누적 방지)
+    const output = carrierBytes.slice(0);
+    const payload = frameMessage(
+      isText
+        ? { kind: 'text', name: '', data: new TextEncoder().encode(textArea.value) }
+        : { kind: 'file', name: secretName, data: secretBytes! },
+    );
+    try {
+      const chunk = findWavDataChunk(output);
+      const samples = wavSampleView(output, chunk);
+      lsbWrite(samples, sequentialIndices(samples.length), payload);
+      // wavSampleView가 정렬 문제로 복사본을 돌려준 경우 원본 바이트에 다시 반영한다
+      const sampleBytes = new Uint8Array(samples.buffer, samples.byteOffset, samples.byteLength);
+      if (samples.buffer !== output.buffer) output.set(sampleBytes, chunk.offset);
+    } catch (e) {
+      setStatus(hideStatus, e instanceof Error ? e.message : String(e));
+      return;
+    }
+    downloadBytes(output, `${carrierName || 'audio'}-steg.wav`, 'audio/wav');
+    setStatus(hideStatus, `${formatByteSize(payload.length)}를 숨겼습니다.`, true);
+  });
+
+  findInput.addEventListener('change', async () => {
+    const file = findInput.files?.[0];
+    setStatus(findStatus, '');
+    resultList.hidden = true;
+    foundText.hidden = true;
+    saveFoundButton.hidden = true;
+    foundFile = null;
+    if (!file) return;
+    try {
+      const bytes = await readFileBytes(file);
+      const chunk = findWavDataChunk(bytes);
+      const samples = wavSampleView(bytes, chunk);
+      const payload = readFrameFrom(samples, sequentialIndices(samples.length));
+      if (!payload) {
+        setStatus(findStatus, '숨겨진 데이터를 찾지 못했습니다. (이 도구로 만든 WAV인지 확인하세요)');
+        return;
+      }
+      resultList.innerHTML = '';
+      const rows: [string, string][] = [
+        ['종류', payload.kind === 'file' ? '파일' : '텍스트'],
+        ...(payload.kind === 'file' ? ([['파일 이름', payload.name]] as [string, string][]) : []),
+        ['크기', formatByteSize(payload.data.length)],
+      ];
+      for (const [term, value] of rows) {
+        const dt = document.createElement('dt');
+        dt.textContent = term;
+        const dd = document.createElement('dd');
+        dd.textContent = value;
+        resultList.append(dt, dd);
+      }
+      resultList.hidden = false;
+      if (payload.kind === 'text') {
+        foundText.value = new TextDecoder().decode(payload.data);
+        foundText.hidden = false;
+      } else {
+        foundFile = { name: payload.name || 'secret.bin', data: payload.data };
+        saveFoundButton.hidden = false;
+      }
+      setStatus(findStatus, '숨겨진 데이터를 찾았습니다.', true);
+    } catch (e) {
+      setStatus(findStatus, e instanceof Error ? e.message : String(e));
+    }
+  });
+
+  saveFoundButton.addEventListener('click', () => {
+    if (foundFile) downloadBytes(foundFile.data, foundFile.name);
+  });
+</script>
+
+<style>
+  /* 카드·참고 레이아웃은 styles/steganography.css에 있고, 여기서는 이 탭 전용만 둔다 */
+  .detect a {
+    color: var(--accent);
+  }
+</style>

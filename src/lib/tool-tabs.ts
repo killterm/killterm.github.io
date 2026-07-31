@@ -16,6 +16,25 @@ export const devtools = {
   ] satisfies ToolTab[],
 };
 
+export const steganography = {
+  heading: '🕵️ 스테가노그래피',
+  intro:
+    '데이터를 파일이나 글 속에 숨기고 다시 찾아내는 도구 모음입니다. 모든 처리는 브라우저 안에서만 이루어집니다.',
+  // 캐리어별로 묶어 둔다: 파일 구조 → 이미지 → 오디오 → 그 밖 → 분석
+  tabs: [
+    { label: '폴리글랏', href: '/steganography/polyglot/' },
+    { label: '메타데이터', href: '/steganography/metadata/' },
+    { label: '이미지 LSB', href: '/steganography/image/' },
+    { label: '이미지 DCT', href: '/steganography/dct/' },
+    { label: '오디오 LSB', href: '/steganography/audio/' },
+    { label: '오디오 주파수', href: '/steganography/audio-frequency/' },
+    { label: '스펙트로그램', href: '/steganography/spectrogram/' },
+    { label: '시각 암호', href: '/steganography/visual-crypto/' },
+    { label: '텍스트', href: '/steganography/text/' },
+    { label: '분석', href: '/steganography/analyze/' },
+  ] satisfies ToolTab[],
+};
+
 export const hwtest = {
   heading: '🖥️ 하드웨어 테스트',
   intro:

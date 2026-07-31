@@ -1,0 +1,16 @@
+---
+import ToolPage from '../../components/ToolPage.astro';
+import DctTab from '../../components/steganography/DctTab.astro';
+import { steganography } from '../../lib/tool-tabs';
+---
+
+<ToolPage
+  title="이미지 DCT 스테가노그래피 — Killterm"
+  description="8×8 블록의 주파수 계수에 심어 JPEG 재압축을 견디게 합니다."
+  heading={steganography.heading}
+  intro={steganography.intro}
+  tabs={steganography.tabs}
+  active="/steganography/dct/"
+>
+  <DctTab />
+</ToolPage>

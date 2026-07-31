@@ -1,0 +1,16 @@
+---
+import ToolPage from '../../components/ToolPage.astro';
+import MetadataTab from '../../components/steganography/MetadataTab.astro';
+import { steganography } from '../../lib/tool-tabs';
+---
+
+<ToolPage
+  title="메타데이터 스테가노그래피 — Killterm"
+  description="PNG 청크와 JPEG 주석에 데이터를 숨깁니다. 이미지 화질은 변하지 않습니다."
+  heading={steganography.heading}
+  intro={steganography.intro}
+  tabs={steganography.tabs}
+  active="/steganography/metadata/"
+>
+  <MetadataTab />
+</ToolPage>

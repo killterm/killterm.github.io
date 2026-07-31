@@ -1,0 +1,468 @@
+---
+// 오디오 주파수 영역 기법 세 가지 — 위상 코딩 · FSK(초음파 포함) · 에코 은닉.
+import '../../styles/steganography.css';
+---
+
+<div class="steganography">
+  <div class="chip-group technique" role="radiogroup" aria-label="기법 선택">
+    <label class="chip">
+      <input type="radio" name="af-technique" value="phase" checked />
+      <span>위상 코딩</span>
+    </label>
+    <label class="chip">
+      <input type="radio" name="af-technique" value="fsk" />
+      <span>FSK (소리로 전송)</span>
+    </label>
+    <label class="chip">
+      <input type="radio" name="af-technique" value="echo" />
+      <span>에코 은닉</span>
+    </label>
+  </div>
+
+  <p class="desc technique-desc" id="af-technique-desc"></p>
+
+  <div class="cards">
+    <section class="card" aria-labelledby="af-hide-title">
+      <h2 id="af-hide-title">숨기기</h2>
+
+      <label class="file-row" id="af-carrier-row">
+        <span>캐리어 WAV (16-bit PCM)</span>
+        <input id="af-carrier" type="file" accept=".wav,audio/wav,audio/x-wav" />
+      </label>
+      <p class="detect" id="af-capacity"></p>
+
+      <label class="num-field" id="af-preset-row" hidden>
+        대역
+        <select id="af-preset" aria-label="FSK 대역"></select>
+      </label>
+
+      <textarea id="af-text" rows="3" placeholder="숨길 메시지를 입력하세요" spellcheck="false"
+      ></textarea>
+      <p class="detect" id="af-need"></p>
+
+      <div class="controls">
+        <button id="af-hide" class="btn btn-primary" type="button">WAV로 저장</button>
+        <button id="af-play" class="btn btn-small" type="button" hidden>🔊 스피커로 재생</button>
+      </div>
+      <p id="af-hide-status" class="status" role="status"></p>
+    </section>
+
+    <section class="card" aria-labelledby="af-find-title">
+      <h2 id="af-find-title">찾기</h2>
+      <p class="desc" id="af-find-desc"></p>
+
+      <label class="file-row">
+        <span>검사할 WAV</span>
+        <input id="af-find" type="file" accept=".wav,audio/wav,audio/x-wav" />
+      </label>
+
+      <div class="controls" id="af-mic-row" hidden>
+        <button id="af-listen" class="btn" type="button">🎙️ 마이크로 듣기 (8초)</button>
+        <span class="detect" id="af-listen-info"></span>
+      </div>
+
+      <textarea id="af-found" rows="4" readonly hidden></textarea>
+      <p id="af-find-status" class="status" role="status"></p>
+    </section>
+  </div>
+
+  <section class="notes">
+    <h2>참고</h2>
+    <ul>
+      <li>
+        <strong>위상 코딩</strong> — 사람 귀는 절대 위상에 둔감합니다. 구간마다 특정 주파수 성분의
+        위상만 ±90°로 맞춰 비트를 표현하고 크기는 그대로 둡니다. 용량은 1024샘플당 1비트(약 5바이트/초)로
+        작고, 파일 앞을 자르면 구간 경계가 어긋나 복원이 깨집니다. 구간 경계에서 약한 클릭이 들릴 수
+        있습니다.
+      </li>
+      <li>
+        <strong>FSK</strong> — 비트를 두 음높이로 실어 보내는 옛 모뎀 방식입니다. 이건 캐리어에
+        숨기는 게 아니라 <strong>소리 자체가 데이터</strong>입니다. 초음파(18.5/19.5kHz)를 고르면
+        대부분의 성인에게는 들리지 않아, 한 기기에서 재생하고 다른 기기 마이크로 받는 시연이
+        가능합니다 — 다만 스피커·마이크 성능에 따라 실패할 수 있습니다.
+      </li>
+      <li>
+        <strong>에코 은닉</strong> — 비트마다 다른 지연(약 1.4ms / 2.5ms)의 짧은 반향을 섞고,
+        켑스트럼에서 어느 지연에 피크가 서는지로 읽습니다. 소리 색깔이 아주 살짝 바뀝니다. 용량은 세
+        기법 중 가장 작습니다(4096샘플당 1비트).
+      </li>
+      <li>
+        세 기법 모두 MP3 같은 손실 압축을 거치면 대체로 사라집니다. 캐리어는 소리가 꽉 찬 구간이 많은
+        파일이 좋습니다 — <a href="/looper/">루프 스테이션</a>이나 <a href="/sfx/">레트로 SFX</a>로
+        만든 WAV를 써보세요.
+      </li>
+    </ul>
+  </section>
+</div>
+
+<script>
+  import {
+    FSK_PRESETS,
+    echoCapacityBytes,
+    echoEmbed,
+    echoExtract,
+    fskDemodulate,
+    fskModulate,
+    phaseCapacityBytes,
+    phaseEmbed,
+    phaseExtract,
+    type FskPreset,
+  } from '../../lib/steganography-audio';
+  import {
+    findWavDataChunk,
+    frameOverhead,
+    wavSampleView,
+  } from '../../lib/steganography-frame';
+  import { encodeWav } from '../../lib/wav-encode';
+  import { downloadBytes, formatByteSize, readFileBytes } from '../../lib/file-io';
+
+  const el = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+  const techniqueDescription = el<HTMLParagraphElement>('af-technique-desc');
+  const carrierRow = el<HTMLLabelElement>('af-carrier-row');
+  const carrierInput = el<HTMLInputElement>('af-carrier');
+  const capacityInfo = el<HTMLParagraphElement>('af-capacity');
+  const presetRow = el<HTMLLabelElement>('af-preset-row');
+  const presetSelect = el<HTMLSelectElement>('af-preset');
+  const textArea = el<HTMLTextAreaElement>('af-text');
+  const needInfo = el<HTMLParagraphElement>('af-need');
+  const playButton = el<HTMLButtonElement>('af-play');
+  const hideStatus = el<HTMLParagraphElement>('af-hide-status');
+  const findDescription = el<HTMLParagraphElement>('af-find-desc');
+  const findInput = el<HTMLInputElement>('af-find');
+  const micRow = el<HTMLDivElement>('af-mic-row');
+  const listenButton = el<HTMLButtonElement>('af-listen');
+  const listenInfo = el<HTMLSpanElement>('af-listen-info');
+  const foundArea = el<HTMLTextAreaElement>('af-found');
+  const findStatus = el<HTMLParagraphElement>('af-find-status');
+
+  const setStatus = (node: HTMLElement, message: string, ok = false) => {
+    node.textContent = message;
+    node.classList.toggle('status-ok', ok && message !== '');
+  };
+
+  const DESCRIPTIONS: Record<string, { hide: string; find: string }> = {
+    phase: {
+      hide: '캐리어 WAV의 주파수 성분 위상에 심습니다. 소리 크기는 그대로라 귀로는 거의 구분되지 않습니다.',
+      find: '위상 코딩으로 심은 WAV에서 메시지를 꺼냅니다.',
+    },
+    fsk: {
+      hide: '캐리어가 필요 없습니다 — 메시지 자체를 소리로 만듭니다. 초음파 대역을 고르면 들리지 않습니다.',
+      find: 'FSK 소리가 담긴 WAV를 넣거나, 다른 기기에서 재생하는 소리를 마이크로 받아 복원합니다.',
+    },
+    echo: {
+      hide: '캐리어 WAV에 아주 짧은 반향을 섞어 비트를 표현합니다.',
+      find: '에코 은닉으로 심은 WAV에서 메시지를 꺼냅니다.',
+    },
+  };
+
+  for (const preset of FSK_PRESETS) {
+    const option = document.createElement('option');
+    option.value = preset.id;
+    option.textContent = preset.label;
+    presetSelect.append(option);
+  }
+  presetSelect.value = 'ultrasonic';
+
+  let carrierSamples: Float32Array | null = null;
+  let carrierSampleRate = 44100;
+  let carrierName = '';
+  let generatedSamples: Float32Array | null = null;
+  let generatedSampleRate = 44100;
+  let audioContext: AudioContext | null = null;
+
+  const technique = () =>
+    (document.querySelector('input[name="af-technique"]:checked') as HTMLInputElement).value;
+
+  const currentPreset = (): FskPreset =>
+    FSK_PRESETS.find((preset) => preset.id === presetSelect.value) ?? FSK_PRESETS[0];
+
+  function updateNeed() {
+    const needed = new TextEncoder().encode(textArea.value).length + frameOverhead('');
+    if (technique() === 'fsk') {
+      const preset = currentPreset();
+      const seconds = (needed * 8 + 10) * preset.symbolSeconds;
+      needInfo.textContent = `${formatByteSize(needed)} → 약 ${seconds.toFixed(1)}초 길이의 소리가 됩니다.`;
+      needInfo.classList.remove('over');
+      return;
+    }
+    if (!carrierSamples) {
+      needInfo.textContent = '';
+      return;
+    }
+    const capacity =
+      technique() === 'phase'
+        ? phaseCapacityBytes(carrierSamples.length)
+        : echoCapacityBytes(carrierSamples.length);
+    needInfo.textContent = `필요 ${formatByteSize(needed)} / 가능 ${formatByteSize(capacity)}`;
+    needInfo.classList.toggle('over', needed > capacity);
+  }
+
+  function updateTechnique() {
+    const current = technique();
+    techniqueDescription.textContent = DESCRIPTIONS[current].hide;
+    findDescription.textContent = DESCRIPTIONS[current].find;
+    carrierRow.hidden = current === 'fsk';
+    capacityInfo.hidden = current === 'fsk';
+    presetRow.hidden = current !== 'fsk';
+    micRow.hidden = current !== 'fsk';
+    setStatus(hideStatus, '');
+    setStatus(findStatus, '');
+    playButton.hidden = true;
+    foundArea.hidden = true;
+    updateNeed();
+  }
+
+  for (const radio of document.querySelectorAll<HTMLInputElement>('input[name="af-technique"]')) {
+    radio.addEventListener('change', updateTechnique);
+  }
+  presetSelect.addEventListener('change', updateNeed);
+  textArea.addEventListener('input', updateNeed);
+
+  carrierInput.addEventListener('change', async () => {
+    const file = carrierInput.files?.[0];
+    setStatus(hideStatus, '');
+    carrierSamples = null;
+    if (!file) return;
+    try {
+      const bytes = await readFileBytes(file);
+      const chunk = findWavDataChunk(bytes);
+      const view = wavSampleView(bytes, chunk);
+      // 여러 채널이면 첫 채널만 쓴다 (기법들이 모노 기준)
+      const samples = new Float32Array(Math.floor(view.length / chunk.channels));
+      for (let i = 0; i < samples.length; i++) samples[i] = view[i * chunk.channels] / 32768;
+      carrierSamples = samples;
+      carrierSampleRate = chunk.sampleRate;
+      carrierName = file.name.replace(/\.[^.]+$/, '');
+      capacityInfo.textContent = `${(samples.length / chunk.sampleRate).toFixed(2)}초 · ${chunk.sampleRate.toLocaleString()}Hz`;
+      updateNeed();
+    } catch (e) {
+      setStatus(hideStatus, e instanceof Error ? e.message : String(e));
+    }
+  });
+
+  el<HTMLButtonElement>('af-hide').addEventListener('click', () => {
+    setStatus(hideStatus, '');
+    playButton.hidden = true;
+    if (textArea.value === '') {
+      setStatus(hideStatus, '숨길 메시지를 입력하세요.');
+      return;
+    }
+    const payload = {
+      kind: 'text' as const,
+      name: '',
+      data: new TextEncoder().encode(textArea.value),
+    };
+    const current = technique();
+    try {
+      if (current === 'fsk') {
+        generatedSampleRate = 48000;
+        generatedSamples = fskModulate(payload, currentPreset(), generatedSampleRate);
+      } else {
+        if (!carrierSamples) {
+          setStatus(hideStatus, '먼저 캐리어 WAV를 선택하세요.');
+          return;
+        }
+        generatedSampleRate = carrierSampleRate;
+        generatedSamples =
+          current === 'phase' ? phaseEmbed(carrierSamples, payload) : echoEmbed(carrierSamples, payload);
+      }
+    } catch (e) {
+      setStatus(hideStatus, e instanceof Error ? e.message : String(e));
+      return;
+    }
+    const suffix = current === 'fsk' ? 'fsk' : current;
+    downloadBytes(
+      encodeWav(generatedSamples, generatedSampleRate),
+      `${carrierName || 'audio'}-${suffix}.wav`,
+      'audio/wav',
+    );
+    setStatus(
+      hideStatus,
+      `${(generatedSamples.length / generatedSampleRate).toFixed(2)}초 WAV를 저장했습니다.`,
+      true,
+    );
+    playButton.hidden = false;
+  });
+
+  playButton.addEventListener('click', () => {
+    if (!generatedSamples) return;
+    audioContext ??= new AudioContext();
+    if (audioContext.state === 'suspended') void audioContext.resume();
+    const buffer = audioContext.createBuffer(1, generatedSamples.length, generatedSampleRate);
+    buffer.copyToChannel(generatedSamples, 0);
+    const source = audioContext.createBufferSource();
+    source.buffer = buffer;
+    source.connect(audioContext.destination);
+    source.start();
+    setStatus(hideStatus, '재생 중 — 다른 기기의 "마이크로 듣기"로 받아보세요.', true);
+  });
+
+  function showPayload(payload: { data: Uint8Array } | null, notFound: string) {
+    if (!payload) {
+      foundArea.hidden = true;
+      setStatus(findStatus, notFound);
+      return;
+    }
+    foundArea.value = new TextDecoder().decode(payload.data);
+    foundArea.hidden = false;
+    setStatus(findStatus, '숨겨진 메시지를 찾았습니다.', true);
+  }
+
+  findInput.addEventListener('change', async () => {
+    const file = findInput.files?.[0];
+    setStatus(findStatus, '');
+    foundArea.hidden = true;
+    if (!file) return;
+    try {
+      const bytes = await readFileBytes(file);
+      const chunk = findWavDataChunk(bytes);
+      const view = wavSampleView(bytes, chunk);
+      const samples = new Float32Array(Math.floor(view.length / chunk.channels));
+      for (let i = 0; i < samples.length; i++) samples[i] = view[i * chunk.channels] / 32768;
+      const current = technique();
+      if (current === 'phase') showPayload(phaseExtract(samples), '위상 코딩으로 심은 데이터를 찾지 못했습니다.');
+      else if (current === 'echo') showPayload(echoExtract(samples), '에코 은닉으로 심은 데이터를 찾지 못했습니다.');
+      else
+        showPayload(
+          fskDemodulate(samples, currentPreset(), chunk.sampleRate),
+          'FSK 신호를 찾지 못했습니다. 대역 설정이 보낸 쪽과 같은지 확인하세요.',
+        );
+    } catch (e) {
+      setStatus(findStatus, e instanceof Error ? e.message : String(e));
+    }
+  });
+
+  // 마이크로 듣기 — 8초 녹음 후 오프라인 복조 (루프 스테이션의 워클릿 캡처와 같은 방식)
+  const LISTEN_SECONDS = 8;
+  const WORKLET_CODE = `
+    class Capture extends AudioWorkletProcessor {
+      process(inputs) {
+        const channel = inputs[0] && inputs[0][0];
+        if (channel) this.port.postMessage(channel.slice(0));
+        return true;
+      }
+    }
+    registerProcessor('fsk-capture', Capture);
+  `;
+
+  listenButton.addEventListener('click', async () => {
+    setStatus(findStatus, '');
+    foundArea.hidden = true;
+    listenButton.disabled = true;
+    let stream: MediaStream | null = null;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          // 초음파를 살리려면 통화용 처리를 모두 꺼야 한다
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false,
+        },
+      });
+      audioContext ??= new AudioContext();
+      if (audioContext.state === 'suspended') await audioContext.resume();
+      const workletUrl = URL.createObjectURL(
+        new Blob([WORKLET_CODE], { type: 'application/javascript' }),
+      );
+      await audioContext.audioWorklet.addModule(workletUrl);
+      URL.revokeObjectURL(workletUrl);
+
+      const node = new AudioWorkletNode(audioContext, 'fsk-capture', { channelCount: 1 });
+      const chunks: Float32Array[] = [];
+      let total = 0;
+      node.port.onmessage = (event: MessageEvent<Float32Array>) => {
+        chunks.push(event.data);
+        total += event.data.length;
+      };
+      const source = audioContext.createMediaStreamSource(stream);
+      const silent = audioContext.createGain();
+      silent.gain.value = 0;
+      source.connect(node);
+      node.connect(silent).connect(audioContext.destination);
+
+      const sampleRate = audioContext.sampleRate;
+      for (let remaining = LISTEN_SECONDS; remaining > 0; remaining--) {
+        listenInfo.textContent = `${remaining}초 남음…`;
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      }
+      listenInfo.textContent = '';
+      source.disconnect();
+      node.disconnect();
+
+      const recorded = new Float32Array(total);
+      let offset = 0;
+      for (const chunk of chunks) {
+        recorded.set(chunk, offset);
+        offset += chunk.length;
+      }
+      showPayload(
+        fskDemodulate(recorded, currentPreset(), sampleRate),
+        '소리에서 신호를 찾지 못했습니다. 기기를 가까이 두고 볼륨을 올려 다시 시도해보세요.',
+      );
+    } catch (e) {
+      setStatus(findStatus, `마이크를 사용하지 못했습니다: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      stream?.getTracks().forEach((track) => track.stop());
+      listenButton.disabled = false;
+    }
+  });
+
+  updateTechnique();
+</script>
+
+<style>
+  /* 카드·참고 레이아웃은 styles/steganography.css에 있다 */
+  .technique {
+    margin-bottom: 0.7rem;
+  }
+
+  .technique-desc {
+    margin-bottom: 1rem;
+  }
+
+  .controls {
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+    flex-wrap: wrap;
+  }
+
+  .controls[hidden] {
+    display: none;
+  }
+
+  .num-field {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    color: var(--text-dim);
+    font-size: 0.85rem;
+    font-weight: 600;
+  }
+
+  .num-field[hidden] {
+    display: none;
+  }
+
+  .num-field select {
+    border: 1px solid var(--border);
+    background: var(--bg-soft);
+    color: var(--text);
+    font: inherit;
+    font-size: 0.85rem;
+    padding: 0.3rem 0.5rem;
+    border-radius: 0.5rem;
+  }
+
+  .detect[hidden] {
+    display: none;
+  }
+
+  .notes a {
+    color: var(--accent);
+  }
+
+  textarea[hidden] {
+    display: none;
+  }
+</style>

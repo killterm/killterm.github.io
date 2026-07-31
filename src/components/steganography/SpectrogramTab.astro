@@ -1,0 +1,321 @@
+---
+// 스펙트로그램 은닉: 그림을 소리로 합성해 스펙트로그램에만 보이게 한다.
+import '../../styles/steganography.css';
+---
+
+<div class="steganography">
+  <div class="cards">
+    <section class="card" aria-labelledby="spec-make-title">
+      <h2 id="spec-make-title">그림을 소리로</h2>
+      <p class="desc">
+        그림을 시간×주파수 평면으로 해석해 소리를 만듭니다. 귀로는 잡음처럼 들리지만 스펙트로그램으로
+        보면 그림이 나타납니다.
+      </p>
+
+      <div class="chip-group" role="radiogroup" aria-label="입력 방식">
+        <label class="chip">
+          <input type="radio" name="spec-source" value="text" checked />
+          <span>글자</span>
+        </label>
+        <label class="chip">
+          <input type="radio" name="spec-source" value="image" />
+          <span>이미지</span>
+        </label>
+      </div>
+
+      <input id="spec-word" type="text" value="HELLO" maxlength="12" aria-label="숨길 글자" />
+      <label class="file-row" id="spec-image-row" hidden>
+        <span>흑백으로 변환할 이미지</span>
+        <input id="spec-image" type="file" accept="image/*" />
+      </label>
+
+      <div class="controls">
+        <label class="num-field">
+          길이(초)
+          <input id="spec-seconds" type="number" min="1" max="15" step="1" value="4" />
+        </label>
+        <label class="num-field">
+          주파수 범위
+          <select id="spec-range" aria-label="주파수 범위">
+            <option value="500-8000" selected>500Hz ~ 8kHz</option>
+            <option value="200-4000">200Hz ~ 4kHz</option>
+            <option value="1000-16000">1kHz ~ 16kHz</option>
+          </select>
+        </label>
+      </div>
+
+      <canvas id="spec-source-preview" class="preview" hidden></canvas>
+      <div class="controls">
+        <button id="spec-make" class="btn btn-primary" type="button">WAV 만들기</button>
+        <button id="spec-play" class="btn btn-small" type="button" hidden>🔊 들어보기</button>
+      </div>
+      <p id="spec-make-status" class="status" role="status"></p>
+    </section>
+
+    <section class="card" aria-labelledby="spec-view-title">
+      <h2 id="spec-view-title">스펙트로그램 보기</h2>
+      <p class="desc">WAV를 넣으면 주파수 그림을 그립니다. 방금 만든 소리를 넣어 확인해보세요.</p>
+
+      <label class="file-row">
+        <span>검사할 WAV</span>
+        <input id="spec-audio" type="file" accept=".wav,audio/wav,audio/x-wav" />
+      </label>
+
+      <canvas id="spec-view" class="preview spectrogram" hidden></canvas>
+      <p id="spec-view-status" class="status" role="status"></p>
+    </section>
+  </div>
+
+  <section class="notes">
+    <h2>참고</h2>
+    <ul>
+      <li>
+        이 기법은 데이터를 정확히 복원하는 용도가 아니라 <strong>보는 사람에게 그림을 보여주는</strong>
+        방식입니다. 음악 속에 이미지를 숨긴 사례(Aphex Twin의 &ldquo;Δ&thinsp;Mᵢ⁻¹&rdquo;, Nine Inch
+        Nails 등)로 유명합니다.
+      </li>
+      <li>
+        위상을 무작위로 채우기 때문에 소리는 잡음처럼 들립니다. 실제 곡에 숨길 때는 이 소리를 곡에
+        아주 작게 섞습니다.
+      </li>
+      <li>
+        글자는 굵고 단순할수록 잘 보입니다. 가로가 시간, 세로가 주파수이므로 길이를 늘리면 그림이
+        가로로 늘어납니다.
+      </li>
+      <li>MP3로 변환하면 고주파가 깎여 그림 윗부분이 잘릴 수 있습니다.</li>
+    </ul>
+  </section>
+</div>
+
+<script>
+  import {
+    DEFAULT_OPTIONS,
+    audioToSpectrogram,
+    imageToAudio,
+  } from '../../lib/spectrogram';
+  import { findWavDataChunk, wavSampleView } from '../../lib/steganography-frame';
+  import { encodeWav } from '../../lib/wav-encode';
+  import { downloadBytes, readFileBytes } from '../../lib/file-io';
+
+  const el = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+  const wordInput = el<HTMLInputElement>('spec-word');
+  const imageRow = el<HTMLLabelElement>('spec-image-row');
+  const imageInput = el<HTMLInputElement>('spec-image');
+  const secondsInput = el<HTMLInputElement>('spec-seconds');
+  const rangeSelect = el<HTMLSelectElement>('spec-range');
+  const sourcePreview = el<HTMLCanvasElement>('spec-source-preview');
+  const playButton = el<HTMLButtonElement>('spec-play');
+  const makeStatus = el<HTMLParagraphElement>('spec-make-status');
+  const audioInput = el<HTMLInputElement>('spec-audio');
+  const viewCanvas = el<HTMLCanvasElement>('spec-view');
+  const viewStatus = el<HTMLParagraphElement>('spec-view-status');
+
+  const setStatus = (node: HTMLElement, message: string, ok = false) => {
+    node.textContent = message;
+    node.classList.toggle('status-ok', ok && message !== '');
+  };
+
+  const SOURCE_WIDTH = 256;
+  const SOURCE_HEIGHT = 128;
+
+  let generated: Float32Array | null = null;
+  let audioContext: AudioContext | null = null;
+
+  const sourceMode = () =>
+    (document.querySelector('input[name="spec-source"]:checked') as HTMLInputElement).value;
+
+  for (const radio of document.querySelectorAll<HTMLInputElement>('input[name="spec-source"]')) {
+    radio.addEventListener('change', () => {
+      const isText = sourceMode() === 'text';
+      wordInput.hidden = !isText;
+      imageRow.hidden = isText;
+      void updateSourcePreview();
+    });
+  }
+
+  /** 글자나 이미지를 밝기 배열로 만든다 (흰 배경 · 검은 그림 → 밝기 반전) */
+  async function buildBrightness(): Promise<Float32Array | null> {
+    const canvas = document.createElement('canvas');
+    canvas.width = SOURCE_WIDTH;
+    canvas.height = SOURCE_HEIGHT;
+    const context = canvas.getContext('2d')!;
+    context.fillStyle = '#000';
+    context.fillRect(0, 0, SOURCE_WIDTH, SOURCE_HEIGHT);
+
+    if (sourceMode() === 'text') {
+      const word = wordInput.value.trim();
+      if (word === '') return null;
+      context.fillStyle = '#fff';
+      context.textAlign = 'center';
+      context.textBaseline = 'middle';
+      // 폭에 맞춰 글자 크기를 줄인다
+      let fontSize = SOURCE_HEIGHT * 0.8;
+      do {
+        context.font = `bold ${fontSize}px sans-serif`;
+        fontSize -= 4;
+      } while (context.measureText(word).width > SOURCE_WIDTH * 0.92 && fontSize > 8);
+      context.fillText(word, SOURCE_WIDTH / 2, SOURCE_HEIGHT / 2);
+    } else {
+      const file = imageInput.files?.[0];
+      if (!file) return null;
+      const bitmap = await createImageBitmap(file);
+      context.drawImage(bitmap, 0, 0, SOURCE_WIDTH, SOURCE_HEIGHT);
+      bitmap.close();
+    }
+
+    const pixels = context.getImageData(0, 0, SOURCE_WIDTH, SOURCE_HEIGHT);
+    const brightness = new Float32Array(SOURCE_WIDTH * SOURCE_HEIGHT);
+    for (let i = 0; i < brightness.length; i++) {
+      const base = i * 4;
+      // 밝을수록 그 주파수의 에너지가 커진다
+      brightness[i] =
+        (0.299 * pixels.data[base] + 0.587 * pixels.data[base + 1] + 0.114 * pixels.data[base + 2]) /
+        255;
+    }
+    sourcePreview.width = SOURCE_WIDTH;
+    sourcePreview.height = SOURCE_HEIGHT;
+    sourcePreview.getContext('2d')!.putImageData(pixels, 0, 0);
+    sourcePreview.hidden = false;
+    return brightness;
+  }
+
+  async function updateSourcePreview() {
+    setStatus(makeStatus, '');
+    const brightness = await buildBrightness();
+    if (!brightness) sourcePreview.hidden = true;
+  }
+
+  wordInput.addEventListener('input', () => void updateSourcePreview());
+  imageInput.addEventListener('change', () => void updateSourcePreview());
+
+  el<HTMLButtonElement>('spec-make').addEventListener('click', async () => {
+    setStatus(makeStatus, '');
+    playButton.hidden = true;
+    const brightness = await buildBrightness();
+    if (!brightness) {
+      setStatus(makeStatus, sourceMode() === 'text' ? '글자를 입력하세요.' : '이미지를 선택하세요.');
+      return;
+    }
+    const [minFrequency, maxFrequency] = rangeSelect.value.split('-').map(Number);
+    generated = imageToAudio(brightness, SOURCE_WIDTH, SOURCE_HEIGHT, {
+      ...DEFAULT_OPTIONS,
+      minFrequency,
+      maxFrequency,
+      seconds: Math.min(15, Math.max(1, Number(secondsInput.value) || 4)),
+    });
+    downloadBytes(encodeWav(generated, DEFAULT_OPTIONS.sampleRate), 'spectrogram.wav', 'audio/wav');
+    setStatus(makeStatus, '만든 WAV를 저장했습니다. 오른쪽에서 열어 그림을 확인해보세요.', true);
+    playButton.hidden = false;
+  });
+
+  playButton.addEventListener('click', () => {
+    if (!generated) return;
+    audioContext ??= new AudioContext();
+    if (audioContext.state === 'suspended') void audioContext.resume();
+    const buffer = audioContext.createBuffer(1, generated.length, DEFAULT_OPTIONS.sampleRate);
+    buffer.copyToChannel(generated, 0);
+    const source = audioContext.createBufferSource();
+    source.buffer = buffer;
+    const gain = audioContext.createGain();
+    gain.gain.value = 0.4;
+    source.connect(gain).connect(audioContext.destination);
+    source.start();
+  });
+
+  audioInput.addEventListener('change', async () => {
+    const file = audioInput.files?.[0];
+    setStatus(viewStatus, '');
+    viewCanvas.hidden = true;
+    if (!file) return;
+    try {
+      const bytes = await readFileBytes(file);
+      const chunk = findWavDataChunk(bytes);
+      const view = wavSampleView(bytes, chunk);
+      const samples = new Float32Array(Math.floor(view.length / chunk.channels));
+      for (let i = 0; i < samples.length; i++) samples[i] = view[i * chunk.channels] / 32768;
+
+      const spectrogram = audioToSpectrogram(samples, chunk.sampleRate);
+      // 16kHz까지만 그린다 (그 위는 대개 비어 있다)
+      const binHz = chunk.sampleRate / ((spectrogram.binCount - 1) * 2);
+      const topBin = Math.min(spectrogram.binCount - 1, Math.round(16000 / binHz));
+      viewCanvas.width = spectrogram.frameCount;
+      viewCanvas.height = topBin;
+      const image = new ImageData(spectrogram.frameCount, topBin);
+      for (let frame = 0; frame < spectrogram.frameCount; frame++) {
+        for (let bin = 0; bin < topBin; bin++) {
+          const value = spectrogram.values[frame * spectrogram.binCount + bin];
+          // 위쪽이 높은 주파수가 되도록 뒤집는다
+          const index = ((topBin - 1 - bin) * spectrogram.frameCount + frame) * 4;
+          image.data[index] = Math.round(value * 90);
+          image.data[index + 1] = Math.round(value * 220);
+          image.data[index + 2] = Math.round(value * 160);
+          image.data[index + 3] = 255;
+        }
+      }
+      viewCanvas.getContext('2d')!.putImageData(image, 0, 0);
+      viewCanvas.hidden = false;
+      setStatus(viewStatus, `${(samples.length / chunk.sampleRate).toFixed(2)}초 · 스펙트로그램`, true);
+    } catch (e) {
+      setStatus(viewStatus, e instanceof Error ? e.message : String(e));
+    }
+  });
+
+  void updateSourcePreview();
+</script>
+
+<style>
+  /* 카드·참고 레이아웃은 styles/steganography.css에 있다 */
+  .controls {
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+    flex-wrap: wrap;
+  }
+
+  .num-field {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    color: var(--text-dim);
+    font-size: 0.85rem;
+    font-weight: 600;
+  }
+
+  .num-field input,
+  .num-field select,
+  #spec-word {
+    border: 1px solid var(--border);
+    background: var(--bg-soft);
+    color: var(--text);
+    font: inherit;
+    font-size: 0.85rem;
+    padding: 0.35rem 0.6rem;
+    border-radius: 0.5rem;
+  }
+
+  .num-field input {
+    width: 4.4rem;
+  }
+
+  #spec-word {
+    width: 100%;
+    font-size: 1rem;
+    letter-spacing: 0.05em;
+  }
+
+  #spec-word[hidden] {
+    display: none;
+  }
+
+  .spectrogram {
+    width: 100%;
+    background: #000;
+    image-rendering: auto;
+  }
+
+  #spec-source-preview {
+    max-height: 120px;
+    object-fit: contain;
+    background: #000;
+  }
+</style>

@@ -72,19 +72,20 @@
   UA 스타일시트의 `[hidden]` 규칙보다 우선한다 — 둘 다 이 저장소에서 실제로
   밟았던 함정이다 (만다라트 preview, glb anim-row 등).
 
-### 탭형 도구 페이지 공통 구조 (개발 도구 · 하드웨어 테스트)
+### 탭형 도구 페이지 공통 구조 (개발 도구 · 하드웨어 테스트 · 스테가노그래피)
 
 - 탭 하나가 곧 정적 페이지 하나다 (해시 대신 고유 URL 경로):
   `/devtools/{timestamp,json,regex,diff,color,random,cron}/`,
-  `/hwtest/{keyboard,mouse,touch,monitor,reaction,sound,webcam,mic,geo,network}/`.
+  `/hwtest/{keyboard,mouse,touch,monitor,reaction,sound,webcam,mic,geo,network}/`,
+  `/steganography/{polyglot,metadata,image,dct,audio,audio-frequency,spectrogram,visual-crypto,text,analyze}/`.
 - 공용 셸은 `src/components/ToolPage.astro` — 홈 링크·소개·링크형 탭 바·본문
   슬롯. 공통 컨트롤 스타일(.btn/.chip/.status/.hint/.field-row/textarea)은
   여기의 `<style is:global>`에 `.tool-main` 프리픽스로 선언되어 있다.
 - 탭 목록·소개 문구는 `src/lib/tool-tabs.ts`에서 공유하고, 각 페이지는
   `active`로 자기 경로를 넘긴다. 탭 마크업·스크립트·스타일은
-  `src/components/{devtools,hwtest}/*Tab.astro`에 있다.
+  `src/components/{devtools,hwtest,steganography}/*Tab.astro`에 있다.
 - `/devtools/`·`/hwtest/` index는 옛 해시 링크(`/hwtest/#keyboard`) 호환용
-  리다이렉트 페이지다 (해시를 경로로 매핑).
+  리다이렉트 페이지다 (해시를 경로로 매핑). `/steganography/` index는 첫 탭으로 보낸다.
 - JS로 동적 생성하는 노드(키 로그 행, 매치 테이블 등)에는 scoped 해시가 안
   붙으므로 `:global()` 셀렉터로 스타일링한다.
 
@@ -294,6 +295,76 @@
   레벨 미터 모두에 반영된다. 마이크 중지 버튼은 스트림만 놓아주고
   루프/재생은 유지한다.
 - 내보내기는 mixTracks() 오프라인 믹스다운(루프 1회) → encodeWav 재사용.
+
+### 스테가노그래피 (`src/pages/steganography/`)
+
+데이터를 파일·글 속에 숨기고 찾는 탭 그룹. 전부 브라우저 안에서 처리한다.
+**URL에 약어(`/steg/`)를 쓰지 않는다** — 경로만 보고 무엇인지 알 수 있어야 한다.
+
+**기법을 층위별로 모아 둔 것이 이 그룹의 핵심**이다. 같은 기법을 캐리어만 바꿔
+반복하지 말고, 은닉 위치가 실제로 다른 것을 추가한다:
+
+| 탭 | 어디에 숨기나 | 성질 |
+| --- | --- | --- |
+| 폴리글랏 | 파일 **뒤에** 이어 붙임 | 원본 무손실, 검사 도구가 쉽게 발견 |
+| 메타데이터 | 파일 구조의 **빈 자리** | 재인코딩 없음(화질 그대로), exiftool로 즉시 발견 |
+| 이미지 LSB | 픽셀 **최하위 비트** | 용량 큼, 재압축하면 소멸 |
+| 이미지 DCT | 8×8 블록 **주파수 계수** | 용량 작음, **JPEG 재압축 생존** |
+| 오디오 LSB | 샘플 최하위 비트 | 용량 큼, 변환하면 소멸 |
+| 오디오 주파수 | 위상 · FSK · 에코 | 각각 다른 트레이드오프(아래) |
+| 스펙트로그램 | 소리의 **그림** | 데이터 복원용이 아닌 보여주기 |
+| 시각 암호 | 조각 두 장으로 **분산** | 한 장은 정보 0(정보이론적 안전) |
+| 텍스트 | 제로폭 · 호모글리프 · 공백 | 글 자체에 숨김 |
+
+- **공용 프레임**(`src/lib/steganography-frame.ts`):
+  `magic "KSTG"(4) | version(1) | kind(1) | nameLen(1) | name | dataLen(4, BE) |
+  data`. 자기 기술적이라 추출 시 검증할 수 있고, 모든 기법과 분석 탭이 공유한다.
+  LSB 함수(`lsbWrite/lsbRead/readFrameFrom`)는 **컨테이너 + 슬롯 인덱스 목록**으로
+  일반화해 이미지(RGB, 알파 제외)와 오디오(Int16)가 같은 코드를 쓴다.
+  WAV는 재인코딩하지 않고 data 청크만 in-place 패치한다(16-bit PCM 전용,
+  `wavSampleView`는 byteOffset 홀수면 복사본을 주므로 쓰기 후 되반영 필요).
+- **FFT·DCT를 직접 구현한 이유**(`src/lib/fft.ts`, `dct.ts`): 브라우저에 임의
+  배열용 FFT가 없고 AnalyserNode는 실시간·크기 전용이라 위상을 주지 않는다.
+  JPEG 양자화 계수에도 접근할 수 없어 픽셀에서 DCT를 직접 계산한다.
+- **이미지 DCT**(`steganography-dct.ts`): 파랑 채널(눈이 가장 둔감) 8×8 블록의
+  중간 주파수 계수 3개에 QIM(Δ=32) + 비트당 3블록 반복·다수결. Δ가 크고 반복이
+  있어야 JPEG가 버리는 미세 차이를 이긴다. 저주파는 눈에 띄고 고주파는 압축에
+  먼저 버려지므로 중간대만 쓴다. 8×8 격자를 쓰는 이유는 JPEG 블록과 일치시켜
+  재압축 시 계수 위치가 어긋나지 않게 하기 위함이다.
+- **오디오 주파수**(`steganography-audio.ts`) 세 기법의 트레이드오프:
+  위상 코딩은 구간 1024샘플당 1비트(약 5바이트/초)로 용량이 작고 구간 경계가
+  어긋나면 복원이 깨진다(겹치지 않게 자르는 대신 경계에서 약한 클릭 가능).
+  FSK는 캐리어에 숨기는 게 아니라 소리 자체가 데이터이며, 프리앰블로 심볼 경계를
+  찾고 Goertzel로 복조한다 — 초음파(18.5/19.5kHz)는 대부분의 성인에게 들리지 않아
+  기기 간 마이크 수신 시연이 가능하지만 하드웨어에 따라 실패한다. 에코는 켑스트럼
+  피크로 읽으며 용량이 가장 작다(4096샘플당 1비트).
+- **메타데이터**(`steganography-metadata.ts`): PNG는 텍스트를 표준 iTXt(UTF-8),
+  파일을 사설 청크 `stEg`(ancillary·private·safe-to-copy)에 넣는다. JPEG는 COM
+  세그먼트를 쓰고 64KB를 넘으면 분할·재조립한다. 어느 쪽도 이미지 데이터를 다시
+  압축하지 않는다.
+- **시각 암호**(`visual-crypto.ts`): Naor–Shamir 2-of-2, 픽셀당 2×2 확장.
+  흰색은 두 share에 같은 패턴·검정은 보수 패턴 → 겹치면(OR) 검정만 완전히 채워진다.
+  조각은 반드시 무손실(PNG)로 주고받아야 한다.
+- **스펙트로그램**(`spectrogram.ts`): 프레임별 IFFT + 무작위 위상 + Hann
+  overlap-add. 위상이 무작위라 소리는 잡음처럼 들리고 스펙트로그램 모양만 남는다.
+- **텍스트 3종**(`steganography-text.ts`): 제로폭(어디든 넣지만 필터가 잘 지움),
+  호모글리프(필터 통과하지만 라틴 글자 수만큼만 담김 — **피싱에 악용되는 기법이라
+  경고 문구 유지**), 줄 끝 공백(안 보이지만 편집기가 지울 수 있음).
+- **분석 탭은 여러 기법을 한 번에 검사**한다(LSB·DCT·메타데이터·파일 끝 잔여
+  데이터) + 비트플레인·LSB 통계. 숨기기 도구와 같은 그룹에 두어 **얼마나 쉽게
+  들키는지 스스로 확인**하게 하는 것이 의도다.
+- **암호화는 넣지 않았다** — 넣으면 "안전하다"는 오해를 만들고 키 관리까지 따라온다.
+  대신 각 탭이 "기밀 보호 수단이 아니다, 중요하면 암호화한 파일을 숨기라"고 안내한다.
+- **비디오 주파수 기법은 제외**했다: 의미 있는 방식은 H.264/VP9의 DCT 계수를
+  건드려야 하는데 브라우저(WebCodecs 포함)가 계수를 노출하지 않는다. 프레임 밝기
+  시간축 변조는 손실 압축이 지워버려 실용성이 없다.
+- 폴리글랏은 원래 `/polyglot/` 단독 페이지였다가 이 그룹으로 옮겼다(옛 경로는
+  리다이렉트 유지). 옮기면서 ToolPage 전역과 겹치던 `.btn`/`.status` 기본형을
+  지우고, `main {}`에 있던 색 변수는 스코프가 닿지 않으므로 `.polyglot` 래퍼로
+  옮겼다.
+- 탭들이 같은 카드 레이아웃을 쓰므로 스코프 스타일을 복제하지 않고
+  `src/styles/steganography.css`(`.steganography` 프리픽스) 하나로 모아 import한다.
+  파일 읽기·내려받기·크기 표기는 `src/lib/file-io.ts`로 공유한다.
 
 ### P2P 화상 통화 (`src/pages/call.astro`)
 

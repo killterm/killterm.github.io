@@ -1,0 +1,252 @@
+---
+// 메타데이터: 픽셀을 건드리지 않고 파일 구조의 빈 자리(PNG 청크 · JPEG 주석)에 넣는다.
+import '../../styles/steganography.css';
+---
+
+<div class="steganography">
+  <div class="cards">
+    <section class="card" aria-labelledby="meta-hide-title">
+      <h2 id="meta-hide-title">숨기기</h2>
+      <p class="desc">
+        PNG는 텍스트 청크·사설 청크에, JPEG는 주석(COM) 세그먼트에 넣습니다.
+        <strong>이미지 데이터는 다시 압축되지 않아</strong> 화질이 조금도 변하지 않습니다.
+      </p>
+
+      <label class="file-row">
+        <span>캐리어 이미지 (PNG 또는 JPEG)</span>
+        <input id="meta-carrier" type="file" accept="image/png,image/jpeg" />
+      </label>
+      <p class="detect" id="meta-carrier-info"></p>
+
+      <div class="chip-group" role="radiogroup" aria-label="숨길 대상">
+        <label class="chip">
+          <input type="radio" name="meta-mode" value="text" checked />
+          <span>텍스트</span>
+        </label>
+        <label class="chip">
+          <input type="radio" name="meta-mode" value="file" />
+          <span>파일</span>
+        </label>
+      </div>
+
+      <textarea id="meta-text" rows="4" placeholder="숨길 메시지를 입력하세요" spellcheck="false"
+      ></textarea>
+      <label class="file-row" id="meta-secret-row" hidden>
+        <span>숨길 파일</span>
+        <input id="meta-secret" type="file" />
+      </label>
+
+      <button id="meta-hide" class="btn btn-primary" type="button">저장</button>
+      <p id="meta-hide-status" class="status" role="status"></p>
+    </section>
+
+    <section class="card" aria-labelledby="meta-find-title">
+      <h2 id="meta-find-title">찾기</h2>
+      <p class="desc">파일에 어떤 메타데이터가 들어 있는지 목록으로 보여주고, 숨긴 데이터를 꺼냅니다.</p>
+
+      <label class="file-row">
+        <span>검사할 이미지</span>
+        <input id="meta-find" type="file" accept="image/png,image/jpeg" />
+      </label>
+
+      <dl id="meta-entries" class="result" hidden></dl>
+      <textarea id="meta-found-text" rows="4" readonly hidden></textarea>
+      <button id="meta-save-found" class="btn" type="button" hidden>숨긴 파일 저장</button>
+      <p id="meta-find-status" class="status" role="status"></p>
+    </section>
+  </div>
+
+  <section class="notes">
+    <h2>참고</h2>
+    <ul>
+      <li>
+        <strong>가장 쉽게 발견되는 기법입니다.</strong> exiftool 같은 도구가 메타데이터를 바로
+        나열합니다. 대신 화질 손실이 전혀 없고 용량 제한도 거의 없습니다.
+      </li>
+      <li>
+        SNS·메신저는 업로드 시 메타데이터를 통째로 지우는 경우가 많습니다(개인정보 보호 목적).
+        그러면 숨긴 데이터도 함께 사라집니다.
+      </li>
+      <li>
+        PNG 텍스트는 표준 iTXt 청크(UTF-8)로 넣어 다른 뷰어에서도 읽힙니다. 파일은 사설 청크
+        <code>stEg</code>에 원본 바이트 그대로 넣습니다 — 규격상 무시해도 되는 청크라 이미지 표시에
+        영향이 없습니다.
+      </li>
+      <li>
+        반대로 이 탭은 <strong>내 사진에 어떤 정보가 붙어 있는지 확인</strong>하는 용도로도 쓸 수
+        있습니다. 촬영 기기·위치 같은 정보를 보려면 <a href="/image/">이미지 편집</a>의 EXIF 뷰어를
+        쓰세요.
+      </li>
+    </ul>
+  </section>
+</div>
+
+<script>
+  import {
+    detectFormat,
+    listMetadata,
+    metadataEmbed,
+    metadataExtract,
+  } from '../../lib/steganography-metadata';
+  import { downloadBytes, formatByteSize, readFileBytes } from '../../lib/file-io';
+
+  const el = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+  const carrierInput = el<HTMLInputElement>('meta-carrier');
+  const carrierInfo = el<HTMLParagraphElement>('meta-carrier-info');
+  const textArea = el<HTMLTextAreaElement>('meta-text');
+  const secretRow = el<HTMLLabelElement>('meta-secret-row');
+  const secretInput = el<HTMLInputElement>('meta-secret');
+  const hideStatus = el<HTMLParagraphElement>('meta-hide-status');
+  const findInput = el<HTMLInputElement>('meta-find');
+  const entryList = el<HTMLDListElement>('meta-entries');
+  const foundText = el<HTMLTextAreaElement>('meta-found-text');
+  const saveFoundButton = el<HTMLButtonElement>('meta-save-found');
+  const findStatus = el<HTMLParagraphElement>('meta-find-status');
+
+  const setStatus = (node: HTMLElement, message: string, ok = false) => {
+    node.textContent = message;
+    node.classList.toggle('status-ok', ok && message !== '');
+  };
+
+  let carrierBytes: Uint8Array | null = null;
+  let carrierName = '';
+  let carrierFormat: 'png' | 'jpeg' = 'png';
+  let secretBytes: Uint8Array | null = null;
+  let secretName = '';
+  let foundFile: { name: string; data: Uint8Array } | null = null;
+
+  const currentMode = () =>
+    (document.querySelector('input[name="meta-mode"]:checked') as HTMLInputElement).value;
+
+  carrierInput.addEventListener('change', async () => {
+    const file = carrierInput.files?.[0];
+    setStatus(hideStatus, '');
+    carrierBytes = null;
+    carrierInfo.textContent = '';
+    if (!file) return;
+    try {
+      const bytes = await readFileBytes(file);
+      carrierFormat = detectFormat(bytes);
+      carrierBytes = bytes;
+      carrierName = file.name.replace(/\.[^.]+$/, '');
+      const entries = listMetadata(bytes);
+      carrierInfo.textContent = `${carrierFormat.toUpperCase()} · ${formatByteSize(bytes.length)}${
+        entries.length > 0 ? ` · 기존 메타데이터 ${entries.length}개` : ''
+      }`;
+    } catch (e) {
+      setStatus(hideStatus, e instanceof Error ? e.message : String(e));
+    }
+  });
+
+  for (const radio of document.querySelectorAll<HTMLInputElement>('input[name="meta-mode"]')) {
+    radio.addEventListener('change', () => {
+      const isText = currentMode() === 'text';
+      textArea.hidden = !isText;
+      secretRow.hidden = isText;
+    });
+  }
+
+  secretInput.addEventListener('change', async () => {
+    const file = secretInput.files?.[0];
+    secretBytes = file ? await readFileBytes(file) : null;
+    secretName = file?.name ?? '';
+  });
+
+  el<HTMLButtonElement>('meta-hide').addEventListener('click', () => {
+    setStatus(hideStatus, '');
+    if (!carrierBytes) {
+      setStatus(hideStatus, '먼저 캐리어 이미지를 선택하세요.');
+      return;
+    }
+    const isText = currentMode() === 'text';
+    if (isText && textArea.value === '') {
+      setStatus(hideStatus, '숨길 메시지를 입력하세요.');
+      return;
+    }
+    if (!isText && !secretBytes) {
+      setStatus(hideStatus, '숨길 파일을 선택하세요.');
+      return;
+    }
+    try {
+      const output = metadataEmbed(
+        carrierBytes,
+        isText
+          ? { kind: 'text', name: '', data: new TextEncoder().encode(textArea.value) }
+          : { kind: 'file', name: secretName, data: secretBytes! },
+      );
+      const extension = carrierFormat === 'png' ? 'png' : 'jpg';
+      downloadBytes(output, `${carrierName || 'image'}-meta.${extension}`, `image/${carrierFormat}`);
+      setStatus(
+        hideStatus,
+        `${formatByteSize(output.length - carrierBytes.length)}를 메타데이터로 넣었습니다 (이미지 화질 변화 없음).`,
+        true,
+      );
+    } catch (e) {
+      setStatus(hideStatus, e instanceof Error ? e.message : String(e));
+    }
+  });
+
+  findInput.addEventListener('change', async () => {
+    const file = findInput.files?.[0];
+    setStatus(findStatus, '');
+    entryList.hidden = true;
+    foundText.hidden = true;
+    saveFoundButton.hidden = true;
+    foundFile = null;
+    if (!file) return;
+    try {
+      const bytes = await readFileBytes(file);
+      const entries = listMetadata(bytes);
+      entryList.innerHTML = '';
+      for (const entry of entries) {
+        const dt = document.createElement('dt');
+        dt.textContent = entry.label;
+        const dd = document.createElement('dd');
+        dd.textContent = entry.detail;
+        entryList.append(dt, dd);
+      }
+      entryList.hidden = entries.length === 0;
+
+      const payload = metadataExtract(bytes);
+      if (!payload) {
+        setStatus(
+          findStatus,
+          entries.length > 0
+            ? '메타데이터는 있지만 이 도구로 숨긴 데이터는 없습니다.'
+            : '메타데이터가 없습니다.',
+        );
+        return;
+      }
+      if (payload.kind === 'text') {
+        foundText.value = new TextDecoder().decode(payload.data);
+        foundText.hidden = false;
+      } else {
+        foundFile = { name: payload.name || 'secret.bin', data: payload.data };
+        saveFoundButton.hidden = false;
+      }
+      setStatus(findStatus, `숨겨진 데이터를 찾았습니다 (${formatByteSize(payload.data.length)}).`, true);
+    } catch (e) {
+      setStatus(findStatus, e instanceof Error ? e.message : String(e));
+    }
+  });
+
+  saveFoundButton.addEventListener('click', () => {
+    if (foundFile) downloadBytes(foundFile.data, foundFile.name);
+  });
+</script>
+
+<style>
+  /* 카드·참고 레이아웃은 styles/steganography.css에 있다 */
+  .notes code {
+    font-family: Consolas, 'Courier New', monospace;
+    font-size: 0.85em;
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    border-radius: 0.3rem;
+    padding: 0.05rem 0.3rem;
+  }
+
+  textarea[hidden] {
+    display: none;
+  }
+</style>

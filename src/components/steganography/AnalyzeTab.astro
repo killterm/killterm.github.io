@@ -1,0 +1,328 @@
+---
+// 분석: 비트플레인 시각화와 LSB 통계로 숨겨진 데이터의 흔적을 찾는다.
+import '../../styles/steganography.css';
+---
+
+<div class="steganography">
+  <div class="cards">
+    <section class="card wide" aria-labelledby="analyze-title">
+      <h2 id="analyze-title">비트플레인 보기</h2>
+      <p class="desc">
+        각 픽셀 값의 특정 비트만 흑백으로 그립니다. 자연스러운 사진의 최하위 비트(0번)는 고운 잡음처럼
+        보이지만, 숨긴 데이터가 있으면 <strong>격자·띠·경계선 같은 구조</strong>가 드러납니다.
+      </p>
+
+      <label class="file-row">
+        <span>검사할 이미지</span>
+        <input id="an-file" type="file" accept="image/*" />
+      </label>
+
+      <div class="controls">
+        <label class="num-field">
+          채널
+          <select id="an-channel" aria-label="채널">
+            <option value="0">R (빨강)</option>
+            <option value="1">G (초록)</option>
+            <option value="2">B (파랑)</option>
+          </select>
+        </label>
+        <label class="num-field">
+          비트
+          <select id="an-bit" aria-label="비트">
+            <option value="0" selected>0 — 최하위 (LSB)</option>
+            <option value="1">1</option>
+            <option value="2">2</option>
+            <option value="3">3</option>
+            <option value="4">4</option>
+            <option value="5">5</option>
+            <option value="6">6</option>
+            <option value="7">7 — 최상위</option>
+          </select>
+        </label>
+      </div>
+
+      <canvas id="an-canvas" class="preview" hidden></canvas>
+      <p id="an-status" class="status" role="status"></p>
+    </section>
+
+    <section class="card" aria-labelledby="stats-title">
+      <h2 id="stats-title">통계와 탐지</h2>
+      <p class="desc">
+        채널별로 최하위 비트가 1인 비율입니다. 보통 사진도 0.5 근처지만, 데이터를 가득 채우면 정확히
+        0.5에 수렴하고 밝기가 고른 그림에서는 원래 값이 크게 치우쳐 있어 차이가 드러납니다.
+      </p>
+
+      <dl id="an-stats" class="result" hidden></dl>
+
+      <p class="desc">
+        아래는 이 파일에 <strong>여러 기법을 모두 적용해 본 종합 검사</strong> 결과입니다 —
+        LSB · DCT · 메타데이터 · 파일 끝에 붙은 데이터(폴리글랏)를 함께 살펴봅니다.
+      </p>
+      <dl id="an-scan" class="result" hidden></dl>
+      <dl id="an-probe" class="result" hidden></dl>
+      <button id="an-extract" class="btn" type="button" hidden>숨긴 데이터 꺼내기</button>
+      <textarea id="an-found-text" rows="4" readonly hidden></textarea>
+      <p id="an-probe-status" class="status" role="status"></p>
+    </section>
+  </div>
+
+  <section class="notes">
+    <h2>참고</h2>
+    <ul>
+      <li>
+        이 탭은 <strong>스테가노그래피가 얼마나 쉽게 들키는지</strong> 보여주기 위한 것입니다. 숨기기
+        도구와 함께 두어, 숨긴 결과를 스스로 검사해볼 수 있게 했습니다.
+      </li>
+      <li>
+        비트플레인이 잡음처럼 보인다고 해서 데이터가 없다는 뜻은 아니고, 구조가 보인다고 반드시
+        숨긴 데이터가 있는 것도 아닙니다(그림·로고·스크린샷은 원래 구조가 뚜렷합니다).
+      </li>
+      <li>
+        실제 탐지 도구는 여기서 더 나아가 카이제곱 검정·RS 분석 같은 통계 기법을 씁니다. 즉 LSB
+        방식은 숨기는 쪽이 늘 불리합니다.
+      </li>
+    </ul>
+  </section>
+</div>
+
+<script>
+  import { lsbOneRatio, readFrameFrom, rgbIndices } from '../../lib/steganography-frame';
+  import { dctExtract } from '../../lib/steganography-dct';
+  import { detectFormat, listMetadata, metadataExtract } from '../../lib/steganography-metadata';
+  import { downloadBytes, formatByteSize, readFileBytes } from '../../lib/file-io';
+
+  const el = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+  const fileInput = el<HTMLInputElement>('an-file');
+  const channelSelect = el<HTMLSelectElement>('an-channel');
+  const bitSelect = el<HTMLSelectElement>('an-bit');
+  const canvas = el<HTMLCanvasElement>('an-canvas');
+  const status = el<HTMLParagraphElement>('an-status');
+  const statsList = el<HTMLDListElement>('an-stats');
+  const scanList = el<HTMLDListElement>('an-scan');
+  const probeList = el<HTMLDListElement>('an-probe');
+  const extractButton = el<HTMLButtonElement>('an-extract');
+  const foundText = el<HTMLTextAreaElement>('an-found-text');
+  const probeStatus = el<HTMLParagraphElement>('an-probe-status');
+
+  let pixels: ImageData | null = null;
+  let fileBytes: Uint8Array | null = null;
+  let foundFile: { name: string; data: Uint8Array } | null = null;
+
+  function renderRows(list: HTMLDListElement, rows: [string, string][]) {
+    list.innerHTML = '';
+    for (const [term, value] of rows) {
+      const dt = document.createElement('dt');
+      dt.textContent = term;
+      const dd = document.createElement('dd');
+      dd.textContent = value;
+      list.append(dt, dd);
+    }
+    list.hidden = rows.length === 0;
+  }
+
+  /** 선택한 채널·비트만 흑백으로 그린다 (비트가 1이면 흰색) */
+  function drawBitPlane() {
+    if (!pixels) return;
+    const channel = Number(channelSelect.value);
+    const bit = Number(bitSelect.value);
+    const output = new ImageData(pixels.width, pixels.height);
+    for (let i = 0; i < pixels.data.length; i += 4) {
+      const on = ((pixels.data[i + channel] >> bit) & 1) === 1 ? 255 : 0;
+      output.data[i] = on;
+      output.data[i + 1] = on;
+      output.data[i + 2] = on;
+      output.data[i + 3] = 255;
+    }
+    canvas.width = pixels.width;
+    canvas.height = pixels.height;
+    canvas.getContext('2d')!.putImageData(output, 0, 0);
+    canvas.hidden = false;
+  }
+
+  function analyze() {
+    if (!pixels) return;
+    // 채널별 LSB 1 비율 — 채널마다 해당 바이트 위치만 골라 인덱스를 만든다
+    const rows: [string, string][] = [];
+    for (const [channel, label] of [
+      [0, 'R 채널'],
+      [1, 'G 채널'],
+      [2, 'B 채널'],
+    ] as [number, string][]) {
+      const indices = new Uint32Array(pixels.data.length / 4);
+      for (let pixel = 0; pixel < indices.length; pixel++) indices[pixel] = pixel * 4 + channel;
+      rows.push([label, lsbOneRatio(pixels.data, indices).toFixed(4)]);
+    }
+    rows.push(['크기', `${pixels.width}×${pixels.height}`]);
+    renderRows(statsList, rows);
+
+    // 여러 기법을 모두 적용해 보는 종합 검사
+    foundFile = null;
+    foundText.hidden = true;
+    extractButton.hidden = true;
+    probeStatus.classList.remove('status-ok');
+
+    const lsbPayload = readFrameFrom(pixels.data, rgbIndices(pixels.data.length));
+    const dctPayload = dctExtract(pixels.data, pixels.width, pixels.height);
+    let metadataPayload: ReturnType<typeof metadataExtract> = null;
+    let metadataNote = '검사할 수 없음 (PNG·JPEG만 가능)';
+    let trailingNote = '검사할 수 없음';
+    if (fileBytes) {
+      try {
+        const entries = listMetadata(fileBytes);
+        metadataPayload = metadataExtract(fileBytes);
+        metadataNote = metadataPayload
+          ? '숨은 데이터 발견'
+          : entries.length > 0
+            ? `메타데이터 ${entries.length}개 (${entries.map((entry) => entry.label).join(', ')})`
+            : '없음';
+        trailingNote = describeTrailingData(fileBytes);
+      } catch {
+        // PNG·JPEG가 아니면 두 검사 모두 건너뛴다
+      }
+    }
+
+    renderRows(scanList, [
+      ['LSB', lsbPayload ? '숨은 데이터 발견' : '없음'],
+      ['DCT (주파수)', dctPayload ? '숨은 데이터 발견' : '없음'],
+      ['메타데이터', metadataNote],
+      ['파일 끝 데이터', trailingNote],
+    ]);
+
+    const payload = lsbPayload ?? dctPayload ?? metadataPayload;
+    if (!payload) {
+      probeList.hidden = true;
+      probeStatus.textContent = '이 도구로 숨긴 데이터는 발견되지 않았습니다.';
+      return;
+    }
+    const source = lsbPayload ? 'LSB' : dctPayload ? 'DCT' : '메타데이터';
+    renderRows(probeList, [
+      ['발견 위치', source],
+      ['종류', payload.kind === 'file' ? '파일' : '텍스트'],
+      ...(payload.kind === 'file' ? ([['파일 이름', payload.name]] as [string, string][]) : []),
+      ['크기', formatByteSize(payload.data.length)],
+    ]);
+    probeStatus.textContent = `${source}에서 숨겨진 데이터를 발견했습니다.`;
+    probeStatus.classList.add('status-ok');
+    if (payload.kind === 'text') {
+      foundText.value = new TextDecoder().decode(payload.data);
+      foundText.hidden = false;
+    } else {
+      foundFile = { name: payload.name || 'secret.bin', data: payload.data };
+      extractButton.hidden = false;
+    }
+  }
+
+  /** 이미지 형식이 끝난 뒤에도 바이트가 남아 있으면 폴리글랏 흔적이다 */
+  function describeTrailingData(bytes: Uint8Array): string {
+    const format = detectFormat(bytes);
+    let end = -1;
+    if (format === 'png') {
+      // IEND 청크(길이 0 + 'IEND' + CRC)를 뒤에서 찾는다
+      for (let i = bytes.length - 8; i >= 8; i--) {
+        if (
+          bytes[i] === 0x49 &&
+          bytes[i + 1] === 0x45 &&
+          bytes[i + 2] === 0x4e &&
+          bytes[i + 3] === 0x44
+        ) {
+          end = i + 8;
+          break;
+        }
+      }
+    } else {
+      for (let i = bytes.length - 2; i >= 2; i--) {
+        if (bytes[i] === 0xff && bytes[i + 1] === 0xd9) {
+          end = i + 2;
+          break;
+        }
+      }
+    }
+    if (end < 0) return '판단할 수 없음';
+    const extra = bytes.length - end;
+    return extra > 0
+      ? `이미지 뒤에 ${formatByteSize(extra)}가 더 있음 (폴리글랏 가능성)`
+      : '없음';
+  }
+
+  fileInput.addEventListener('change', async () => {
+    const file = fileInput.files?.[0];
+    status.textContent = '';
+    if (!file) return;
+    try {
+      fileBytes = await readFileBytes(file);
+      const bitmap = await createImageBitmap(file);
+      const work = document.createElement('canvas');
+      work.width = bitmap.width;
+      work.height = bitmap.height;
+      const context = work.getContext('2d')!;
+      context.drawImage(bitmap, 0, 0);
+      bitmap.close();
+      pixels = context.getImageData(0, 0, work.width, work.height);
+      drawBitPlane();
+      analyze();
+    } catch (e) {
+      pixels = null;
+      canvas.hidden = true;
+      status.textContent = `이미지를 읽지 못했습니다: ${e instanceof Error ? e.message : String(e)}`;
+    }
+  });
+
+  channelSelect.addEventListener('change', drawBitPlane);
+  bitSelect.addEventListener('change', drawBitPlane);
+
+  extractButton.addEventListener('click', () => {
+    if (foundFile) downloadBytes(foundFile.data, foundFile.name);
+  });
+</script>
+
+<style>
+  /* 카드·참고 레이아웃은 styles/steganography.css에 있고, 여기서는 이 탭 전용만 둔다 */
+  .card.wide {
+    grid-column: 1 / -1;
+  }
+
+  .controls {
+    display: flex;
+    align-items: center;
+    gap: 0.9rem;
+    flex-wrap: wrap;
+  }
+
+  .num-field {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    color: var(--text-dim);
+    font-size: 0.85rem;
+    font-weight: 600;
+  }
+
+  .num-field select {
+    border: 1px solid var(--border);
+    background: var(--bg-soft);
+    color: var(--text);
+    font: inherit;
+    font-size: 0.85rem;
+    padding: 0.3rem 0.5rem;
+    border-radius: 0.5rem;
+  }
+
+  .num-field select:focus {
+    outline: 2px solid var(--accent);
+    border-color: var(--accent);
+  }
+
+  /* 비트플레인은 픽셀 단위 패턴을 봐야 하므로 보간하지 않는다 */
+  #an-canvas {
+    image-rendering: pixelated;
+    background: #000;
+  }
+
+  .desc a {
+    color: var(--accent);
+  }
+
+  textarea[hidden] {
+    display: none;
+  }
+</style>

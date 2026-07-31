@@ -1,0 +1,16 @@
+---
+import ToolPage from '../../components/ToolPage.astro';
+import VisualCryptoTab from '../../components/steganography/VisualCryptoTab.astro';
+import { steganography } from '../../lib/tool-tabs';
+---
+
+<ToolPage
+  title="시각 암호 — Killterm"
+  description="비밀 그림을 조각 두 장으로 나누고 겹쳐서 복원합니다."
+  heading={steganography.heading}
+  intro={steganography.intro}
+  tabs={steganography.tabs}
+  active="/steganography/visual-crypto/"
+>
+  <VisualCryptoTab />
+</ToolPage>

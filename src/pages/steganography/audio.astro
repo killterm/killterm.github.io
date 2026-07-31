@@ -1,0 +1,16 @@
+---
+import ToolPage from '../../components/ToolPage.astro';
+import AudioTab from '../../components/steganography/AudioTab.astro';
+import { steganography } from '../../lib/tool-tabs';
+---
+
+<ToolPage
+  title="오디오 LSB 스테가노그래피 — Killterm"
+  description="WAV 오디오 샘플의 최하위 비트에 텍스트·파일을 숨기고 다시 찾습니다."
+  heading={steganography.heading}
+  intro={steganography.intro}
+  tabs={steganography.tabs}
+  active="/steganography/audio/"
+>
+  <AudioTab />
+</ToolPage>

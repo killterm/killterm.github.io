@@ -1,0 +1,16 @@
+---
+import ToolPage from '../../components/ToolPage.astro';
+import AnalyzeTab from '../../components/steganography/AnalyzeTab.astro';
+import { steganography } from '../../lib/tool-tabs';
+---
+
+<ToolPage
+  title="스테가노그래피 분석 — Killterm"
+  description="비트플레인 시각화와 LSB 통계로 숨겨진 데이터의 흔적을 찾습니다."
+  heading={steganography.heading}
+  intro={steganography.intro}
+  tabs={steganography.tabs}
+  active="/steganography/analyze/"
+>
+  <AnalyzeTab />
+</ToolPage>

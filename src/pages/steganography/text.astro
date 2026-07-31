@@ -1,0 +1,16 @@
+---
+import ToolPage from '../../components/ToolPage.astro';
+import TextTab from '../../components/steganography/TextTab.astro';
+import { steganography } from '../../lib/tool-tabs';
+---
+
+<ToolPage
+  title="텍스트 스테가노그래피 — Killterm"
+  description="제로폭 문자·호모글리프·공백으로 글 속에 메시지를 숨깁니다."
+  heading={steganography.heading}
+  intro={steganography.intro}
+  tabs={steganography.tabs}
+  active="/steganography/text/"
+>
+  <TextTab />
+</ToolPage>

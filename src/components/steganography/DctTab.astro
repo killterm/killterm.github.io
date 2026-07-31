@@ -1,0 +1,308 @@
+---
+// 이미지 DCT: 주파수 영역에 심어 JPEG 재압축을 견딘다.
+import '../../styles/steganography.css';
+---
+
+<div class="steganography">
+  <div class="cards">
+    <section class="card" aria-labelledby="dct-hide-title">
+      <h2 id="dct-hide-title">숨기기</h2>
+      <p class="desc">
+        8×8 블록의 중간 주파수 계수에 심습니다. LSB와 달리
+        <strong>나중에 JPEG로 다시 저장해도 살아남습니다.</strong> 대신 용량이 훨씬 작고 화질이 아주
+        조금 흐려집니다.
+      </p>
+
+      <label class="file-row">
+        <span>캐리어 이미지</span>
+        <input id="dct-carrier" type="file" accept="image/*" />
+      </label>
+      <p class="detect" id="dct-capacity">
+        용량은 (가로÷8)×(세로÷8) 블록 수에 비례합니다. 큰 이미지일수록 많이 담깁니다.
+      </p>
+
+      <textarea id="dct-text" rows="3" placeholder="숨길 메시지를 입력하세요" spellcheck="false"
+      ></textarea>
+      <p class="detect" id="dct-need"></p>
+      <button id="dct-hide" class="btn btn-primary" type="button">PNG로 저장</button>
+      <p id="dct-hide-status" class="status" role="status"></p>
+      <canvas id="dct-preview" class="preview" hidden></canvas>
+
+      <div class="jpeg-test" id="dct-test" hidden>
+        <p class="desc">
+          <strong>JPEG 재압축 시험</strong> — 방금 만든 이미지를 JPEG로 다시 저장했다가 열어서, 그래도
+          메시지가 남아 있는지 확인합니다.
+        </p>
+        <div class="controls">
+          <label class="num-field">
+            품질
+            <input id="dct-quality" type="number" min="30" max="100" step="5" value="85" />
+          </label>
+          <button id="dct-recompress" class="btn btn-small" type="button">재압축 후 추출</button>
+        </div>
+        <p id="dct-test-status" class="status" role="status"></p>
+      </div>
+    </section>
+
+    <section class="card" aria-labelledby="dct-find-title">
+      <h2 id="dct-find-title">찾기</h2>
+      <p class="desc">이 방식으로 심은 이미지에서 메시지를 꺼냅니다. JPEG로 저장된 파일도 됩니다.</p>
+
+      <label class="file-row">
+        <span>검사할 이미지</span>
+        <input id="dct-find" type="file" accept="image/*" />
+      </label>
+
+      <textarea id="dct-found" rows="5" readonly hidden></textarea>
+      <p id="dct-find-status" class="status" role="status"></p>
+    </section>
+  </div>
+
+  <section class="notes">
+    <h2>참고</h2>
+    <ul>
+      <li>
+        <strong>왜 재압축을 견디나</strong> — JPEG는 8×8 블록을 주파수로 바꾼 뒤 고주파를 버리는
+        방식으로 압축합니다. 이 도구는 같은 격자의 중간 주파수 계수를 큰 폭(Δ=32)으로 흔들어 심기
+        때문에, 압축이 버리는 미세한 차이보다 훨씬 커서 살아남습니다. 비트마다 3개 블록에 반복해
+        다수결로 읽는 것도 오차를 이기기 위한 장치입니다.
+      </li>
+      <li>
+        파랑 채널만 사용합니다 — 사람 눈이 파랑의 미세한 변화에 가장 둔감합니다.
+      </li>
+      <li>
+        품질을 너무 낮추거나(대략 60 미만) 이미지를 리사이즈하면 블록 격자가 어긋나 복원이 깨집니다.
+      </li>
+      <li>
+        용량은 <a href="/steganography/image/">이미지 LSB</a>의 수백 분의 일입니다. 짧은 메시지·키
+        같은 것을 견고하게 심는 용도입니다.
+      </li>
+    </ul>
+  </section>
+</div>
+
+<script>
+  import { dctCapacityBytes, dctEmbed, dctExtract } from '../../lib/steganography-dct';
+  import { frameOverhead } from '../../lib/steganography-frame';
+  import { downloadBlob, formatByteSize } from '../../lib/file-io';
+
+  const el = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+  const carrierInput = el<HTMLInputElement>('dct-carrier');
+  const capacityInfo = el<HTMLParagraphElement>('dct-capacity');
+  const textArea = el<HTMLTextAreaElement>('dct-text');
+  const needInfo = el<HTMLParagraphElement>('dct-need');
+  const preview = el<HTMLCanvasElement>('dct-preview');
+  const hideStatus = el<HTMLParagraphElement>('dct-hide-status');
+  const testSection = el<HTMLDivElement>('dct-test');
+  const qualityInput = el<HTMLInputElement>('dct-quality');
+  const testStatus = el<HTMLParagraphElement>('dct-test-status');
+  const findInput = el<HTMLInputElement>('dct-find');
+  const foundArea = el<HTMLTextAreaElement>('dct-found');
+  const findStatus = el<HTMLParagraphElement>('dct-find-status');
+
+  const setStatus = (node: HTMLElement, message: string, ok = false) => {
+    node.textContent = message;
+    node.classList.toggle('status-ok', ok && message !== '');
+  };
+
+  let carrierPixels: ImageData | null = null;
+  let carrierName = '';
+  let embeddedPixels: ImageData | null = null;
+
+  async function readPixels(file: File | Blob): Promise<ImageData> {
+    const bitmap = await createImageBitmap(file);
+    const canvas = document.createElement('canvas');
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    const context = canvas.getContext('2d')!;
+    context.drawImage(bitmap, 0, 0);
+    bitmap.close();
+    return context.getImageData(0, 0, canvas.width, canvas.height);
+  }
+
+  function updateNeed() {
+    if (!carrierPixels) {
+      needInfo.textContent = '';
+      return;
+    }
+    const needed = new TextEncoder().encode(textArea.value).length + frameOverhead('');
+    const capacity = dctCapacityBytes(carrierPixels.width, carrierPixels.height);
+    needInfo.textContent = `필요 ${formatByteSize(needed)} / 가능 ${formatByteSize(capacity)}`;
+    needInfo.classList.toggle('over', needed > capacity);
+  }
+
+  carrierInput.addEventListener('change', async () => {
+    const file = carrierInput.files?.[0];
+    setStatus(hideStatus, '');
+    preview.hidden = true;
+    testSection.hidden = true;
+    if (!file) return;
+    try {
+      carrierPixels = await readPixels(file);
+      carrierName = file.name.replace(/\.[^.]+$/, '');
+      const capacity = dctCapacityBytes(carrierPixels.width, carrierPixels.height);
+      capacityInfo.textContent = `${carrierPixels.width}×${carrierPixels.height} · 최대 ${formatByteSize(capacity)}`;
+      updateNeed();
+    } catch (e) {
+      carrierPixels = null;
+      setStatus(hideStatus, `이미지를 읽지 못했습니다: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  });
+
+  textArea.addEventListener('input', updateNeed);
+
+  el<HTMLButtonElement>('dct-hide').addEventListener('click', () => {
+    setStatus(hideStatus, '');
+    setStatus(testStatus, '');
+    if (!carrierPixels) {
+      setStatus(hideStatus, '먼저 캐리어 이미지를 선택하세요.');
+      return;
+    }
+    if (textArea.value === '') {
+      setStatus(hideStatus, '숨길 메시지를 입력하세요.');
+      return;
+    }
+    // 원본은 그대로 두고 복제본에 심는다 (재시도 시 누적 방지)
+    const pixels = new ImageData(
+      new Uint8ClampedArray(carrierPixels.data),
+      carrierPixels.width,
+      carrierPixels.height,
+    );
+    try {
+      dctEmbed(pixels.data, pixels.width, pixels.height, {
+        kind: 'text',
+        name: '',
+        data: new TextEncoder().encode(textArea.value),
+      });
+    } catch (e) {
+      setStatus(hideStatus, e instanceof Error ? e.message : String(e));
+      return;
+    }
+    embeddedPixels = pixels;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = pixels.width;
+    canvas.height = pixels.height;
+    canvas.getContext('2d')!.putImageData(pixels, 0, 0);
+    canvas.toBlob((blob) => {
+      if (!blob || blob.type !== 'image/png') {
+        setStatus(hideStatus, 'PNG로 저장하지 못했습니다. 다른 브라우저에서 시도해주세요.');
+        return;
+      }
+      downloadBlob(blob, `${carrierName || 'image'}-dct.png`);
+      setStatus(hideStatus, '주파수 영역에 심어 저장했습니다.', true);
+      preview.width = pixels.width;
+      preview.height = pixels.height;
+      preview.getContext('2d')!.putImageData(pixels, 0, 0);
+      preview.hidden = false;
+      testSection.hidden = false;
+    }, 'image/png');
+  });
+
+  el<HTMLButtonElement>('dct-recompress').addEventListener('click', () => {
+    if (!embeddedPixels) return;
+    setStatus(testStatus, '재압축 중…');
+    const canvas = document.createElement('canvas');
+    canvas.width = embeddedPixels.width;
+    canvas.height = embeddedPixels.height;
+    canvas.getContext('2d')!.putImageData(embeddedPixels, 0, 0);
+    const quality = Math.min(100, Math.max(30, Number(qualityInput.value))) / 100;
+    canvas.toBlob(
+      async (blob) => {
+        if (!blob) {
+          setStatus(testStatus, 'JPEG로 변환하지 못했습니다.');
+          return;
+        }
+        try {
+          const pixels = await readPixels(blob);
+          const payload = dctExtract(pixels.data, pixels.width, pixels.height);
+          if (!payload) {
+            setStatus(
+              testStatus,
+              `품질 ${Math.round(quality * 100)}% 재압축 후에는 복원하지 못했습니다. 품질을 올려보세요.`,
+            );
+            return;
+          }
+          setStatus(
+            testStatus,
+            `품질 ${Math.round(quality * 100)}%(${formatByteSize(blob.size)})로 재압축한 뒤에도 복원됨: "${new TextDecoder().decode(payload.data)}"`,
+            true,
+          );
+        } catch (e) {
+          setStatus(testStatus, e instanceof Error ? e.message : String(e));
+        }
+      },
+      'image/jpeg',
+      quality,
+    );
+  });
+
+  findInput.addEventListener('change', async () => {
+    const file = findInput.files?.[0];
+    setStatus(findStatus, '');
+    foundArea.hidden = true;
+    if (!file) return;
+    try {
+      const pixels = await readPixels(file);
+      const payload = dctExtract(pixels.data, pixels.width, pixels.height);
+      if (!payload) {
+        setStatus(findStatus, '숨겨진 데이터를 찾지 못했습니다.');
+        return;
+      }
+      foundArea.value = new TextDecoder().decode(payload.data);
+      foundArea.hidden = false;
+      setStatus(findStatus, '숨겨진 메시지를 찾았습니다.', true);
+    } catch (e) {
+      setStatus(findStatus, `이미지를 읽지 못했습니다: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  });
+</script>
+
+<style>
+  /* 카드·참고 레이아웃은 styles/steganography.css에 있다 */
+  .jpeg-test {
+    border-top: 1px solid var(--border);
+    padding-top: 0.9rem;
+    display: grid;
+    gap: 0.6rem;
+  }
+
+  .jpeg-test[hidden] {
+    display: none;
+  }
+
+  .controls {
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+    flex-wrap: wrap;
+  }
+
+  .num-field {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    color: var(--text-dim);
+    font-size: 0.85rem;
+    font-weight: 600;
+  }
+
+  .num-field input {
+    width: 4.4rem;
+    border: 1px solid var(--border);
+    background: var(--bg-soft);
+    color: var(--text);
+    font: inherit;
+    font-size: 0.85rem;
+    padding: 0.3rem 0.5rem;
+    border-radius: 0.5rem;
+  }
+
+  .notes a {
+    color: var(--accent);
+  }
+
+  textarea[hidden] {
+    display: none;
+  }
+</style>

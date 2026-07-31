@@ -1,0 +1,295 @@
+---
+// 이미지 LSB: 픽셀 최하위 비트에 텍스트·파일을 숨기고 다시 찾는다.
+import '../../styles/steganography.css';
+---
+
+<div class="steganography">
+  <div class="cards">
+    <section class="card" aria-labelledby="hide-title">
+      <h2 id="hide-title">숨기기</h2>
+      <p class="desc">이미지 픽셀의 최하위 비트에 데이터를 심습니다. 눈으로는 차이를 알 수 없습니다.</p>
+
+      <label class="file-row">
+        <span>캐리어 이미지</span>
+        <input id="img-carrier" type="file" accept="image/*" />
+      </label>
+      <p class="detect" id="img-capacity">PNG·JPG·WebP 등 어떤 이미지든 캐리어로 쓸 수 있습니다.</p>
+
+      <div class="chip-group" role="radiogroup" aria-label="숨길 대상">
+        <label class="chip">
+          <input type="radio" name="img-mode" value="text" checked />
+          <span>텍스트</span>
+        </label>
+        <label class="chip">
+          <input type="radio" name="img-mode" value="file" />
+          <span>파일</span>
+        </label>
+      </div>
+
+      <textarea id="img-text" rows="4" placeholder="숨길 메시지를 입력하세요" spellcheck="false"
+      ></textarea>
+      <label class="file-row" id="img-secret-row" hidden>
+        <span>숨길 파일</span>
+        <input id="img-secret" type="file" />
+      </label>
+
+      <p class="detect" id="img-need"></p>
+      <button id="img-hide" class="btn btn-primary" type="button">PNG로 저장</button>
+      <p id="img-hide-status" class="status" role="status"></p>
+      <canvas id="img-preview" class="preview" hidden></canvas>
+    </section>
+
+    <section class="card" aria-labelledby="find-title">
+      <h2 id="find-title">찾기</h2>
+      <p class="desc">이 도구로 만든 이미지에서 숨긴 데이터를 꺼냅니다.</p>
+
+      <label class="file-row">
+        <span>검사할 이미지</span>
+        <input id="img-find" type="file" accept="image/*" />
+      </label>
+
+      <dl id="img-result" class="result" hidden></dl>
+      <textarea id="img-found-text" rows="5" readonly hidden></textarea>
+      <button id="img-save-found" class="btn" type="button" hidden>숨긴 파일 저장</button>
+      <p id="img-find-status" class="status" role="status"></p>
+    </section>
+  </div>
+
+  <section class="notes">
+    <h2>참고</h2>
+    <ul>
+      <li>
+        <strong>반드시 PNG로 저장됩니다</strong> — JPEG·WebP 같은 손실 압축은 최하위 비트를 바꿔버려
+        숨긴 데이터가 사라집니다. 저장한 PNG를 다시 압축하거나 크기를 바꾸면 역시 사라집니다.
+      </li>
+      <li>
+        SNS·메신저는 업로드한 이미지를 다시 인코딩하는 경우가 많아 그대로 전달되지 않을 수 있습니다.
+      </li>
+      <li>
+        투명도(알파) 채널은 건드리지 않습니다 — 투명한 영역의 변화는 눈에 띄기 쉽고, 일부 도구가
+        알파 값을 정규화하기 때문입니다.
+      </li>
+      <li>
+        <strong>LSB는 기밀 보호 수단이 아닙니다.</strong> 통계 분석으로 쉽게 탐지됩니다(<a
+          href="/steganography/analyze/">분석 탭</a
+        >에서 직접 확인할 수 있습니다). 중요한 내용이라면 먼저 암호화한 파일을 숨기세요.
+      </li>
+    </ul>
+  </section>
+</div>
+
+<script>
+  import {
+    capacityBytes,
+    frameMessage,
+    frameOverhead,
+    lsbWrite,
+    readFrameFrom,
+    rgbIndices,
+  } from '../../lib/steganography-frame';
+  import { downloadBlob, downloadBytes, formatByteSize, readFileBytes } from '../../lib/file-io';
+
+  const el = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+  const carrierInput = el<HTMLInputElement>('img-carrier');
+  const capacityInfo = el<HTMLParagraphElement>('img-capacity');
+  const textArea = el<HTMLTextAreaElement>('img-text');
+  const secretRow = el<HTMLLabelElement>('img-secret-row');
+  const secretInput = el<HTMLInputElement>('img-secret');
+  const needInfo = el<HTMLParagraphElement>('img-need');
+  const preview = el<HTMLCanvasElement>('img-preview');
+  const hideStatus = el<HTMLParagraphElement>('img-hide-status');
+  const findInput = el<HTMLInputElement>('img-find');
+  const resultList = el<HTMLDListElement>('img-result');
+  const foundText = el<HTMLTextAreaElement>('img-found-text');
+  const saveFoundButton = el<HTMLButtonElement>('img-save-found');
+  const findStatus = el<HTMLParagraphElement>('img-find-status');
+
+  const setStatus = (node: HTMLElement, message: string, ok = false) => {
+    node.textContent = message;
+    node.classList.toggle('status-ok', ok && message !== '');
+  };
+
+  let carrierName = '';
+  let carrierCapacity = 0;
+  let carrierPixels: ImageData | null = null;
+  let secretBytes: Uint8Array | null = null;
+  let secretName = '';
+  let foundFile: { name: string; data: Uint8Array } | null = null;
+
+  const currentMode = () =>
+    (document.querySelector('input[name="img-mode"]:checked') as HTMLInputElement).value;
+
+  /** 이미지 파일을 원본 크기 캔버스에 그려 픽셀을 얻는다 */
+  async function readPixels(file: File): Promise<ImageData> {
+    const bitmap = await createImageBitmap(file);
+    const canvas = document.createElement('canvas');
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    const context = canvas.getContext('2d')!;
+    context.drawImage(bitmap, 0, 0);
+    bitmap.close();
+    return context.getImageData(0, 0, canvas.width, canvas.height);
+  }
+
+  function updateNeed() {
+    if (!carrierPixels) {
+      needInfo.textContent = '';
+      return;
+    }
+    const dataLength =
+      currentMode() === 'text'
+        ? new TextEncoder().encode(textArea.value).length
+        : (secretBytes?.length ?? 0);
+    const needed = dataLength + frameOverhead(currentMode() === 'file' ? secretName : '');
+    const fits = needed <= carrierCapacity;
+    needInfo.textContent = `필요 ${formatByteSize(needed)} / 가능 ${formatByteSize(carrierCapacity)}`;
+    needInfo.classList.toggle('over', !fits);
+  }
+
+  carrierInput.addEventListener('change', async () => {
+    const file = carrierInput.files?.[0];
+    setStatus(hideStatus, '');
+    preview.hidden = true;
+    if (!file) return;
+    try {
+      carrierPixels = await readPixels(file);
+      carrierName = file.name.replace(/\.[^.]+$/, '');
+      carrierCapacity = capacityBytes(rgbIndices(carrierPixels.data.length).length);
+      capacityInfo.textContent = `${carrierPixels.width}×${carrierPixels.height} · 최대 ${formatByteSize(carrierCapacity)}까지 숨길 수 있습니다.`;
+      updateNeed();
+    } catch (e) {
+      carrierPixels = null;
+      setStatus(hideStatus, `이미지를 읽지 못했습니다: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  });
+
+  for (const radio of document.querySelectorAll<HTMLInputElement>('input[name="img-mode"]')) {
+    radio.addEventListener('change', () => {
+      const isText = currentMode() === 'text';
+      textArea.hidden = !isText;
+      secretRow.hidden = isText;
+      updateNeed();
+    });
+  }
+
+  textArea.addEventListener('input', updateNeed);
+
+  secretInput.addEventListener('change', async () => {
+    const file = secretInput.files?.[0];
+    if (!file) {
+      secretBytes = null;
+      secretName = '';
+    } else {
+      secretBytes = await readFileBytes(file);
+      secretName = file.name;
+    }
+    updateNeed();
+  });
+
+  el<HTMLButtonElement>('img-hide').addEventListener('click', () => {
+    setStatus(hideStatus, '');
+    if (!carrierPixels) {
+      setStatus(hideStatus, '먼저 캐리어 이미지를 선택하세요.');
+      return;
+    }
+    const isText = currentMode() === 'text';
+    if (isText && textArea.value === '') {
+      setStatus(hideStatus, '숨길 메시지를 입력하세요.');
+      return;
+    }
+    if (!isText && !secretBytes) {
+      setStatus(hideStatus, '숨길 파일을 선택하세요.');
+      return;
+    }
+
+    // 원본 ImageData를 그대로 두고 복제본에 심는다 (재시도 시 누적 방지)
+    const pixels = new ImageData(
+      new Uint8ClampedArray(carrierPixels.data),
+      carrierPixels.width,
+      carrierPixels.height,
+    );
+    const payload = frameMessage(
+      isText
+        ? { kind: 'text', name: '', data: new TextEncoder().encode(textArea.value) }
+        : { kind: 'file', name: secretName, data: secretBytes! },
+    );
+    try {
+      lsbWrite(pixels.data, rgbIndices(pixels.data.length), payload);
+    } catch (e) {
+      setStatus(hideStatus, e instanceof Error ? e.message : String(e));
+      return;
+    }
+
+    const canvas = document.createElement('canvas');
+    canvas.width = pixels.width;
+    canvas.height = pixels.height;
+    canvas.getContext('2d')!.putImageData(pixels, 0, 0);
+    canvas.toBlob((blob) => {
+      // toBlob은 지원하지 않는 형식이면 조용히 PNG로 대체하므로 타입을 확인한다
+      if (!blob || blob.type !== 'image/png') {
+        setStatus(hideStatus, 'PNG로 저장하지 못했습니다. 다른 브라우저에서 시도해주세요.');
+        return;
+      }
+      downloadBlob(blob, `${carrierName || 'image'}-steg.png`);
+      setStatus(hideStatus, `${formatByteSize(payload.length)}를 숨겼습니다.`, true);
+      // 결과 미리보기 (표시용으로만 축소)
+      preview.width = pixels.width;
+      preview.height = pixels.height;
+      preview.getContext('2d')!.putImageData(pixels, 0, 0);
+      preview.hidden = false;
+    }, 'image/png');
+  });
+
+  findInput.addEventListener('change', async () => {
+    const file = findInput.files?.[0];
+    setStatus(findStatus, '');
+    resultList.hidden = true;
+    foundText.hidden = true;
+    saveFoundButton.hidden = true;
+    foundFile = null;
+    if (!file) return;
+    try {
+      const pixels = await readPixels(file);
+      const payload = readFrameFrom(pixels.data, rgbIndices(pixels.data.length));
+      if (!payload) {
+        setStatus(findStatus, '숨겨진 데이터를 찾지 못했습니다. (이 도구로 만든 이미지인지 확인하세요)');
+        return;
+      }
+      resultList.innerHTML = '';
+      const rows: [string, string][] = [
+        ['종류', payload.kind === 'file' ? '파일' : '텍스트'],
+        ...(payload.kind === 'file' ? ([['파일 이름', payload.name]] as [string, string][]) : []),
+        ['크기', formatByteSize(payload.data.length)],
+      ];
+      for (const [term, value] of rows) {
+        const dt = document.createElement('dt');
+        dt.textContent = term;
+        const dd = document.createElement('dd');
+        dd.textContent = value;
+        resultList.append(dt, dd);
+      }
+      resultList.hidden = false;
+      if (payload.kind === 'text') {
+        foundText.value = new TextDecoder().decode(payload.data);
+        foundText.hidden = false;
+      } else {
+        foundFile = { name: payload.name || 'secret.bin', data: payload.data };
+        saveFoundButton.hidden = false;
+      }
+      setStatus(findStatus, '숨겨진 데이터를 찾았습니다.', true);
+    } catch (e) {
+      setStatus(findStatus, `이미지를 읽지 못했습니다: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  });
+
+  saveFoundButton.addEventListener('click', () => {
+    if (foundFile) downloadBytes(foundFile.data, foundFile.name);
+  });
+</script>
+
+<style>
+  /* 카드·참고 레이아웃은 styles/steganography.css에 모아 두었고, 여기서는 이 탭 전용만 둔다 */
+  .cards {
+    margin-top: 0;
+  }
+</style>
