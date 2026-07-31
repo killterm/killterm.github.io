@@ -82,6 +82,35 @@ import { MAX_CHANNELS } from '../lib/composer-engine';
       <span class="hint">AI 제작 · CC0 — 처음이라면 눌러서 전체 흐름을 확인해보세요.</span>
     </div>
 
+    <details class="transcribe">
+      <summary>🎤 멜로디 따오기 — 휘파람·허밍을 노트로 옮기기</summary>
+      <p class="hint">
+        <b>단선율(한 번에 한 음)만 됩니다.</b> 휘파람·허밍·단음 연주를 넣으면 음높이를 읽어
+        현재 채널·패턴에 채웁니다. 여러 악기가 섞인 완성곡은 각 음을 분리할 수 없어 지원하지
+        않습니다. 곡의 BPM(<span id="tr-bpm-echo"></span>) 기준 16분음표 격자에 맞춰 배치합니다.
+      </p>
+      <div class="field-row">
+        <button id="tr-record" class="btn" type="button">🎙️ 마이크로 녹음 (8초)</button>
+        <button id="tr-file" class="btn btn-small" type="button">오디오 파일 열기</button>
+        <input id="tr-file-input" type="file" accept="audio/*" hidden />
+        <span class="mono-value" id="tr-info"></span>
+      </div>
+      <div class="field-row">
+        <label class="num-field">
+          민감도
+          <select id="tr-sensitivity" aria-label="민감도">
+            <option value="0.04">낮음 (조용한 소리 무시)</option>
+            <option value="0.02" selected>보통</option>
+            <option value="0.008">높음 (작은 소리도 잡기)</option>
+          </select>
+        </label>
+        <button id="tr-apply" class="btn btn-primary" type="button" disabled>
+          현재 채널에 채우기
+        </button>
+      </div>
+      <p id="tr-status" class="status" role="status"></p>
+    </details>
+
     <section class="channels" aria-label="채널 믹서">
       {
         Array.from({ length: MAX_CHANNELS }, (_, channelIndex) => (
@@ -207,6 +236,8 @@ import { MAX_CHANNELS } from '../lib/composer-engine';
   } from '../lib/composer-engine';
   import { SAMPLE_RATE } from '../lib/sfx-synth';
   import { listSounds } from '../lib/sfx-store';
+  import { transcribe } from '../lib/pitch-detect';
+  import { readFileBytes } from '../lib/file-io';
   import { encodeWav } from '../lib/wav-encode';
 
   const el = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -542,6 +573,7 @@ import { MAX_CHANNELS } from '../lib/composer-engine';
   bpmInput.addEventListener('change', () => {
     song.bpm = Math.min(240, Math.max(60, Number(bpmInput.value) || 120));
     bpmInput.value = String(song.bpm);
+    bpmEcho.textContent = `${song.bpm}`;
     persist();
   });
 
@@ -816,6 +848,156 @@ import { MAX_CHANNELS } from '../lib/composer-engine';
     setStatus(`채널 ${song.channels.length}(${fresh.name})을 추가했습니다.`);
   });
 
+  // ---------- 멜로디 따오기 ----------
+  //
+  // 단선율만 다룬다(다성 채보는 규칙 기반으로 쓸모없는 결과가 나온다).
+  // 오디오는 AudioContext로 디코딩해 첫 채널만 쓰고, pitch-detect가 음높이를 읽는다.
+
+  const recordButton = el<HTMLButtonElement>('tr-record');
+  const fileButton = el<HTMLButtonElement>('tr-file');
+  const fileInputTranscribe = el<HTMLInputElement>('tr-file-input');
+  const sensitivitySelect = el<HTMLSelectElement>('tr-sensitivity');
+  const applyButton = el<HTMLButtonElement>('tr-apply');
+  const transcribeInfo = el<HTMLSpanElement>('tr-info');
+  const transcribeStatus = el<HTMLParagraphElement>('tr-status');
+  const bpmEcho = el<HTMLSpanElement>('tr-bpm-echo');
+
+  /** 분석 결과 — 적용 버튼이 쓴다 */
+  let transcribed: (number | null)[] | null = null;
+
+  const setTranscribeStatus = (message: string) => {
+    transcribeStatus.textContent = message;
+  };
+
+  function analyzeSamples(samples: Float32Array, sampleRate: number) {
+    const silenceRms = Number(sensitivitySelect.value);
+    const result = transcribe(samples, sampleRate, song.bpm, PATTERN_STEPS, { silenceRms });
+    transcribed = result.steps;
+    applyButton.disabled = result.placedCount === 0;
+    transcribeInfo.textContent = `${(samples.length / sampleRate).toFixed(1)}초 · 음 ${result.notes.length}개`;
+    if (result.placedCount === 0) {
+      setTranscribeStatus(
+        '음을 찾지 못했습니다. 더 크고 또렷하게, 한 번에 한 음만 소리 내보세요 (민감도도 조절해보세요).',
+      );
+      return;
+    }
+    const parts = [`${result.placedCount}개 음을 격자에 놓았습니다`];
+    if (result.transposedSemitones !== 0) {
+      parts.push(`음역을 ${result.transposedSemitones / 12}옥타브 옮겼습니다`);
+    }
+    if (result.droppedCount > 0) {
+      parts.push(`${result.droppedCount}개는 격자를 넘거나 겹쳐 버렸습니다`);
+    }
+    setTranscribeStatus(`${parts.join(' · ')}. "현재 채널에 채우기"를 누르세요.`);
+  }
+
+  /** 오디오 파일을 디코딩해 첫 채널만 돌려준다 */
+  async function decodeToMono(bytes: Uint8Array<ArrayBuffer>): Promise<{ samples: Float32Array<ArrayBuffer>; sampleRate: number }> {
+    const context = ensureAudioContext();
+    // decodeAudioData는 버퍼를 소비하므로 복사해서 넘긴다
+    const decoded = await context.decodeAudioData(bytes.slice(0).buffer);
+    const channel = decoded.getChannelData(0);
+    return { samples: Float32Array.from(channel), sampleRate: decoded.sampleRate };
+  }
+
+  fileButton.addEventListener('click', () => fileInputTranscribe.click());
+
+  fileInputTranscribe.addEventListener('change', async () => {
+    const file = fileInputTranscribe.files?.[0];
+    fileInputTranscribe.value = '';
+    if (!file) return;
+    setTranscribeStatus('분석 중…');
+    try {
+      const { samples, sampleRate } = await decodeToMono(await readFileBytes(file));
+      analyzeSamples(samples, sampleRate);
+    } catch (e) {
+      setTranscribeStatus(`오디오를 읽지 못했습니다: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  });
+
+  // 마이크 녹음 — 루프 스테이션과 같은 워클릿 캡처 방식
+  const RECORD_SECONDS = 8;
+  const CAPTURE_WORKLET = `
+    class MelodyCapture extends AudioWorkletProcessor {
+      process(inputs) {
+        const channel = inputs[0] && inputs[0][0];
+        if (channel) this.port.postMessage(channel.slice(0));
+        return true;
+      }
+    }
+    registerProcessor('melody-capture', MelodyCapture);
+  `;
+
+  recordButton.addEventListener('click', async () => {
+    recordButton.disabled = true;
+    let stream: MediaStream | null = null;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        // 음높이를 재야 하므로 통화용 처리는 끈다
+        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+      });
+      const context = ensureAudioContext();
+      const workletUrl = URL.createObjectURL(
+        new Blob([CAPTURE_WORKLET], { type: 'application/javascript' }),
+      );
+      await context.audioWorklet.addModule(workletUrl);
+      URL.revokeObjectURL(workletUrl);
+
+      const node = new AudioWorkletNode(context, 'melody-capture', { channelCount: 1 });
+      const chunks: Float32Array[] = [];
+      let total = 0;
+      node.port.onmessage = (event: MessageEvent<Float32Array>) => {
+        chunks.push(event.data);
+        total += event.data.length;
+      };
+      const source = context.createMediaStreamSource(stream);
+      const silent = context.createGain();
+      silent.gain.value = 0;
+      source.connect(node);
+      node.connect(silent).connect(context.destination);
+
+      for (let remaining = RECORD_SECONDS; remaining > 0; remaining--) {
+        setTranscribeStatus(`녹음 중… ${remaining}초 (한 번에 한 음씩)`);
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      }
+      source.disconnect();
+      node.disconnect();
+
+      const recorded = new Float32Array(total);
+      let offset = 0;
+      for (const chunk of chunks) {
+        recorded.set(chunk, offset);
+        offset += chunk.length;
+      }
+      setTranscribeStatus('분석 중…');
+      analyzeSamples(recorded, context.sampleRate);
+    } catch (e) {
+      setTranscribeStatus(`마이크를 쓰지 못했습니다: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      stream?.getTracks().forEach((track) => track.stop());
+      recordButton.disabled = false;
+    }
+  });
+
+  applyButton.addEventListener('click', () => {
+    if (!transcribed) return;
+    const patternIndex = currentPatternIndex;
+    const channelIndex = currentChannelIndex;
+    const before = [...song.patterns[patternIndex].notes[channelIndex]];
+    song.patterns[patternIndex].notes[channelIndex] = [...transcribed];
+    persist();
+    renderGrid();
+    offerUndo(
+      `패턴 ${patternIndex + 1}의 채널 ${channelIndex + 1}에 따온 멜로디를 넣었습니다.`,
+      () => {
+        song.patterns[patternIndex].notes[channelIndex] = before;
+        persist();
+        renderGrid();
+        setStatus('되돌렸습니다.');
+      },
+    );
+  });
+
   // ---------- 패턴 · 시퀀스 ----------
 
   function renderPatternList() {
@@ -1084,6 +1266,7 @@ import { MAX_CHANNELS } from '../lib/composer-engine';
 
   function renderAll() {
     bpmInput.value = String(song.bpm);
+    bpmEcho.textContent = `${song.bpm}`;
     renderInstrumentOptions();
     renderChannelControls();
     renderPatternList();
@@ -1333,6 +1516,30 @@ import { MAX_CHANNELS } from '../lib/composer-engine';
     align-items: center;
     gap: 0.5rem;
     flex-wrap: wrap;
+  }
+
+  .transcribe {
+    margin-top: 0.9rem;
+    border: 1px solid var(--border);
+    border-radius: 0.7rem;
+    padding: 0.6rem 0.9rem;
+    display: grid;
+    gap: 0.6rem;
+  }
+
+  .transcribe summary {
+    cursor: pointer;
+    font-weight: 600;
+  }
+
+  /* 접혀 있을 때는 요약만 보이도록 (grid gap이 빈 줄을 만들지 않게) */
+  .transcribe:not([open]) {
+    display: block;
+    padding: 0.6rem 0.9rem;
+  }
+
+  .transcribe .hint b {
+    color: var(--text);
   }
 
   .demo-row {
