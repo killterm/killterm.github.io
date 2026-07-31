@@ -288,6 +288,96 @@ export const BUILTIN_INSTRUMENTS: Instrument[] = [
       hpfSweep: 0.2,
     }),
   },
+  // ---- 실제 음원 칩의 채널 음색을 흉내낸 프리셋 ----
+  //
+  // 음색은 하드웨어의 기술적 특성이라 자유롭게 흉내낼 수 있다(특정 곡의 멜로디와는
+  // 다른 문제다). NES(2A03)는 사각파 2채널 + 삼각파 1채널 + 노이즈 1채널,
+  // 게임보이(DMG)는 사각파 2채널(하나는 주파수 스윕) + 파형 채널 + 노이즈다.
+  //
+  // 사각파의 듀티비는 이 합성기에서 duty로 조절한다: duty 0 → 50%, 0.5 → 25%,
+  // 0.75 → 12.5%. 낮은 듀티일수록 얇고 갈라지는 소리가 난다.
+  {
+    name: 'NES 펄스 12.5%',
+    params: instrumentParams({
+      waveType: 'square',
+      duty: 0.75,
+      sustain: 0.16,
+      decay: 0.14,
+    }),
+  },
+  {
+    name: 'NES 펄스 25%',
+    params: instrumentParams({
+      waveType: 'square',
+      duty: 0.5,
+      sustain: 0.18,
+      decay: 0.16,
+    }),
+  },
+  {
+    name: 'NES 펄스 50%',
+    params: instrumentParams({
+      waveType: 'square',
+      duty: 0,
+      sustain: 0.2,
+      decay: 0.18,
+    }),
+  },
+  {
+    // 2A03 삼각파는 음량 조절이 없어 항상 같은 세기로 울린다 — 그래서 베이스가
+    // 또렷하고 감쇠가 길다.
+    name: 'NES 삼각 베이스',
+    params: instrumentParams({
+      waveType: 'triangle',
+      sustain: 0.3,
+      decay: 0.34,
+    }),
+  },
+  {
+    // 노이즈 채널의 짧은 주기 모드 — 금속성이 강해 스네어·심벌로 쓰인다
+    name: 'NES 노이즈 스네어',
+    params: instrumentParams({
+      waveType: 'noise',
+      sustain: 0.05,
+      decay: 0.16,
+      punch: 0.35,
+      hpfCutoff: 0.25,
+      lpfCutoff: 0.85,
+    }),
+  },
+  {
+    // DMG 파형 채널은 4비트 파형표를 재생한다 — 삼각파에 가까운 부드러운 음색으로
+    // 베이스나 중음 리드에 쓰였다
+    name: 'GB 파형 베이스',
+    params: instrumentParams({
+      waveType: 'triangle',
+      sustain: 0.28,
+      decay: 0.26,
+      lpfCutoff: 0.5,
+    }),
+  },
+  {
+    // DMG 1번 채널에는 주파수 스윕 장치가 있어 음이 위로 미끄러진다
+    name: 'GB 펄스 스윕',
+    params: instrumentParams({
+      waveType: 'square',
+      duty: 0.5,
+      sustain: 0.1,
+      decay: 0.18,
+      freqSlide: 0.18,
+    }),
+  },
+  {
+    name: 'GB 노이즈 드럼',
+    params: instrumentParams({
+      waveType: 'noise',
+      sustain: 0.04,
+      decay: 0.12,
+      punch: 0.3,
+      freqSlide: -0.15,
+      hpfCutoff: 0.15,
+    }),
+  },
 ];
 
 export function defaultSong(): Song {
