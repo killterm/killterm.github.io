@@ -4,7 +4,7 @@ import Layout from '../layouts/Layout.astro';
 
 <Layout
   title="폰트 만들기 — Killterm"
-  description="픽셀로 글자를 그려 설치 가능한 TTF 폰트로 내보냅니다. 한글은 자모를 그려 음절을 조합합니다."
+  description="픽셀·벡터로 글자를 그리거나 SVG를 불러와 설치 가능한 TTF 폰트로 내보냅니다. 한글은 자모를 그려 음절을 조합합니다."
 >
   <main>
     <nav class="top">
@@ -14,9 +14,10 @@ import Layout from '../layouts/Layout.astro';
     <header class="intro">
       <h1>🅰️ 폰트 만들기</h1>
       <p>
-        칸을 칠해 글자를 그리고 <b>설치할 수 있는 TTF 폰트</b>로 내보냅니다. 한글은 음절을 하나하나
-        그리지 않고 <b>자모만 그리면 조합</b>되며, 자리에 따라 모양이 달라지는 <b>벌</b>도 따로 그릴
-        수 있습니다. 모든 처리는 브라우저 안에서만 이루어집니다.
+        칸을 칠해 글자를 그리고 <b>설치할 수 있는 TTF 폰트</b>로 내보냅니다. 픽셀로 밑그림을 잡은 뒤
+        <b> 벡터로 바꿔 곡선</b>으로 다듬거나, 밖에서 그린 <b>SVG를 불러올</b> 수 있습니다. 한글은 음절을 하나하나 그리지 않고
+        <b> 자모만 그리면 조합</b>되며, 자리에 따라 모양이 달라지는 <b>벌</b>도 따로 그릴 수 있습니다.
+        모든 처리는 브라우저 안에서만 이루어집니다.
       </p>
     </header>
 
@@ -88,7 +89,49 @@ import Layout from '../layouts/Layout.astro';
           <span class="hint" id="ft-current-info"></span>
         </div>
         <canvas id="ft-canvas" width="512" height="512"></canvas>
-        <div class="bar">
+        <div class="bar" id="ft-mode-row">
+          <span class="hint">편집 방식</span>
+          <div class="chip-group" role="radiogroup" aria-label="편집 방식">
+            <label class="chip">
+              <input type="radio" name="ft-mode" value="pixel" checked />
+              <span>픽셀</span>
+            </label>
+            <label class="chip">
+              <input type="radio" name="ft-mode" value="outline" />
+              <span>벡터</span>
+            </label>
+          </div>
+          <span class="hint" id="ft-mode-hint"></span>
+        </div>
+
+        <div class="bar" id="ft-vector-tools" hidden>
+          <div class="chip-group" role="radiogroup" aria-label="벡터 도구">
+            <label class="chip">
+              <input type="radio" name="ft-vtool" value="move" checked />
+              <span>점 이동</span>
+            </label>
+            <label class="chip">
+              <input type="radio" name="ft-vtool" value="add" />
+              <span>점 추가</span>
+            </label>
+            <label class="chip">
+              <input type="radio" name="ft-vtool" value="delete" />
+              <span>점 삭제</span>
+            </label>
+            <label class="chip">
+              <input type="radio" name="ft-vtool" value="toggle" />
+              <span>곡선 전환</span>
+            </label>
+          </div>
+          <button id="ft-new-contour" class="btn btn-small" type="button">새 윤곽선</button>
+          <button id="ft-reverse-contour" class="btn btn-small" type="button">방향 반전</button>
+          <label class="check-field">
+            <input type="checkbox" id="ft-snap" checked />
+            격자에 맞추기
+          </label>
+        </div>
+
+        <div class="bar" id="ft-pixel-tools">
           <button id="ft-clear" class="btn btn-small" type="button">전체 지우기</button>
           <button class="btn btn-small shift" data-dx="-1" data-dy="0" type="button">←</button>
           <button class="btn btn-small shift" data-dx="1" data-dy="0" type="button">→</button>
@@ -96,11 +139,44 @@ import Layout from '../layouts/Layout.astro';
           <button class="btn btn-small shift" data-dx="0" data-dy="1" type="button">↓</button>
           <button id="ft-flip-h" class="btn btn-small" type="button">좌우 반전</button>
           <button id="ft-flip-v" class="btn btn-small" type="button">상하 반전</button>
+        </div>
+
+        <div class="bar">
           <label class="num-field">
             폭
             <input id="ft-advance" type="number" min="1" max="32" step="1" value="9" />
           </label>
+          <button id="ft-to-outline" class="btn btn-small" type="button">픽셀 → 벡터로 변환</button>
+          <span class="hint" id="ft-vector-info"></span>
         </div>
+
+        <div class="bar">
+          <button id="ft-import-svg" class="btn btn-small" type="button">SVG 불러오기</button>
+          <input id="ft-svg-input" type="file" accept=".svg,image/svg+xml" multiple hidden />
+          <span class="hint">크기 맞춤</span>
+          <div class="chip-group" role="radiogroup" aria-label="SVG 크기 맞춤">
+            <label class="chip">
+              <input type="radio" name="ft-svg-fit" value="cap" checked />
+              <span>대문자 높이</span>
+            </label>
+            <label class="chip">
+              <input type="radio" name="ft-svg-fit" value="full" />
+              <span>전각 칸</span>
+            </label>
+          </div>
+        </div>
+        <p class="hint">
+          파일 하나를 고르면 <b>지금 편집 중인 글자</b>에 넣고, 여러 개를 고르면&nbsp;
+          <b>파일명</b>(<code>A.svg</code> · <code>U+AC00.svg</code>)을 글자로 씁니다.&nbsp;
+          <a href="/samples/%EA%B0%80.svg" download>예시 SVG(가.svg) 내려받기</a>
+        </p>
+
+        <details class="svg-paste">
+          <summary>SVG 코드 붙여넣기</summary>
+          <textarea id="ft-svg-text" rows="4" spellcheck="false" placeholder="&lt;svg …&gt; 코드를 붙여넣으세요"
+          ></textarea>
+          <button id="ft-apply-svg" class="btn btn-small" type="button">현재 글자에 적용</button>
+        </details>
       </section>
 
       <aside class="side">
@@ -168,6 +244,28 @@ import Layout from '../layouts/Layout.astro';
           병합해 윤곽선으로 바꾸므로, 확대해도 계단 모양이 그대로 유지됩니다.
         </li>
         <li>
+          <b>곡선이 필요하면 벡터로 바꾸세요.</b> "픽셀 → 벡터로 변환"을 누르면 지금 그림이 윤곽선
+          점으로 바뀌고, 점을 옮기거나 <b>곡선 전환</b>으로 2차 베지어 제어점(원형 점)으로 만들 수
+          있습니다. 글자 안쪽에 구멍(ㅇ, o)을 낼 때는 <b>새 윤곽선</b>으로 안쪽 고리를 그린 뒤
+          <b>방향 반전</b>으로 진행 방향을 반대로 둡니다 — 채움 방향이 반대여야 뚫립니다. 벡터로 바꾼
+          글자는 픽셀로 되돌아가지 않으니(모양이 손실됩니다) 밑그림을 먼저 마무리하는 편이 좋습니다.
+        </li>
+        <li>
+          BDF와 PNG 아틀라스는 비트맵 형식이라, 벡터로 그린 글자는 <b>격자 크기에 맞춰 다시 구워</b>
+          담습니다. 곡선을 살리려면 TTF로 내보내세요. 자모는 조합이 비트맵 연산이어서 픽셀 전용입니다.
+        </li>
+        <li>
+          <b>SVG를 불러오면 벡터 글자가 됩니다.</b> 일러스트레이터·Inkscape·피그마에서 그린 모양을
+          그대로 가져올 수 있습니다. SVG는 3차 베지어를, 폰트는 2차 베지어를 쓰므로 <b>눈에 보이지
+          않는 오차(em의 0.2%) 안에서 근사</b>해 담고, 안쪽 고리는 <b>중첩 깊이로 판정해 구멍으로</b>
+          자동 처리합니다 — 방향을 직접 뒤집지 않아도 됩니다.
+        </li>
+        <li>
+          획(stroke)만 있고 채움이 없는 그림은 담을 수 없습니다. 그림 도구에서 <b>선을 윤곽선으로
+          변환</b>(패스 → 윤곽선)한 뒤 저장하세요. 글자·이미지·클래스 기반 스타일처럼 담지 못한
+          요소가 있으면 상태줄에 알려줍니다.
+        </li>
+        <li>
           게임 엔진에서 쓰려면 PNG + JSON을 받으세요 — 글자마다 아틀라스 좌표와 폭이 들어 있습니다.
           터미널·임베디드용으로는 BDF가 편합니다.
         </li>
@@ -183,17 +281,26 @@ import Layout from '../layouts/Layout.astro';
 <script>
   import {
     PIXEL_UNITS,
+    contourToPath,
+    contourSignedArea,
     encodeBdf,
     emptyPixelGlyph,
     flipPixels,
     glyphToContours,
     pixelExtent,
+    pixelGlyphToOutline,
     resizePixels,
+    reverseContour,
     shiftPixels,
+    snapUnits,
     unitsPerEmFor,
+    type Contour,
     type Glyph,
+    type GlyphPoint,
   } from '../lib/bitmap-font';
   import { encodeTtf, type FontGlyph } from '../lib/ttf-encode';
+  import { codePointFromFileName, collectSvgContours, type SvgFit } from '../lib/svg-import';
+  import { contourBounds, type Bounds } from '../lib/svg-path';
   import {
     FINALS,
     INITIALS,
@@ -230,6 +337,15 @@ import Layout from '../layouts/Layout.astro';
   const hangulScopeSelect = el<HTMLSelectElement>('ft-hangul-scope');
   const scopeInfo = el<HTMLParagraphElement>('ft-scope-info');
   const jsonInput = el<HTMLInputElement>('ft-json-input');
+  const modeRow = el<HTMLDivElement>('ft-mode-row');
+  const modeHint = el<HTMLSpanElement>('ft-mode-hint');
+  const vectorTools = el<HTMLDivElement>('ft-vector-tools');
+  const pixelTools = el<HTMLDivElement>('ft-pixel-tools');
+  const snapToggle = el<HTMLInputElement>('ft-snap');
+  const vectorInfo = el<HTMLSpanElement>('ft-vector-info');
+  const toOutlineButton = el<HTMLButtonElement>('ft-to-outline');
+  const svgInput = el<HTMLInputElement>('ft-svg-input');
+  const svgTextArea = el<HTMLTextAreaElement>('ft-svg-text');
   const status = el<HTMLParagraphElement>('ft-status');
   const undoActionButton = el<HTMLButtonElement>('ft-undo-action');
 
@@ -251,8 +367,8 @@ import Layout from '../layouts/Layout.astro';
     grid: number;
     baselineRow: number;
     monospace: boolean;
-    /** 코드포인트 → 픽셀 비트(문자열로 저장해 JSON에 담는다) */
-    glyphs: Record<number, { bits: number[]; advance: number }>;
+    /** 코드포인트 → 픽셀 비트 또는 윤곽선 */
+    glyphs: Record<number, { bits?: number[]; contours?: GlyphPoint[][]; advance: number }>;
     /** `종류:인덱스:벌` → 픽셀 비트 */
     jamo?: Record<string, number[]>;
     customChars: number[];
@@ -269,10 +385,10 @@ import Layout from '../layouts/Layout.astro';
   let customChars: number[] = [];
   let currentCode = 0x41;
   /** 실행취소 — (코드포인트, 이전 비트) 기록 */
-  const undoStack: {
-    target: { kind: 'char'; code: number } | { kind: 'jamo'; key: string };
-    bits: Uint8Array;
-  }[] = [];
+  const undoStack: (
+    | { kind: 'char'; code: number; glyph: Glyph }
+    | { kind: 'jamo'; key: string; bits: Uint8Array }
+  )[] = [];
   let pendingUndo: (() => void) | null = null;
 
   const jamoCode = (jamo: string) => jamo.codePointAt(0)!;
@@ -326,9 +442,18 @@ import Layout from '../layouts/Layout.astro';
 
   function defaultAdvance(code: number): number {
     if (monospaceToggle.checked) return grid;
-    const extent = pixelExtent(pixelBits(code), grid);
+    const fallback = Math.max(2, Math.round(grid / 3));
+    const glyph = glyphFor(code);
+    if (glyph.kind === 'outline') {
+      // 윤곽선은 실제 그림 경계에서 오른쪽 끝을 구한다
+      const bounds = contourBounds(glyph.contours);
+      if (!bounds) return fallback;
+      const rightCell = Math.ceil((bounds.x + bounds.width) / PIXEL_UNITS);
+      return Math.min(grid * 2, Math.max(2, rightCell + 1));
+    }
+    const extent = pixelExtent(glyph.bits, grid);
     // 여백 한 칸을 더해 글자가 붙지 않게 한다
-    return extent ? extent.right + 2 : Math.max(2, Math.round(grid / 3));
+    return extent ? extent.right + 2 : fallback;
   }
 
   const advanceFor = (code: number) => advances.get(code) ?? defaultAdvance(code);
@@ -338,8 +463,11 @@ import Layout from '../layouts/Layout.astro';
   function persist() {
     const record: Project['glyphs'] = {};
     for (const [code, glyph] of glyphs) {
-      if (glyph.kind !== 'pixel' || glyph.bits.every((bit) => bit === 0)) continue;
-      record[code] = { bits: [...glyph.bits], advance: advanceFor(code) };
+      if (!hasShape(glyph)) continue;
+      record[code] =
+        glyph.kind === 'outline'
+          ? { contours: glyph.contours, advance: advanceFor(code) }
+          : { bits: [...glyph.bits], advance: advanceFor(code) };
     }
     const jamoRecord: Record<string, number[]> = {};
     for (const [key, bits] of jamoGlyphs) {
@@ -378,10 +506,14 @@ import Layout from '../layouts/Layout.astro';
       jamoGlyphs.set(key, bits);
     }
     for (const [code, entry] of Object.entries(project.glyphs ?? {})) {
-      const bits = new Uint8Array(grid * grid);
-      const source = entry.bits ?? [];
-      for (let i = 0; i < Math.min(bits.length, source.length); i++) bits[i] = source[i] ? 1 : 0;
-      glyphs.set(Number(code), { kind: 'pixel', bits });
+      if (entry.contours) {
+        glyphs.set(Number(code), { kind: 'outline', contours: entry.contours });
+      } else {
+        const bits = new Uint8Array(grid * grid);
+        const source = entry.bits ?? [];
+        for (let i = 0; i < Math.min(bits.length, source.length); i++) bits[i] = source[i] ? 1 : 0;
+        glyphs.set(Number(code), { kind: 'pixel', bits });
+      }
       if (typeof entry.advance === 'number') advances.set(Number(code), entry.advance);
     }
   }
@@ -490,7 +622,7 @@ import Layout from '../layouts/Layout.astro';
         cell.textContent = String.fromCodePoint(code);
         cell.setAttribute('aria-pressed', String(code === currentCode && !currentJamo));
         const glyph = glyphs.get(code);
-        if (glyph?.kind === 'pixel' && glyph.bits.some((bit) => bit === 1)) cell.classList.add('drawn');
+        if (glyph && hasShape(glyph)) cell.classList.add('drawn');
         cell.addEventListener('click', () => {
           currentJamo = null;
           currentCode = code;
@@ -502,7 +634,7 @@ import Layout from '../layouts/Layout.astro';
     }
 
     const drawnChars = [...glyphs.values()].filter(
-      (glyph) => glyph.kind === 'pixel' && glyph.bits.some((bit) => bit === 1),
+      (glyph) => hasShape(glyph),
     ).length;
     // 기본 벌이 그려진 자모 수 / 전체
     const baseDrawn = (['initial', 'medial', 'final'] as JamoKind[]).reduce((sum, kind) => {
@@ -540,6 +672,7 @@ import Layout from '../layouts/Layout.astro';
       advanceInput.disabled = false;
     }
     advanceInput.max = String(grid * 2);
+    updateModeUi();
     drawGrid();
   }
 
@@ -548,18 +681,20 @@ import Layout from '../layouts/Layout.astro';
     const cell = size / grid;
     const context = canvas.getContext('2d')!;
     const styles = getComputedStyle(document.documentElement);
-    const bits = currentBits();
+    const glyph = currentGlyph();
 
     context.clearRect(0, 0, size, size);
     // 배경
     context.fillStyle = styles.getPropertyValue('--bg-soft').trim() || '#fff';
     context.fillRect(0, 0, size, size);
 
-    // 칠한 칸
-    context.fillStyle = styles.getPropertyValue('--text').trim() || '#000';
-    for (let y = 0; y < grid; y++) {
-      for (let x = 0; x < grid; x++) {
-        if (bits[y * grid + x]) context.fillRect(x * cell, y * cell, cell, cell);
+    if (glyph.kind === 'pixel') {
+      const bits = currentBits();
+      context.fillStyle = styles.getPropertyValue('--text').trim() || '#000';
+      for (let y = 0; y < grid; y++) {
+        for (let x = 0; x < grid; x++) {
+          if (bits[y * grid + x]) context.fillRect(x * cell, y * cell, cell, cell);
+        }
       }
     }
 
@@ -592,16 +727,443 @@ import Layout from '../layouts/Layout.astro';
     context.lineTo(advanceGuide * cell, size);
     context.stroke();
     context.setLineDash([]);
+
+    // 윤곽선과 제어점은 격자·안내선 위에 얹는다
+    if (glyph.kind === 'outline') drawOutline(context);
   }
 
-  /** 실행취소 기록 — 글자 글리프와 자모 벌을 함께 다룬다 */
-  function pushUndo() {
-    undoStack.push({
-      target: currentJamo
-        ? { kind: 'jamo' as const, key: jamoKey(currentJamo.kind, currentJamo.index, currentJamo.variant) }
-        : { kind: 'char' as const, code: currentCode },
-      bits: Uint8Array.from(currentBits()),
+  // ---------- 벡터(아웃라인) 편집 ----------
+  //
+  // 자모는 조합이 비트맵 연산이라 픽셀만 지원한다. 벡터는 일반 글자에만 쓴다.
+
+  const vectorTool = () =>
+    (document.querySelector('input[name="ft-vtool"]:checked') as HTMLInputElement).value;
+  const editMode = () =>
+    (document.querySelector('input[name="ft-mode"]:checked') as HTMLInputElement).value;
+
+  /** 편집 중인 윤곽선 번호와, 잡고 있는 점 */
+  let activeContour = 0;
+  let dragging: { contour: number; point: number } | null = null;
+
+  const currentGlyph = (): Glyph =>
+    currentJamo ? { kind: 'pixel', bits: currentBits() } : glyphFor(currentCode);
+
+  const outlineContours = (): Contour[] => {
+    const glyph = currentGlyph();
+    return glyph.kind === 'outline' ? glyph.contours : [];
+  };
+
+  /** 화면 좌표 ↔ 폰트 단위 */
+  const unitsFromEvent = (event: PointerEvent) => {
+    const rect = canvas.getBoundingClientRect();
+    const cell = rect.width / grid;
+    const x = ((event.clientX - rect.left) / cell) * PIXEL_UNITS;
+    const y = (baselineRow - (event.clientY - rect.top) / cell) * PIXEL_UNITS;
+    return snapToggle.checked ? { x: snapUnits(x), y: snapUnits(y) } : { x, y };
+  };
+
+  const toCanvas = (point: { x: number; y: number }) => {
+    const cell = canvas.width / grid;
+    return {
+      x: (point.x / PIXEL_UNITS) * cell,
+      y: (baselineRow - point.y / PIXEL_UNITS) * cell,
+    };
+  };
+
+  /** 클릭 지점에서 가장 가까운 제어점 (화면 기준 14px 안) */
+  function hitPoint(event: PointerEvent): { contour: number; point: number } | null {
+    const rect = canvas.getBoundingClientRect();
+    const scale = canvas.width / rect.width;
+    const clickX = (event.clientX - rect.left) * scale;
+    const clickY = (event.clientY - rect.top) * scale;
+    // 콜백 안에서 대입하면 TS가 타입을 never로 좁히므로 명시적으로 선언한다
+    type Hit = { contour: number; point: number; distance: number };
+    let best: Hit | null = null;
+    outlineContours().forEach((contour, contourIndex) => {
+      contour.forEach((point, pointIndex) => {
+        const screen = toCanvas(point);
+        const distance = Math.hypot(screen.x - clickX, screen.y - clickY);
+        if (distance < 14 * scale && (!best || distance < best.distance)) {
+          best = { contour: contourIndex, point: pointIndex, distance };
+        }
+      });
     });
+    const found = best as Hit | null;
+    return found ? { contour: found.contour, point: found.point } : null;
+  }
+
+  function setOutline(contours: Contour[]) {
+    glyphs.set(currentCode, { kind: 'outline', contours });
+  }
+
+  function drawOutline(context: CanvasRenderingContext2D) {
+    const contours = outlineContours();
+    const styles = getComputedStyle(document.documentElement);
+    const accent = styles.getPropertyValue('--accent').trim() || '#4263eb';
+
+    // 채움 — 실제 렌더링과 같은 모양을 보여준다
+    context.fillStyle = styles.getPropertyValue('--text').trim() || '#000';
+    context.beginPath();
+    for (const contour of contours) {
+      for (const command of contourToPath(contour)) {
+        if (command.type === 'move') {
+          const p = toCanvas(command);
+          context.moveTo(p.x, p.y);
+        } else if (command.type === 'line') {
+          const p = toCanvas(command);
+          context.lineTo(p.x, p.y);
+        } else if (command.type === 'quad') {
+          const control = toCanvas({ x: command.cx, y: command.cy });
+          const end = toCanvas(command);
+          context.quadraticCurveTo(control.x, control.y, end.x, end.y);
+        } else {
+          context.closePath();
+        }
+      }
+    }
+    context.fill();
+
+    // 제어점 — on-curve는 사각형, off-curve(곡선 제어점)는 원
+    contours.forEach((contour, contourIndex) => {
+      const active = contourIndex === activeContour;
+      context.strokeStyle = active ? accent : 'rgba(128,128,128,0.7)';
+      context.lineWidth = 1.5;
+      // 점을 잇는 보조선
+      context.beginPath();
+      contour.forEach((point, index) => {
+        const screen = toCanvas(point);
+        if (index === 0) context.moveTo(screen.x, screen.y);
+        else context.lineTo(screen.x, screen.y);
+      });
+      if (contour.length > 1) context.closePath();
+      context.setLineDash([3, 3]);
+      context.stroke();
+      context.setLineDash([]);
+
+      contour.forEach((point, index) => {
+        const screen = toCanvas(point);
+        const size = 5;
+        context.beginPath();
+        if (point.onCurve) {
+          context.rect(screen.x - size, screen.y - size, size * 2, size * 2);
+        } else {
+          context.arc(screen.x, screen.y, size, 0, Math.PI * 2);
+        }
+        context.fillStyle = active ? accent : '#888';
+        context.fill();
+        if (dragging && dragging.contour === contourIndex && dragging.point === index) {
+          context.strokeStyle = '#fff';
+          context.lineWidth = 2;
+          context.stroke();
+        }
+      });
+    });
+  }
+
+  function pointerDownVector(event: PointerEvent) {
+    const tool = vectorTool();
+    const hit = hitPoint(event);
+    const contours = outlineContours().map((contour) => [...contour]);
+
+    if (tool === 'delete') {
+      if (!hit) return;
+      pushUndo();
+      contours[hit.contour].splice(hit.point, 1);
+      const remaining = contours.filter((contour) => contour.length > 0);
+      setOutline(remaining);
+      activeContour = Math.min(activeContour, Math.max(0, remaining.length - 1));
+      afterVectorEdit();
+      return;
+    }
+    if (tool === 'toggle') {
+      if (!hit) return;
+      pushUndo();
+      const point = contours[hit.contour][hit.point];
+      contours[hit.contour][hit.point] = { ...point, onCurve: !point.onCurve };
+      setOutline(contours);
+      afterVectorEdit();
+      return;
+    }
+    if (tool === 'add') {
+      pushUndo();
+      const position = unitsFromEvent(event);
+      if (contours.length === 0) contours.push([]);
+      const target = Math.min(activeContour, contours.length - 1);
+      // 잡은 점 다음 자리에 넣어 순서를 이어 간다
+      const insertAt = hit && hit.contour === target ? hit.point + 1 : contours[target].length;
+      contours[target].splice(insertAt, 0, { ...position, onCurve: true });
+      activeContour = target;
+      setOutline(contours);
+      afterVectorEdit();
+      return;
+    }
+    // 이동
+    if (!hit) return;
+    pushUndo();
+    activeContour = hit.contour;
+    dragging = hit;
+    canvas.setPointerCapture(event.pointerId);
+    drawGrid();
+  }
+
+  function pointerMoveVector(event: PointerEvent) {
+    if (!dragging) return;
+    const contours = outlineContours().map((contour) => [...contour]);
+    const point = contours[dragging.contour]?.[dragging.point];
+    if (!point) return;
+    const position = unitsFromEvent(event);
+    contours[dragging.contour][dragging.point] = { ...point, ...position };
+    setOutline(contours);
+    drawGrid();
+  }
+
+  function afterVectorEdit() {
+    persist();
+    renderCells();
+    renderEditor();
+    updatePreview();
+  }
+
+  el<HTMLButtonElement>('ft-new-contour').addEventListener('click', () => {
+    pushUndo();
+    const contours = outlineContours().map((contour) => [...contour]);
+    contours.push([]);
+    activeContour = contours.length - 1;
+    setOutline(contours);
+    afterVectorEdit();
+    setStatus('새 윤곽선을 추가했습니다. "점 추가"로 점을 찍으세요.');
+  });
+
+  el<HTMLButtonElement>('ft-reverse-contour').addEventListener('click', () => {
+    const contours = outlineContours().map((contour) => [...contour]);
+    if (contours.length === 0) return;
+    pushUndo();
+    const target = Math.min(activeContour, contours.length - 1);
+    contours[target] = reverseContour(contours[target]);
+    setOutline(contours);
+    afterVectorEdit();
+    setStatus('윤곽선 방향을 뒤집었습니다 (구멍을 만들 때 씁니다).');
+  });
+
+  toOutlineButton.addEventListener('click', () => {
+    if (currentJamo) {
+      setStatus('자모는 조합에 비트맵이 필요해 픽셀로만 편집합니다.');
+      return;
+    }
+    pushUndo();
+    glyphs.set(currentCode, pixelGlyphToOutline(glyphFor(currentCode), grid, baselineRow));
+    (document.querySelector('input[name="ft-mode"][value="outline"]') as HTMLInputElement).checked = true;
+    activeContour = 0;
+    updateModeUi();
+    afterVectorEdit();
+    setStatus('픽셀을 윤곽선으로 바꿨습니다. 점을 옮겨 다듬어보세요.');
+  });
+
+  function updateModeUi() {
+    const glyph = currentGlyph();
+    const isOutline = glyph.kind === 'outline';
+    // 글리프 종류에 맞춰 라디오를 맞춘다
+    (document.querySelector(`input[name="ft-mode"][value="${isOutline ? 'outline' : 'pixel'}"]`) as HTMLInputElement).checked = true;
+    vectorTools.hidden = !isOutline;
+    pixelTools.hidden = isOutline;
+    toOutlineButton.disabled = isOutline || !!currentJamo;
+    modeRow.hidden = !!currentJamo;
+    modeHint.textContent = currentJamo
+      ? '자모는 픽셀 전용입니다 (조합이 비트맵 연산이라서요).'
+      : isOutline
+        ? '점을 옮겨 모양을 다듬습니다. 원형 점은 곡선 제어점입니다.'
+        : '칸을 칠해 그립니다. 벡터로 바꾸면 곡선을 쓸 수 있습니다.';
+    if (isOutline) {
+      const contours = outlineContours();
+      const points = contours.reduce((sum, contour) => sum + contour.length, 0);
+      const winding = contours[Math.min(activeContour, contours.length - 1)];
+      if (!winding || winding.length < 3) {
+        vectorInfo.textContent = `윤곽선 ${contours.length}개 · 점 ${points}개`;
+      } else {
+        // 폰트 단위는 위가 +y라서 시계 방향이 채워지는 방향이다
+        const direction = contourSignedArea(winding) < 0 ? '시계(채움)' : '반시계(구멍)';
+        vectorInfo.textContent = `윤곽선 ${contours.length}개 · 점 ${points}개 · 현재 ${direction}`;
+      }
+    } else {
+      vectorInfo.textContent = '';
+    }
+  }
+
+  for (const radio of document.querySelectorAll<HTMLInputElement>('input[name="ft-mode"]')) {
+    radio.addEventListener('change', () => {
+      if (currentJamo) return;
+      const glyph = glyphFor(currentCode);
+      if (radio.value === 'outline' && glyph.kind === 'pixel') {
+        toOutlineButton.click();
+        return;
+      }
+      if (radio.value === 'pixel' && glyph.kind === 'outline') {
+        setStatus('벡터 글리프를 픽셀로 되돌리려면 실행취소를 쓰세요 (모양이 손실됩니다).');
+        updateModeUi();
+        return;
+      }
+      updateModeUi();
+    });
+  }
+
+  snapToggle.addEventListener('change', () => drawGrid());
+
+  // ---------- SVG 불러오기 ----------
+  //
+  // 3차 베지어와 원호는 2차로 근사해 들어온다(자세한 규칙은 svg-path.ts).
+  // 자모는 조합이 비트맵 연산이라 윤곽선을 격자 크기로 구워 넣는다.
+
+  /** 근사 허용치 — em당 1024 단위에서 2단위면 화면에서 구별되지 않는다 */
+  const svgTolerance = () => unitsPerEmFor(grid) / 500;
+
+  const svgFitMode = () =>
+    (document.querySelector('input[name="ft-svg-fit"]:checked') as HTMLInputElement).value;
+
+  /**
+   * 그림을 담을 폰트 좌표 사각형.
+   * 자모는 조합할 때 전각 칸 전체를 쓰므로 맞춤 프리셋과 무관하게 칸에 꽉 맞춘다.
+   */
+  function svgFit(forJamo: boolean): SvgFit {
+    if (forJamo || svgFitMode() === 'full') {
+      const box: Bounds = {
+        x: 0,
+        y: (baselineRow - grid) * PIXEL_UNITS,
+        width: grid * PIXEL_UNITS,
+        height: grid * PIXEL_UNITS,
+      };
+      return { box, align: 'center' };
+    }
+    // 대문자 높이: 밑변을 베이스라인에, 높이를 베이스라인 위 칸 수에 맞춘다
+    const box: Bounds = { x: 0, y: 0, width: grid * PIXEL_UNITS, height: baselineRow * PIXEL_UNITS };
+    return { box, align: 'bottom-left' };
+  }
+
+  const readSvg = (text: string, forJamo = false) =>
+    collectSvgContours(text, { tolerance: svgTolerance(), fit: svgFit(forJamo) });
+
+  /** 불러온 윤곽선을 글자 하나(또는 자모 벌 하나)에 넣는다 */
+  function applySvgToCurrent(text: string): boolean {
+    const result = readSvg(text, currentJamo !== null);
+    const notes = [...result.warnings];
+    if (result.contours.length === 0) {
+      setStatus(notes.join(' · ') || 'SVG에서 도형을 찾지 못했습니다.');
+      return false;
+    }
+    pushUndo();
+    if (currentJamo) {
+      // 자모는 픽셀 전용이라 격자 크기로 구워 넣는다
+      setCurrentBits(rasterizeOutline({ kind: 'outline', contours: result.contours }));
+      notes.push('자모는 전각 칸에 맞춰 픽셀로 구워 넣었습니다.');
+    } else {
+      glyphs.set(currentCode, { kind: 'outline', contours: result.contours });
+      // 폭은 그림 크기에 맞춰 다시 계산되게 둔다
+      advances.delete(currentCode);
+      activeContour = 0;
+    }
+    persist();
+    renderCells();
+    renderEditor();
+    updatePreview();
+    const points = result.contours.reduce((sum, contour) => sum + contour.length, 0);
+    setStatus([`윤곽선 ${result.contours.length}개 · 점 ${points}개를 불러왔습니다.`, ...notes].join(' · '));
+    return true;
+  }
+
+  /** 파일 여러 개를 파일명대로 채운다 */
+  async function importSvgFiles(files: File[]) {
+    const snapshot = localStorage.getItem(STORAGE_KEY);
+    const notes: string[] = [];
+    let applied = 0;
+    let lastCode = currentCode;
+    for (const file of files) {
+      const code = codePointFromFileName(file.name);
+      if (code === null) {
+        notes.push(`${file.name}: 파일명에서 글자를 알 수 없습니다`);
+        continue;
+      }
+      const result = readSvg(await file.text());
+      if (result.contours.length === 0) {
+        notes.push(`${file.name}: ${result.warnings[0] ?? '도형이 없습니다'}`);
+        continue;
+      }
+      glyphs.set(code, { kind: 'outline', contours: result.contours });
+      advances.delete(code);
+      if (!ASCII.includes(code) && !customChars.includes(code)) customChars.push(code);
+      lastCode = code;
+      applied++;
+    }
+    if (applied === 0) {
+      setStatus(notes.join(' · ') || '불러올 글자가 없습니다.');
+      return;
+    }
+    customChars.sort((a, b) => a - b);
+    currentJamo = null;
+    currentCode = lastCode;
+    activeContour = 0;
+    persist();
+    renderCells();
+    renderEditor();
+    updatePreview();
+    // 글자 수가 많아 글리프별 실행취소로는 되돌리기 번거로우니 한 번에 되돌린다
+    pendingUndo = () => {
+      if (snapshot) applyProject(JSON.parse(snapshot));
+      persist();
+      renderCells();
+      renderEditor();
+      updatePreview();
+      setStatus('SVG 불러오기를 되돌렸습니다.');
+    };
+    undoActionButton.hidden = false;
+    setStatus([`${applied}자를 불러왔습니다.`, ...notes].join(' · '));
+  }
+
+  el<HTMLButtonElement>('ft-import-svg').addEventListener('click', () => svgInput.click());
+
+  svgInput.addEventListener('change', async () => {
+    const files = [...(svgInput.files ?? [])];
+    svgInput.value = '';
+    if (files.length === 0) return;
+    try {
+      if (files.length === 1) {
+        applySvgToCurrent(await files[0].text());
+        return;
+      }
+      if (currentJamo) {
+        setStatus('자모에는 파일 하나씩 넣어 주세요 (벌마다 모양이 다릅니다).');
+        return;
+      }
+      await importSvgFiles(files);
+    } catch (error) {
+      setStatus(`SVG를 읽지 못했습니다: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  });
+
+  el<HTMLButtonElement>('ft-apply-svg').addEventListener('click', () => {
+    const text = svgTextArea.value.trim();
+    if (text === '') {
+      setStatus('붙여넣은 SVG 코드가 없습니다.');
+      return;
+    }
+    if (applySvgToCurrent(text)) svgTextArea.value = '';
+  });
+
+  /** 글리프를 복제한다 — 실행취소가 픽셀과 벡터를 모두 되돌려야 한다 */
+  function cloneGlyph(glyph: Glyph): Glyph {
+    return glyph.kind === 'pixel'
+      ? { kind: 'pixel', bits: Uint8Array.from(glyph.bits) }
+      : {
+          kind: 'outline',
+          contours: glyph.contours.map((contour) => contour.map((point) => ({ ...point }))),
+        };
+  }
+
+  function pushUndo() {
+    if (currentJamo) {
+      const key = jamoKey(currentJamo.kind, currentJamo.index, currentJamo.variant);
+      undoStack.push({ kind: 'jamo', key, bits: Uint8Array.from(currentBits()) });
+    } else {
+      undoStack.push({ kind: 'char', code: currentCode, glyph: cloneGlyph(glyphFor(currentCode)) });
+    }
     if (undoStack.length > 60) undoStack.shift();
     undoButton.disabled = false;
   }
@@ -625,6 +1187,10 @@ import Layout from '../layouts/Layout.astro';
   };
 
   canvas.addEventListener('pointerdown', (event) => {
+    if (currentGlyph().kind === 'outline') {
+      pointerDownVector(event);
+      return;
+    }
     const { x, y } = cellFromEvent(event);
     pushUndo();
     // 이미 칠한 칸에서 시작하면 지우기 모드
@@ -635,12 +1201,21 @@ import Layout from '../layouts/Layout.astro';
   });
 
   canvas.addEventListener('pointermove', (event) => {
+    if (currentGlyph().kind === 'outline') {
+      pointerMoveVector(event);
+      return;
+    }
     if (!drawing) return;
     const { x, y } = cellFromEvent(event);
     setPixel(x, y, drawValue);
   });
 
   const endDrawing = () => {
+    if (dragging) {
+      dragging = null;
+      afterVectorEdit();
+      return;
+    }
     if (!drawing) return;
     drawing = false;
     if (!currentJamo) advances.delete(currentCode); // 폭 자동 계산을 다시 하게 한다
@@ -655,18 +1230,19 @@ import Layout from '../layouts/Layout.astro';
   function undo() {
     const entry = undoStack.pop();
     if (!entry) return;
-    if (entry.target.kind === 'jamo') {
-      jamoGlyphs.set(entry.target.key, entry.bits);
-      const [kind, index, variant] = entry.target.key.split(':');
+    if (entry.kind === 'jamo') {
+      jamoGlyphs.set(entry.key, entry.bits);
+      const [kind, index, variant] = entry.key.split(':');
       currentJamo = { kind: kind as JamoKind, index: Number(index), variant: Number(variant) };
       (document.querySelector(`input[name="ft-set"][value="${kind}"]`) as HTMLInputElement).checked = true;
       renderVariantChips();
     } else {
-      glyphs.set(entry.target.code, { kind: 'pixel', bits: entry.bits });
+      glyphs.set(entry.code, entry.glyph);
       currentJamo = null;
-      currentCode = entry.target.code;
+      currentCode = entry.code;
     }
     undoButton.disabled = undoStack.length === 0;
+    updateModeUi();
     persist();
     renderCells();
     renderEditor();
@@ -721,9 +1297,19 @@ import Layout from '../layouts/Layout.astro';
     const nextGrid = Number(gridSelect.value);
     const previous = grid;
     const scaled = new Map<number, Glyph>();
+    const ratio = nextGrid / previous;
     for (const [code, glyph] of glyphs) {
-      if (glyph.kind !== 'pixel') continue;
-      scaled.set(code, { kind: 'pixel', bits: resizePixels(glyph.bits, previous, nextGrid) });
+      if (glyph.kind === 'pixel') {
+        scaled.set(code, { kind: 'pixel', bits: resizePixels(glyph.bits, previous, nextGrid) });
+        continue;
+      }
+      // unitsPerEm이 그리드에 비례하므로 좌표도 같은 비율로 늘린다
+      scaled.set(code, {
+        kind: 'outline',
+        contours: glyph.contours.map((contour) =>
+          contour.map((point) => ({ x: point.x * ratio, y: point.y * ratio, onCurve: point.onCurve })),
+        ),
+      });
     }
     grid = nextGrid;
     glyphs = scaled;
@@ -795,26 +1381,73 @@ import Layout from '../layouts/Layout.astro';
     };
   }
 
+  /** 그린 흔적이 있는 글리프인지 */
+  function hasShape(glyph: Glyph): boolean {
+    return glyph.kind === 'pixel'
+      ? glyph.bits.some((bit) => bit === 1)
+      : glyph.contours.some((contour) => contour.length >= 3);
+  }
+
+  /**
+   * 벡터 글리프를 grid×grid 비트맵으로 굽는다.
+   * BDF·PNG 아틀라스는 비트맵 형식이라 윤곽선을 그대로 담을 수 없다.
+   */
+  function rasterizeOutline(glyph: Glyph): Uint8Array {
+    const bits = new Uint8Array(grid * grid);
+    if (glyph.kind !== 'outline') return glyph.bits;
+    const scratch = document.createElement('canvas');
+    scratch.width = grid;
+    scratch.height = grid;
+    const context = scratch.getContext('2d')!;
+    context.fillStyle = '#fff';
+    context.beginPath();
+    for (const contour of glyph.contours) {
+      for (const command of contourToPath(contour)) {
+        const x = command.type === 'close' ? 0 : command.x / PIXEL_UNITS;
+        const y = command.type === 'close' ? 0 : baselineRow - command.y / PIXEL_UNITS;
+        if (command.type === 'move') context.moveTo(x, y);
+        else if (command.type === 'line') context.lineTo(x, y);
+        else if (command.type === 'quad') {
+          context.quadraticCurveTo(
+            command.cx / PIXEL_UNITS,
+            baselineRow - command.cy / PIXEL_UNITS,
+            x,
+            y,
+          );
+        } else context.closePath();
+      }
+    }
+    context.fill();
+    const { data } = context.getImageData(0, 0, grid, grid);
+    for (let i = 0; i < bits.length; i++) bits[i] = data[i * 4 + 3] > 127 ? 1 : 0;
+    return bits;
+  }
+
   /** 내보낼 글리프 목록 — 그린 글자 + 조합한 한글 음절 */
   function buildFontGlyphs(): { glyphs: FontGlyph[]; syllableCount: number } {
     const unitsPerEm = unitsPerEmFor(grid);
     const output: FontGlyph[] = [];
     const seen = new Set<number>();
 
-    const addGlyph = (code: number, bits: Uint8Array, advance: number) => {
+    const addContours = (code: number, contours: Contour[], advance: number) => {
       if (seen.has(code)) return;
       seen.add(code);
       output.push({
         codePoint: code,
-        contours: glyphToContours({ kind: 'pixel', bits }, grid, baselineRow),
+        contours,
         advanceWidth: Math.round(advance * PIXEL_UNITS),
       });
     };
 
+    const addGlyph = (code: number, bits: Uint8Array, advance: number) => {
+      addContours(code, glyphToContours({ kind: 'pixel', bits }, grid, baselineRow), advance);
+    };
+
     // 직접 그린 글자 (자모 자체도 포함 — 자모만 쓰는 글에도 대응)
     for (const [code, glyph] of glyphs) {
-      if (glyph.kind !== 'pixel' || glyph.bits.every((bit) => bit === 0)) continue;
-      addGlyph(code, glyph.bits, advanceFor(code));
+      if (!hasShape(glyph)) continue;
+      // 픽셀은 사각 컨투어로, 벡터는 그린 윤곽선 그대로 나간다
+      addContours(code, glyphToContours(glyph, grid, baselineRow), advanceFor(code));
     }
     // 공백은 그리지 않아도 필요하다
     if (!seen.has(0x20)) {
@@ -932,8 +1565,8 @@ import Layout from '../layouts/Layout.astro';
   el<HTMLButtonElement>('ft-export-bdf').addEventListener('click', () => {
     const entries: { codePoint: number; bits: Uint8Array; advance: number }[] = [];
     for (const [code, glyph] of glyphs) {
-      if (glyph.kind !== 'pixel' || glyph.bits.every((bit) => bit === 0)) continue;
-      entries.push({ codePoint: code, bits: glyph.bits, advance: advanceFor(code) });
+      if (!hasShape(glyph)) continue;
+      entries.push({ codePoint: code, bits: rasterizeOutline(glyph), advance: advanceFor(code) });
     }
     const jamo = jamoLookup();
     const scope = hangulScopeSelect.value;
@@ -960,8 +1593,8 @@ import Layout from '../layouts/Layout.astro';
   el<HTMLButtonElement>('ft-export-atlas').addEventListener('click', () => {
     const entries: { codePoint: number; bits: Uint8Array; advance: number }[] = [];
     for (const [code, glyph] of glyphs) {
-      if (glyph.kind !== 'pixel' || glyph.bits.every((bit) => bit === 0)) continue;
-      entries.push({ codePoint: code, bits: glyph.bits, advance: advanceFor(code) });
+      if (!hasShape(glyph)) continue;
+      entries.push({ codePoint: code, bits: rasterizeOutline(glyph), advance: advanceFor(code) });
     }
     const jamo = jamoLookup();
     if (hangulScopeSelect.value !== 'none') {
@@ -1143,6 +1776,71 @@ import Layout from '../layouts/Layout.astro';
 
   .grow {
     flex: 1 1 auto;
+  }
+
+  /* .bar가 flex라서 hidden 속성만으로는 감춰지지 않는다 */
+  .bar[hidden] {
+    display: none;
+  }
+
+  .chip-group {
+    display: inline-flex;
+    gap: 4px;
+    padding: 3px;
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    border-radius: 0.7rem;
+  }
+
+  .chip {
+    position: relative;
+  }
+
+  .chip input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .chip span {
+    display: block;
+    padding: 0.3rem 0.7rem;
+    border-radius: 0.5rem;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--text-dim);
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .chip input:checked + span {
+    background: var(--accent);
+    color: #fff;
+  }
+
+  .chip input:focus-visible + span {
+    outline: 2px solid var(--accent);
+  }
+
+  .svg-paste {
+    border: 1px solid var(--border);
+    border-radius: 0.6rem;
+    padding: 0.45rem 0.6rem;
+    width: 100%;
+    max-width: 32rem;
+  }
+
+  .svg-paste summary {
+    cursor: pointer;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text-dim);
+  }
+
+  .svg-paste textarea {
+    margin: 0.5rem 0;
+    font-family: var(--mono, ui-monospace, monospace);
+    font-size: 0.78rem;
   }
 
   .num-field,

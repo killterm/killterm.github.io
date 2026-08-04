@@ -5,6 +5,8 @@
 
 import type { Contour, GlyphPoint } from './ttf-encode.ts';
 
+export type { Contour, GlyphPoint };
+
 export type Glyph =
   | { kind: 'pixel'; bits: Uint8Array }
   | { kind: 'outline'; contours: Contour[] };
@@ -161,6 +163,98 @@ export function resizePixels(
     }
   }
   return output;
+}
+
+// ---------- 아웃라인(벡터) 편집 ----------
+//
+// 픽셀로 시작해 다듬는 흐름을 위해, 픽셀 글리프를 사각 컨투어로 "승격"할 수 있다.
+// 승격 뒤에는 제어점을 옮기고 곡선(off-curve)을 섞어 부드러운 글자를 만든다.
+
+/** 픽셀 글리프를 같은 모양의 아웃라인 글리프로 바꾼다 */
+export function pixelGlyphToOutline(glyph: Glyph, grid: number, baselineRow: number): Glyph {
+  if (glyph.kind === 'outline') return glyph;
+  return { kind: 'outline', contours: glyphToContours(glyph, grid, baselineRow) };
+}
+
+/** 컨투어의 부호 있는 면적 — 진행 방향(시계/반시계)을 판단한다 */
+export function contourSignedArea(contour: Contour): number {
+  let sum = 0;
+  for (let i = 0; i < contour.length; i++) {
+    const current = contour[i];
+    const next = contour[(i + 1) % contour.length];
+    sum += current.x * next.y - next.x * current.y;
+  }
+  return sum / 2;
+}
+
+/** 진행 방향을 뒤집는다 (구멍을 만들거나 채움이 반대일 때 쓴다) */
+export function reverseContour(contour: Contour): Contour {
+  // 시작점은 그대로 두고 나머지 순서만 뒤집는다 — 닫힌 컨투어라 모양은 같고,
+  // 두 번 뒤집으면 정확히 원래 배열로 돌아온다.
+  if (contour.length < 3) return [...contour].reverse();
+  return [contour[0], ...contour.slice(1).reverse()];
+}
+
+/** 폰트 단위 좌표를 격자에 맞춰 정리한다 (기본은 반 칸) */
+export function snapUnits(value: number, divisions = 2): number {
+  const step = PIXEL_UNITS / divisions;
+  return Math.round(value / step) * step;
+}
+
+/**
+ * 아웃라인을 화면에 그리기 위한 경로 명령으로 바꾼다.
+ * TrueType은 2차 베지어를 쓰고, off-curve 점이 연달아 오면 그 사이의 중점이
+ * 암시적 on-curve 점이 된다 — 그 규칙을 그대로 펼친다.
+ */
+export type PathCommand =
+  | { type: 'move'; x: number; y: number }
+  | { type: 'line'; x: number; y: number }
+  | { type: 'quad'; cx: number; cy: number; x: number; y: number }
+  | { type: 'close' };
+
+export function contourToPath(contour: Contour): PathCommand[] {
+  if (contour.length === 0) return [];
+  const commands: PathCommand[] = [];
+  const midpoint = (a: GlyphPoint, b: GlyphPoint) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+
+  // 시작점 — on-curve 점이 없으면 첫 두 off-curve의 중점에서 시작한다
+  const firstOnCurve = contour.findIndex((point) => point.onCurve);
+  const start =
+    firstOnCurve >= 0
+      ? { index: firstOnCurve, point: contour[firstOnCurve] }
+      : { index: 0, point: { ...midpoint(contour[0], contour[contour.length - 1]), onCurve: true } };
+  commands.push({ type: 'move', x: start.point.x, y: start.point.y });
+
+  let pendingControl: GlyphPoint | null = null;
+  for (let step = 1; step <= contour.length; step++) {
+    const point = contour[(start.index + step) % contour.length];
+    if (point.onCurve) {
+      if (pendingControl) {
+        commands.push({ type: 'quad', cx: pendingControl.x, cy: pendingControl.y, x: point.x, y: point.y });
+        pendingControl = null;
+      } else {
+        commands.push({ type: 'line', x: point.x, y: point.y });
+      }
+      continue;
+    }
+    if (pendingControl) {
+      // off-curve가 연달아 오면 중점이 곡선의 끝점이 된다
+      const implied = midpoint(pendingControl, point);
+      commands.push({ type: 'quad', cx: pendingControl.x, cy: pendingControl.y, x: implied.x, y: implied.y });
+    }
+    pendingControl = point;
+  }
+  if (pendingControl) {
+    commands.push({
+      type: 'quad',
+      cx: pendingControl.x,
+      cy: pendingControl.y,
+      x: start.point.x,
+      y: start.point.y,
+    });
+  }
+  commands.push({ type: 'close' });
+  return commands;
 }
 
 // ---------- BDF 내보내기 ----------

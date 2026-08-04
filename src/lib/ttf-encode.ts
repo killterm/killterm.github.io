@@ -127,7 +127,16 @@ function glyphBounds(contours: Contour[]): GlyphBounds {
 
 /** 글리프 하나를 glyf 테이블 형식으로 쓴다. 컨투어가 없으면 빈 글리프(길이 0). */
 function writeGlyf(contours: Contour[]): Uint8Array {
-  const usable = contours.filter((contour) => contour.length > 0);
+  // glyf 좌표는 정수 단위다. 벡터 편집이 소수를 만들 수 있어 먼저 반올림한다.
+  const usable = contours
+    .filter((contour) => contour.length > 0)
+    .map((contour) =>
+      contour.map((point) => ({
+        x: Math.round(point.x),
+        y: Math.round(point.y),
+        onCurve: point.onCurve,
+      })),
+    );
   if (usable.length === 0) return new Uint8Array(0);
 
   const writer = new ByteWriter();
